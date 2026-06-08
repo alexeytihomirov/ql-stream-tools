@@ -2,6 +2,8 @@
   "use strict";
 
   const STORAGE_KEY = "ql-overlay-config";
+  const DEFAULT_PUBLIC_DATA_BASE =
+    "https://cdn.jsdelivr.net/gh/alexeytihomirov/ql-public-data@main";
 
   const els = {
     logo: document.getElementById("tournament-logo"),
@@ -23,10 +25,8 @@
   let lastMatchId = null;
   let hideTimer = null;
   let pollTimer = null;
-  let publicDataTimer = null;
   let logoCatalog = [];
   let publicMeta = null;
-  let publicBracket = null;
 
   function setStatus(text, isError) {
     if (!text) {
@@ -47,12 +47,17 @@
     el.classList.add("hidden");
   }
 
+  function formTrim(value) {
+    return String(value || "").trim();
+  }
+
   function normalizeConfig(raw) {
-    const apiBaseUrl = String(raw.apiBaseUrl || "").replace(/\/+$/, "");
-    const overlayToken = String(raw.overlayToken || "").trim();
-    const tournamentId = raw.tournamentId;
-    const publicDataBase = String(raw.publicDataBase || "").replace(/\/+$/, "");
-    const tournamentSlug = String(raw.tournamentSlug || "").trim().toLowerCase();
+    const publicDataBase = String(
+      raw.publicDataBase || DEFAULT_PUBLIC_DATA_BASE
+    ).replace(/\/+$/, "");
+    const tournamentSlug = String(raw.tournamentSlug || "")
+      .trim()
+      .toLowerCase();
     const pollIntervalMs = Math.max(1000, Number(raw.pollIntervalMs) || 2000);
     const logoId = String(raw.logoId || "").trim();
     const logoUrl = String(raw.logoUrl || "").trim();
@@ -60,17 +65,14 @@
     const showConnect = raw.showConnect !== false;
     const popupAutoHideMs = Math.max(0, Number(raw.popupAutoHideMs) || 0);
 
-    if (!apiBaseUrl) {
-      throw new Error("Hub URL (apiBaseUrl) is required");
+    if (!publicDataBase) {
+      throw new Error("Public data base URL (publicDataBase) is required");
+    }
+    if (!tournamentSlug) {
+      throw new Error("Tournament slug is required");
     }
 
     return {
-      apiBaseUrl,
-      overlayToken,
-      tournamentId:
-        tournamentId === null || tournamentId === undefined || tournamentId === ""
-          ? null
-          : Number(tournamentId),
       publicDataBase,
       tournamentSlug,
       pollIntervalMs,
@@ -85,11 +87,13 @@
   function loadConfigFromStorage() {
     const stored = localStorage.getItem(STORAGE_KEY);
     if (!stored) return null;
-    try {
-      return normalizeConfig(JSON.parse(stored));
-    } catch (err) {
-      throw new Error(`Invalid saved config: ${err.message || err}`);
+    const parsed = JSON.parse(stored);
+    if (parsed.apiBaseUrl || parsed.overlayToken) {
+      throw new Error(
+        "Saved config uses deprecated Hub URL/token. Set public data base + tournament slug instead."
+      );
     }
+    return normalizeConfig(parsed);
   }
 
   function saveConfigToStorage(raw) {
@@ -100,13 +104,8 @@
 
   function fillSetupForm(values) {
     const form = els.setupForm;
-    form.apiBaseUrl.value = values?.apiBaseUrl || "";
-    form.overlayToken.value = values?.overlayToken || "";
-    form.tournamentId.value =
-      values?.tournamentId != null && !Number.isNaN(values.tournamentId)
-        ? String(values.tournamentId)
-        : "";
-    form.publicDataBase.value = values?.publicDataBase || "";
+    form.publicDataBase.value =
+      values?.publicDataBase || DEFAULT_PUBLIC_DATA_BASE;
     form.tournamentSlug.value = values?.tournamentSlug || "";
     form.pollIntervalMs.value = String(values?.pollIntervalMs ?? 2000);
     form.logoId.value = values?.logoId || "";
@@ -116,11 +115,7 @@
   }
 
   function readSetupForm() {
-    const tournamentRaw = formTrim(els.setupForm.tournamentId.value);
     return {
-      apiBaseUrl: formTrim(els.setupForm.apiBaseUrl.value),
-      overlayToken: formTrim(els.setupForm.overlayToken.value),
-      tournamentId: tournamentRaw === "" ? null : Number(tournamentRaw),
       publicDataBase: formTrim(els.setupForm.publicDataBase.value),
       tournamentSlug: formTrim(els.setupForm.tournamentSlug.value).toLowerCase(),
       pollIntervalMs: Number(els.setupForm.pollIntervalMs.value),
@@ -129,10 +124,6 @@
       showConnect: els.setupForm.showConnect.checked,
       popupAutoHideMs: Number(els.setupForm.popupAutoHideMs.value),
     };
-  }
-
-  function formTrim(value) {
-    return String(value || "").trim();
   }
 
   function showSetupError(message) {
@@ -152,64 +143,38 @@
     }
   }
 
-  function stopPublicDataPolling() {
-    if (publicDataTimer) {
-      clearInterval(publicDataTimer);
-      publicDataTimer = null;
-    }
+  function publicDataRoot(path) {
+    return `${config.publicDataBase}/${path.replace(/^\//, "")}`;
   }
 
-  function publicDataEnabled() {
-    return Boolean(config?.publicDataBase && config?.tournamentSlug);
+  function tournamentDataUrl(path) {
+    return publicDataRoot(`tournaments/${config.tournamentSlug}/${path}`);
   }
 
-  function publicDataUrl(path) {
-    return `${config.publicDataBase}/tournaments/${config.tournamentSlug}/${path}`;
-  }
-
-  async function fetchPublicJson(path) {
-    const res = await fetch(publicDataUrl(path), {
+  async function fetchJson(url) {
+    const res = await fetch(url, {
       method: "GET",
       cache: "no-store",
       headers: { Accept: "application/json" },
     });
     if (!res.ok) {
-      throw new Error(`Public data ${res.status} (${path})`);
+      throw new Error(`${res.status} ${url.split("/").slice(-2).join("/")}`);
     }
     return res.json();
   }
 
-  async function refreshPublicData() {
-    if (!publicDataEnabled()) {
-      publicMeta = null;
-      publicBracket = null;
-      return;
-    }
+  async function refreshPublicMeta() {
     try {
-      const [meta, bracket] = await Promise.all([
-        fetchPublicJson("meta.json"),
-        fetchPublicJson("bracket.json"),
-      ]);
-      publicMeta = meta;
-      publicBracket = bracket;
-    } catch (err) {
+      publicMeta = await fetchJson(tournamentDataUrl("meta.json"));
+    } catch {
       publicMeta = null;
-      publicBracket = null;
-      setStatus(`Public data: ${err.message || err}`, true);
     }
-  }
-
-  function startPublicDataPolling() {
-    stopPublicDataPolling();
-    if (!publicDataEnabled()) return;
-    refreshPublicData();
-    publicDataTimer = setInterval(refreshPublicData, Math.max(config.pollIntervalMs, 5000));
   }
 
   function tournamentDisplayName(match) {
     if (match?.tournament_name) return match.tournament_name;
     if (publicMeta?.name) return publicMeta.name;
-    return "Tournament";
+    return config?.tournamentSlug || "Tournament";
   }
 
   function selectedLogoId() {
@@ -263,48 +228,40 @@
     }
   }
 
-  async function loadLogoCatalog(apiBaseUrl) {
-    const base = String(apiBaseUrl || "").replace(/\/+$/, "");
+  async function loadLogoCatalog(publicDataBase) {
+    const base = String(publicDataBase || "").replace(/\/+$/, "");
     if (!base) {
       logoCatalog = [];
-      renderLogoPicker("Enter Hub URL above to load official logos.");
+      renderLogoPicker("Enter public data base URL to load logos.");
       return;
     }
 
     renderLogoPicker("Loading logos…");
     try {
-      const res = await fetch(`${base}/api/overlay/logos`, {
-        method: "GET",
-        cache: "no-store",
-        headers: { Accept: "application/json" },
-      });
-      if (!res.ok) {
-        throw new Error(`Hub ${res.status}`);
-      }
-      const data = await res.json();
+      const data = await fetchJson(`${base}/assets/overlay-logos.json`);
       logoCatalog = Array.isArray(data) ? data : [];
       if (!logoCatalog.length) {
-        renderLogoPicker("No logos on Hub yet. Ask the organizer to add PNG/SVG files.");
+        renderLogoPicker(
+          "No logos published yet. Organizer adds PNG/SVG to ql-hub overlay-logos and publishes."
+        );
         return;
       }
       renderLogoPicker();
     } catch (err) {
       logoCatalog = [];
-      renderLogoPicker(
-        `Could not load logos: ${err.message || err}. Check Hub URL and CORS.`,
-        true
-      );
+      renderLogoPicker(`Could not load logos: ${err.message || err}`, true);
     }
   }
 
   function showSetupPanel(existing) {
     stopPolling();
-    stopPublicDataPolling();
     fillSetupForm(existing);
     showSetupError("");
     show(els.setupPanel);
     hide(els.editSettings);
-    loadLogoCatalog(existing?.apiBaseUrl || els.setupForm.apiBaseUrl.value);
+    loadLogoCatalog(
+      existing?.publicDataBase || els.setupForm.publicDataBase.value
+    );
   }
 
   function hideSetupPanel() {
@@ -326,14 +283,6 @@
     els.logo.alt = cfg.logoId ? "Tournament logo" : "Logo";
     els.logo.onerror = () => hide(els.logo);
     els.logo.onload = () => show(els.logo);
-  }
-
-  function buildOverlayUrl() {
-    const params = new URLSearchParams({ token: config.overlayToken });
-    if (config.tournamentId != null && !Number.isNaN(config.tournamentId)) {
-      params.set("tournament_id", String(config.tournamentId));
-    }
-    return `${config.apiBaseUrl}/api/overlay/live?${params.toString()}`;
   }
 
   function formatMeta(match) {
@@ -434,24 +383,15 @@
     }
 
     const updated = data.updated_at ? new Date(data.updated_at) : null;
-    const timeLabel = updated && !Number.isNaN(updated.getTime())
-      ? updated.toLocaleTimeString()
-      : "";
+    const timeLabel =
+      updated && !Number.isNaN(updated.getTime())
+        ? updated.toLocaleTimeString()
+        : "";
     setStatus(timeLabel ? `Updated ${timeLabel}` : "", false);
   }
 
   async function pollOnce() {
-    const url = buildOverlayUrl();
-    const res = await fetch(url, {
-      method: "GET",
-      cache: "no-store",
-      headers: { Accept: "application/json" },
-    });
-    if (!res.ok) {
-      const detail = await res.text().catch(() => "");
-      throw new Error(`Hub ${res.status}${detail ? `: ${detail.slice(0, 120)}` : ""}`);
-    }
-    return res.json();
+    return fetchJson(tournamentDataUrl("overlay-live.json"));
   }
 
   async function tick() {
@@ -475,20 +415,9 @@
     hidePopup();
     lastMatchId = null;
     publicMeta = null;
-    publicBracket = null;
 
-    startPublicDataPolling();
-
-    if (config.overlayToken) {
-      startPolling();
-    } else {
-      stopPolling();
-      if (publicDataEnabled()) {
-        setStatus("Public bracket loaded — add overlay token for live match popups", false);
-      } else {
-        setStatus("Logo only — add overlay token for live match popups", false);
-      }
-    }
+    refreshPublicMeta();
+    startPolling();
     hideSetupPanel();
   }
 
@@ -502,15 +431,15 @@
     }
   }
 
-  function onApiBaseUrlChange() {
+  function onPublicDataBaseChange() {
     if (els.setupPanel.classList.contains("hidden")) return;
-    loadLogoCatalog(els.setupForm.apiBaseUrl.value);
+    loadLogoCatalog(els.setupForm.publicDataBase.value);
   }
 
   function init() {
     els.setupForm.addEventListener("submit", onSetupSubmit);
-    els.setupForm.apiBaseUrl.addEventListener("change", onApiBaseUrlChange);
-    els.setupForm.apiBaseUrl.addEventListener("blur", onApiBaseUrlChange);
+    els.setupForm.publicDataBase.addEventListener("change", onPublicDataBaseChange);
+    els.setupForm.publicDataBase.addEventListener("blur", onPublicDataBaseChange);
     els.editSettings.addEventListener("click", () => showSetupPanel(config));
 
     try {

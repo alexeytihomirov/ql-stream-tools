@@ -4,14 +4,8 @@ Local OBS/browser overlay for casters (`stream-overlay/`).
 
 ## Setup
 
-```bash
-cd stream-overlay
-cp config.example.json config.json
-# Edit hub URL + HUB_OVERLAY_TOKEN
-```
+1. Open `stream-overlay/index.html` in OBS Browser Source or locally.
+2. Enter **public data base** (jsDelivr URL for ql-public-data) and **tournament slug**.
+3. See `stream-overlay/README.md` for full setup.
 
-Open `index.html` in OBS Browser Source or locally.
-
-## Hub integration
-
-Read-only token: `HUB_OVERLAY_TOKEN` in ql-hub `.env`.
+No Hub URL or overlay token — overlay reads published JSON from CDN.

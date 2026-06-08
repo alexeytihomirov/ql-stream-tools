@@ -1,28 +1,30 @@
 # QL Tournament Stream Overlay
 
-Local HTML overlay for OBS (or similar). Polls **QL Hub** `GET /api/overlay/live` when an overlay token is configured — not part of the Hub admin UI.
+Local HTML overlay for OBS (or similar). Reads live match data from **ql-public-data** CDN — **no connection to QL Hub**.
 
-Official logos are served by the Hub **without a token** (`GET /api/overlay/logos`).
+Hub publishes `tournaments/{slug}/overlay-live.json` and logo assets when tournament data is synced to GitHub (jsDelivr).
 
 ## Requirements
 
-- QL Hub running (logos work with Hub URL only)
-- **Live match popups** need `HUB_OVERLAY_TOKEN` on the Hub and the same token in overlay settings (see `ql-hub/.env.example`)
-- At least one **live** match in the tournament (ingest / Hub bracket) for popups
+- Tournament published from Hub to ql-public-data (`HUB_PUBLIC_PUBLISH_ENABLED=true`)
+- **Tournament slug** (same as in Hub / `tournaments/{slug}/` in the repo)
+- At least one **live** match (minqlx ingest / ZMQ stats on Hub)
 
 ## Quick setup
 
 1. Open `index.html` locally (double-click or `file:///.../stream-overlay/index.html`).
 
-2. On first load, fill in the **Overlay settings** form and click **Save & start**. Values are stored in **localStorage** (key `ql-overlay-config`) in that browser — no `config.json` file is loaded.
+2. On first load, fill in **Overlay settings** and click **Save & start**. Values are stored in **localStorage** (key `ql-overlay-config`).
 
-3. Enter **Hub URL** — the form loads official logos from the Hub (no token). Pick one from the thumbnails.
+3. **Public data base** — jsDelivr URL, e.g. `https://cdn.jsdelivr.net/gh/owner/ql-public-data@main`
 
-4. **Overlay token** is optional: leave empty to show only the logo/branding; add a token from the organizer for live match popups.
+4. **Tournament slug** — e.g. `spring-cup-2026`
 
-5. Use **Edit settings** (top-right) to change values later.
+5. Pick a logo from the CDN catalog (organizer adds files in Hub `overlay-logos/` and publishes).
 
-### Hub logos (for organizers)
+6. Use **Edit settings** (top-right) to change values later.
+
+### Logos (for organizers)
 
 Drop PNG or SVG files into:
 
@@ -30,82 +32,66 @@ Drop PNG or SVG files into:
 ql-hub/hub/app/static/overlay-logos/
 ```
 
-They appear automatically at:
+Hub copies them to ql-public-data on publish:
 
-- `GET /api/overlay/logos` — JSON `[{ "id", "name", "url" }]`
-- `GET /overlay-logos/{filename}` — direct image URL (used by the overlay)
-
-Restart Hub after adding files. Example placeholder: `ql-hub-default.svg`.
+- `assets/overlay-logos.json` — catalog `[{ "id", "name", "url" }]`
+- `assets/overlay-logos/{filename}` — image files
 
 ### Config fields
 
-See `config.example.json` for the same field names and example values. You can copy values from that file into the setup form manually.
+See `config.example.json`. Primary storage is **localStorage** (works from `file://`).
 
 | Field | Description |
 | ----- | ----------- |
-| `apiBaseUrl` | Hub URL, e.g. `http://77.42.69.119:8080` |
-| `overlayToken` | Optional; same as `HUB_OVERLAY_TOKEN` on the Hub for live popups |
-| `tournamentId` | Optional; leave empty for all live matches |
+| `publicDataBase` | jsDelivr / GitHub raw base URL for ql-public-data |
+| `tournamentSlug` | Tournament slug (required) |
 | `pollIntervalMs` | Poll interval (default 2000) |
-| `logoId` | Selected logo id from Hub catalog |
-| `logoUrl` | Full Hub URL to logo image (`/overlay-logos/...`) |
+| `logoId` | Selected logo id from CDN catalog |
+| `logoUrl` | Full CDN URL to logo image |
 | `showConnect` | Show `/connect host:port` in popup |
 | `popupAutoHideMs` | Auto-hide popup after N ms (`0` = stay until API says hide) |
 
-**Note:** `config.example.json` is reference only. Primary storage is **localStorage** so the overlay works from `file://` without a local web server.
-
 Legacy `logoFile` (local path under `assets/logos/`) is still honored if present in saved config.
+
+## Migration from Hub overlay API
+
+If you previously used `apiBaseUrl` + `overlayToken`:
+
+1. Clear overlay localStorage or open setup and re-save.
+2. Set **public data base** + **tournament slug** instead of Hub URL/token.
+3. Remove `HUB_OVERLAY_TOKEN` from Hub `.env` (optional — API returns 410 Gone).
 
 ## OBS Browser Source
 
 1. **Sources** → **Browser** → create source.
-2. **Local file**: browse to `stream-overlay/index.html`  
-   Or **URL**: `file:///D:/QuakeLiveData/QL%20Server/stream-overlay/index.html` (encode spaces).
-3. Width **1920**, height **1080** (matches `overlay.css` layout).
-4. Check **Shutdown source when not visible** off if you want polling while hidden.
-5. **Refresh** browser source after changing settings (or use **Edit settings** in the overlay).
+2. **Local file**: browse to `stream-overlay/index.html`
+3. Width **1920**, height **1080**
+4. **Refresh** browser source after changing settings.
 
-### Chroma key (green popup border)
+### Chroma key
 
-The match popup uses **#00ff00** outside the card so OBS can key it:
-
-1. Add a **Color Key** or **Chroma Key** filter on the browser source.
-2. Key color: `#00ff00` (green).
-3. Tune similarity/smoothness until the green frame is gone and the dark card remains.
-
-The page background stays **transparent**; only the popup frame is green.
+The match popup uses **#00ff00** outside the card for OBS Color/Chroma Key.
 
 ## Popup behaviour
 
-- When `overlayToken` is set, polls `/api/overlay/live?token=…&tournament_id=…` every `pollIntervalMs`.
-- **Shows** when Hub sets `show_popup: true` on the live match, or when **`match_id` changes** (new match).
+- Polls `tournaments/{slug}/overlay-live.json` every `pollIntervalMs`.
+- **Shows** when `show_popup: true` or **`match_id` changes**.
 - **Hides** when `show_popup` is false (same match).
-- Player lines: nickname, score, kills, deaths from Hub live stats.
-- Without a token, no polling — logo/branding only.
 
 ## Troubleshooting
 
 | Symptom | Check |
 | ------- | ----- |
-| Setup form on every load | OBS may use an isolated profile; save settings once per browser source / clear site data resets localStorage |
-| Logo picker empty | Hub URL correct; files in `ql-hub/hub/app/static/overlay-logos/`; Hub restarted |
-| Could not load logos / CORS | Hub CORS allows `*` origins (default); Hub reachable from browser |
-| 401 / Invalid overlay token | `overlayToken` matches Hub `HUB_OVERLAY_TOKEN` |
-| 503 overlay token not configured | Set `HUB_OVERLAY_TOKEN` in Hub `.env` and restart Hub |
-| “Logo only” status | Normal when token is empty; add token for live popups |
-| “No live matches” | Match status `live` in Hub DB for your `tournamentId` |
-| Logo missing | Pick a logo in settings or check `logoUrl` loads in browser |
+| Setup form on every load | OBS isolated profile; re-save settings |
+| Logo picker empty | Hub published to ql-public-data; CDN URL correct |
+| 404 overlay-live.json | Tournament slug correct; Hub publish enabled; live match exists |
+| “No live matches” | Match status `live` in Hub for this tournament |
+| Deprecated Hub config error | Clear localStorage; use CDN fields only |
 
-## Files
+## Architecture
 
 ```text
-stream-overlay/
-  index.html
-  overlay.css
-  overlay.js
-  config.example.json   ← field reference (not loaded at runtime)
-  assets/logos/         ← optional local logos (legacy logoFile)
-  README.md
-
-ql-hub/hub/app/static/overlay-logos/   ← official Hub logos (PNG/SVG)
+Game VPS ──ingest──► QL Hub ──git push──► ql-public-data ──CDN──► OBS overlay
+                         │
+                         └── SSH outbound only (no streamer HTTP inbound)
 ```
