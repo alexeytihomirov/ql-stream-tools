@@ -1,0 +1,84 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>QL Tournament Stream Overlay</title>
+    <link rel="stylesheet" href="overlay.css" />
+  </head>
+  <body>
+    <div id="overlay-root">
+      <img id="tournament-logo" class="logo hidden" alt="" />
+
+      <div id="match-popup" class="popup hidden" aria-live="polite">
+        <div class="popup-inner">
+          <p id="popup-tournament" class="popup-tournament"></p>
+          <h2 id="popup-title" class="popup-title">Live match</h2>
+          <p id="popup-meta" class="popup-meta"></p>
+          <p id="popup-connect" class="popup-connect hidden"></p>
+          <ul id="popup-players" class="popup-players"></ul>
+        </div>
+      </div>
+
+      <div id="status" class="status hidden" role="status"></div>
+
+      <button id="edit-settings" type="button" class="edit-settings hidden">
+        Edit settings
+      </button>
+
+      <div id="setup-panel" class="setup-panel hidden" aria-labelledby="setup-title">
+        <form id="setup-form" class="setup-form">
+          <h2 id="setup-title" class="setup-title">Overlay settings</h2>
+          <p class="setup-hint">Saved in this browser (localStorage). See config.example.json for reference.</p>
+          <label class="setup-field">
+            <span>Hub URL (apiBaseUrl)</span>
+            <input name="apiBaseUrl" type="url" required placeholder="http://127.0.0.1:8080" />
+          </label>
+          <label class="setup-field">
+            <span>Overlay token (optional)</span>
+            <input name="overlayToken" type="text" autocomplete="off" />
+            <span class="setup-field-hint">Live match popups need a token from the organizer. Leave empty to show logo/branding only.</span>
+          </label>
+          <label class="setup-field">
+            <span>Tournament ID (optional)</span>
+            <input name="tournamentId" type="number" min="1" step="1" placeholder="All tournaments" />
+          </label>
+          <label class="setup-field">
+            <span>Public data base (optional)</span>
+            <input name="publicDataBase" type="url" placeholder="https://cdn.jsdelivr.net/gh/owner/ql-public-data@main" />
+            <span class="setup-field-hint">jsDelivr or raw GitHub base URL for static bracket/meta JSON.</span>
+          </label>
+          <label class="setup-field">
+            <span>Tournament slug (optional)</span>
+            <input name="tournamentSlug" type="text" placeholder="spring-cup-2026" pattern="[a-z0-9]+(?:-[a-z0-9]+)*" />
+          </label>
+          <label class="setup-field">
+            <span>Poll interval (ms)</span>
+            <input name="pollIntervalMs" type="number" min="1000" step="500" value="2000" />
+          </label>
+          <label class="setup-field">
+            <span>Logo</span>
+            <div id="logo-picker" class="logo-picker" aria-live="polite">
+              <p class="logo-picker-hint">Enter Hub URL above to load official logos.</p>
+            </div>
+            <input name="logoId" type="hidden" />
+            <input name="logoUrl" type="hidden" />
+          </label>
+          <label class="setup-field setup-check">
+            <input name="showConnect" type="checkbox" checked />
+            <span>Show /connect in popup</span>
+          </label>
+          <label class="setup-field">
+            <span>Popup auto-hide (ms, 0 = off)</span>
+            <input name="popupAutoHideMs" type="number" min="0" step="1000" value="0" />
+          </label>
+          <p id="setup-error" class="setup-error hidden" role="alert"></p>
+          <div class="setup-actions">
+            <button type="submit" class="setup-save">Save &amp; start</button>
+          </div>
+        </form>
+      </div>
+    </div>
+    <script src="overlay.js"></script>
+  </body>
+</html>
