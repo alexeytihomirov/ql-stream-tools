@@ -1,6 +1,6 @@
 # QL Tournament Stream Overlay
 
-Local HTML overlay for OBS (or similar). Reads live match data from **ql-public-data** CDN — **no connection to QL Hub**.
+Local HTML overlay for OBS (or similar). **Live scores** via WebSocket to **ql-stats-hub**; tournament meta/logos from **ql-public-data** CDN — **no connection to QL Hub**.
 
 Hub publishes `tournaments/{slug}/overlay-live.json` and logo assets when tournament data is synced to GitHub (jsDelivr).
 
@@ -45,7 +45,8 @@ See `config.example.json`. Primary storage is **localStorage** (works from `file
 | ----- | ----------- |
 | `publicDataBase` | jsDelivr / GitHub raw base URL for ql-public-data |
 | `tournamentSlug` | Tournament slug (required) |
-| `pollIntervalMs` | Poll interval (default 2000) |
+| `statsHubBase` | ql-stats-hub root URL for WebSocket live scores (recommended) |
+| `pollIntervalMs` | CDN `overlay-live.json` refresh for `/connect` hints (default 30000; `0` = off) |
 | `logoId` | Selected logo id from CDN catalog |
 | `logoUrl` | Full CDN URL to logo image |
 | `showConnect` | Show `/connect host:port` in popup |
@@ -74,7 +75,8 @@ The match popup uses **#00ff00** outside the card for OBS Color/Chroma Key.
 
 ## Popup behaviour
 
-- Polls `tournaments/{slug}/overlay-live.json` every `pollIntervalMs`.
+- With **stats hub URL**: WebSocket `/api/ws/live` for scores; CDN `overlay-live.json` only for `/connect` / `show_popup` (slow poll).
+- Without stats hub URL: polls `overlay-live.json` every `pollIntervalMs` (legacy CDN-only mode).
 - **Shows** when `show_popup: true` or **`match_id` changes**.
 - **Hides** when `show_popup` is false (same match).
 
@@ -91,7 +93,7 @@ The match popup uses **#00ff00** outside the card for OBS Color/Chroma Key.
 ## Architecture
 
 ```text
-Game VPS ──ingest──► QL Hub ──git push──► ql-public-data ──CDN──► OBS overlay
-                         │
-                         └── SSH outbound only (no streamer HTTP inbound)
+Game VPS ──telemetry──► ql-stats-hub ◄── WebSocket ── OBS stream-overlay
+              │
+              └── ZMQ ──► QL Hub ──git push──► ql-public-data ──CDN──► meta / connect hints
 ```

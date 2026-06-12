@@ -1,0 +1,21 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>QL Live — Map</title>
+    <link rel="stylesheet" href="overlay.css" />
+  </head>
+  <body class="overlay-body map-body">
+    <div id="map-wrap" class="map-wrap hidden">
+      <img id="map-image" alt="map" />
+      <div id="map-players"></div>
+    </div>
+    <div id="map-meta" class="map-meta"></div>
+    <div id="status" class="status"></div>
+    <script src="overlay.js"></script>
+    <script>
+      OverlayApp.initMap();
+    </script>
+  </body>
+</html>

@@ -1,0 +1,33 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>QL Live — Scoreboard</title>
+    <link rel="stylesheet" href="overlay.css" />
+  </head>
+  <body class="overlay-body">
+    <div id="scoreboard" class="scoreboard hidden">
+      <div class="scoreboard-header">
+        <span id="match-title">Live match</span>
+        <span id="match-meta"></span>
+      </div>
+      <table>
+        <thead>
+          <tr>
+            <th>Player</th>
+            <th>Score</th>
+            <th>K</th>
+            <th>D</th>
+          </tr>
+        </thead>
+        <tbody id="players-body"></tbody>
+      </table>
+    </div>
+    <div id="status" class="status"></div>
+    <script src="overlay.js"></script>
+    <script>
+      OverlayApp.initScoreboard();
+    </script>
+  </body>
+</html>

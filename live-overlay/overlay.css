@@ -1,0 +1,146 @@
+:root {
+  --bg: rgba(8, 10, 18, 0.82);
+  --text: #f4f7ff;
+  --accent: #5eead4;
+  --muted: #9aa4bf;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+body.overlay-body {
+  margin: 0;
+  font-family: "Segoe UI", system-ui, sans-serif;
+  color: var(--text);
+  background: transparent;
+}
+
+.hidden {
+  display: none !important;
+}
+
+.scoreboard {
+  min-width: 320px;
+  padding: 12px 16px;
+  border-radius: 10px;
+  background: var(--bg);
+  border: 1px solid rgba(255, 255, 255, 0.08);
+}
+
+.scoreboard-header {
+  display: flex;
+  justify-content: space-between;
+  gap: 12px;
+  margin-bottom: 8px;
+  font-size: 14px;
+}
+
+#match-title {
+  font-weight: 700;
+  color: var(--accent);
+}
+
+#match-meta {
+  color: var(--muted);
+}
+
+table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 14px;
+}
+
+th,
+td {
+  padding: 4px 6px;
+  text-align: left;
+}
+
+th:last-child,
+td:last-child,
+th:nth-child(3),
+td:nth-child(3),
+th:nth-child(2),
+td:nth-child(2) {
+  text-align: right;
+}
+
+.match-list {
+  display: grid;
+  gap: 8px;
+  max-width: 420px;
+}
+
+.match-card {
+  padding: 10px 12px;
+  border-radius: 8px;
+  background: var(--bg);
+  border: 1px solid rgba(255, 255, 255, 0.08);
+}
+
+.match-card h3 {
+  margin: 0 0 4px;
+  font-size: 15px;
+}
+
+.match-card p {
+  margin: 0;
+  color: var(--muted);
+  font-size: 13px;
+}
+
+.map-wrap {
+  position: relative;
+  width: 512px;
+  height: 512px;
+}
+
+#map-image {
+  width: 100%;
+  height: 100%;
+  object-fit: contain;
+  border-radius: 8px;
+  background: #111;
+}
+
+#map-players {
+  position: absolute;
+  inset: 0;
+}
+
+.map-dot {
+  position: absolute;
+  width: 12px;
+  height: 12px;
+  margin: -6px 0 0 -6px;
+  border-radius: 50%;
+  background: #f97316;
+  border: 2px solid #fff;
+  box-shadow: 0 0 6px rgba(0, 0, 0, 0.6);
+}
+
+.map-view {
+  position: absolute;
+  width: 18px;
+  height: 2px;
+  margin: -1px 0 0 0;
+  background: #fff;
+  transform-origin: left center;
+}
+
+.map-meta {
+  margin-top: 8px;
+  font-size: 13px;
+  color: var(--muted);
+}
+
+.status {
+  margin-top: 8px;
+  font-size: 12px;
+  color: var(--muted);
+}
+
+.status.error {
+  color: #f87171;
+}

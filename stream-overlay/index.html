@@ -30,7 +30,8 @@
         <form id="setup-form" class="setup-form">
           <h2 id="setup-title" class="setup-title">Overlay settings</h2>
           <p class="setup-hint">
-            Saved in this browser (localStorage). Data is read from ql-public-data CDN — no Hub URL or token.
+            Saved in this browser (localStorage). Live scores via WebSocket to ql-stats-hub when configured;
+            tournament meta/logos from ql-public-data CDN — no Hub URL or token.
           </p>
           <label class="setup-field">
             <span>Public data base (CDN)</span>
@@ -54,8 +55,22 @@
             <span class="setup-field-hint">Same slug as in Hub tournament settings / ql-public-data path.</span>
           </label>
           <label class="setup-field">
-            <span>Poll interval (ms)</span>
-            <input name="pollIntervalMs" type="number" min="1000" step="500" value="2000" />
+            <span>Stats hub URL (WebSocket)</span>
+            <input
+              name="statsHubBase"
+              type="url"
+              placeholder="http://stats.example.com:8090"
+            />
+            <span class="setup-field-hint"
+              >Live match scores via WS. /connect hints still from CDN overlay-live (slow refresh).</span
+            >
+          </label>
+          <label class="setup-field">
+            <span>CDN fallback poll (ms, 0 = off)</span>
+            <input name="pollIntervalMs" type="number" min="0" step="1000" value="30000" />
+            <span class="setup-field-hint"
+              >Only for /connect and show_popup from overlay-live.json when stats hub WS is active.</span
+            >
           </label>
           <label class="setup-field">
             <span>Logo</span>

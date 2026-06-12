@@ -25,8 +25,11 @@
   let lastMatchId = null;
   let hideTimer = null;
   let pollTimer = null;
+  let ws = null;
+  let wsReconnectTimer = null;
   let logoCatalog = [];
   let publicMeta = null;
+  let cdnOverlayHints = null;
 
   function setStatus(text, isError) {
     if (!text) {
@@ -58,7 +61,8 @@
     const tournamentSlug = String(raw.tournamentSlug || "")
       .trim()
       .toLowerCase();
-    const pollIntervalMs = Math.max(1000, Number(raw.pollIntervalMs) || 2000);
+    const statsHubBase = String(raw.statsHubBase || "").replace(/\/+$/, "");
+    const pollIntervalMs = Math.max(0, Number(raw.pollIntervalMs) ?? 30000);
     const logoId = String(raw.logoId || "").trim();
     const logoUrl = String(raw.logoUrl || "").trim();
     const logoFile = String(raw.logoFile || "").trim();
@@ -75,6 +79,7 @@
     return {
       publicDataBase,
       tournamentSlug,
+      statsHubBase,
       pollIntervalMs,
       logoId,
       logoUrl,
@@ -107,7 +112,8 @@
     form.publicDataBase.value =
       values?.publicDataBase || DEFAULT_PUBLIC_DATA_BASE;
     form.tournamentSlug.value = values?.tournamentSlug || "";
-    form.pollIntervalMs.value = String(values?.pollIntervalMs ?? 2000);
+    form.statsHubBase.value = values?.statsHubBase || "";
+    form.pollIntervalMs.value = String(values?.pollIntervalMs ?? 30000);
     form.logoId.value = values?.logoId || "";
     form.logoUrl.value = values?.logoUrl || values?.logoFile || "";
     form.showConnect.checked = values?.showConnect !== false;
@@ -118,6 +124,7 @@
     return {
       publicDataBase: formTrim(els.setupForm.publicDataBase.value),
       tournamentSlug: formTrim(els.setupForm.tournamentSlug.value).toLowerCase(),
+      statsHubBase: formTrim(els.setupForm.statsHubBase.value).replace(/\/+$/, ""),
       pollIntervalMs: Number(els.setupForm.pollIntervalMs.value),
       logoId: formTrim(els.setupForm.logoId.value),
       logoUrl: formTrim(els.setupForm.logoUrl.value),
@@ -141,6 +148,142 @@
       clearInterval(pollTimer);
       pollTimer = null;
     }
+  }
+
+  function stopWebSocket() {
+    if (wsReconnectTimer) {
+      clearTimeout(wsReconnectTimer);
+      wsReconnectTimer = null;
+    }
+    if (ws) {
+      ws.onclose = null;
+      ws.close();
+      ws = null;
+    }
+  }
+
+  function useStatsHubWebSocket() {
+    return Boolean(config?.statsHubBase);
+  }
+
+  function statsHubWsUrl() {
+    const base = config.statsHubBase;
+    const wsProto = base.startsWith("https") ? "wss" : "ws";
+    const hostPath = base.replace(/^https?:\/\//, "");
+    return `${wsProto}://${hostPath}/api/ws/live`;
+  }
+
+  async function fetchStatsHubJson(path) {
+    const res = await fetch(`${config.statsHubBase}${path}`, {
+      method: "GET",
+      cache: "no-store",
+      headers: { Accept: "application/json" },
+    });
+    if (!res.ok) throw new Error(`HTTP ${res.status}`);
+    return res.json();
+  }
+
+  function connectHintFromCdn() {
+    const rows = cdnOverlayHints?.matches;
+    if (!Array.isArray(rows) || !rows.length) return null;
+    return rows[0].connect || null;
+  }
+
+  function showPopupFlagFromCdn(matchId) {
+    const rows = cdnOverlayHints?.matches;
+    if (!Array.isArray(rows)) return true;
+    const row = rows.find((m) => String(m.match_id) === String(matchId));
+    if (!row) return true;
+    return row.show_popup !== false;
+  }
+
+  function streamRowToOverlayMatch(row, connectHint) {
+    return {
+      match_id: row.match_id,
+      tournament_name: tournamentDisplayName(row),
+      map_name: row.map_name,
+      gametype: row.gametype,
+      server_name: row.server_name,
+      connect: connectHint || null,
+      show_popup: true,
+      players: row.players || [],
+    };
+  }
+
+  function matchFromWsPayload(payload) {
+    const m = payload.match || payload;
+    if (!m || !m.match_id) return null;
+    const connectHint = config.showConnect ? connectHintFromCdn() : null;
+    return {
+      match_id: m.match_id,
+      tournament_name: tournamentDisplayName(m),
+      map_name: m.map_name,
+      gametype: m.gametype,
+      server_name: m.server_name,
+      connect: connectHint,
+      show_popup: showPopupFlagFromCdn(m.match_id),
+      players: m.players || [],
+    };
+  }
+
+  async function refreshCdnOverlayHints() {
+    try {
+      cdnOverlayHints = await fetchJson(tournamentDataUrl("overlay-live.json"));
+    } catch {
+      /* keep previous hints */
+    }
+  }
+
+  function scheduleWsReconnect(ms) {
+    if (wsReconnectTimer) return;
+    wsReconnectTimer = setTimeout(() => {
+      wsReconnectTimer = null;
+      startWebSocket();
+    }, ms || 2000);
+  }
+
+  async function bootstrapStatsHubLive() {
+    const rows = await fetchStatsHubJson("/api/stream/matches");
+    if (!rows.length) {
+      lastMatchId = null;
+      hidePopup();
+      setStatus("No live matches", false);
+      return;
+    }
+    const connectHint = config.showConnect ? connectHintFromCdn() : null;
+    applyLiveData({ matches: [streamRowToOverlayMatch(rows[0], connectHint)] });
+  }
+
+  function startWebSocket() {
+    stopWebSocket();
+    if (!useStatsHubWebSocket()) return;
+
+    bootstrapStatsHubLive().catch((err) => {
+      setStatus(err.message || String(err), true);
+    });
+
+    ws = new WebSocket(statsHubWsUrl());
+    ws.onopen = () => setStatus("WS connected", false);
+    ws.onmessage = (ev) => {
+      let payload;
+      try {
+        payload = JSON.parse(ev.data);
+      } catch {
+        return;
+      }
+      const event = payload.event;
+      if (event === "match_update" || event === "match_status") {
+        const match = matchFromWsPayload(payload);
+        if (match) applyLiveData({ matches: [match] });
+      }
+    };
+    ws.onclose = () => {
+      setStatus("WS disconnected, reconnecting…", true);
+      scheduleWsReconnect(2000);
+    };
+    ws.onerror = () => {
+      if (ws) ws.close();
+    };
   }
 
   function publicDataRoot(path) {
@@ -255,6 +398,7 @@
 
   function showSetupPanel(existing) {
     stopPolling();
+    stopWebSocket();
     fillSetupForm(existing);
     showSetupError("");
     show(els.setupPanel);
@@ -403,10 +547,27 @@
     }
   }
 
-  function startPolling() {
+  function startCdnPolling() {
     stopPolling();
+    if (!config.pollIntervalMs) return;
     tick();
     pollTimer = setInterval(tick, config.pollIntervalMs);
+  }
+
+  function startLiveTransport() {
+    stopPolling();
+    stopWebSocket();
+    if (useStatsHubWebSocket()) {
+      refreshCdnOverlayHints();
+      startWebSocket();
+      if (config.pollIntervalMs > 0) {
+        pollTimer = setInterval(() => {
+          refreshCdnOverlayHints();
+        }, config.pollIntervalMs);
+      }
+      return;
+    }
+    startCdnPolling();
   }
 
   function applyConfig(nextConfig) {
@@ -415,9 +576,10 @@
     hidePopup();
     lastMatchId = null;
     publicMeta = null;
+    cdnOverlayHints = null;
 
     refreshPublicMeta();
-    startPolling();
+    startLiveTransport();
     hideSetupPanel();
   }
 

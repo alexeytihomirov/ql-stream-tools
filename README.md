@@ -1,23 +1,30 @@
 # ql-stream-tools
 
-Local OBS/browser overlay for casters (`stream-overlay/`).
+OBS/browser overlays for casters.
 
-## Setup
+## Packages
 
-1. Open `stream-overlay/index.html` in OBS Browser Source or locally.
-2. Enter **public data base** (jsDelivr URL for ql-public-data) and **tournament slug**.
-3. See `stream-overlay/README.md` for full setup.
+| Path | Purpose |
+|------|---------|
+| `stream-overlay/` | Tournament popup (logo, live match card) — **WebSocket** to ql-stats-hub + CDN meta |
+| `live-overlay/` | Scoreboard, map positions, match list — **WebSocket** (map) / HTTP poll fallback |
 
-No Hub URL or overlay token — overlay reads published JSON from CDN.
+## Tournament popup (`stream-overlay/`)
 
-## Live match stats / map overlay
+1. Open `stream-overlay/index.html` in OBS Browser Source.
+2. Set **public data base** (jsDelivr URL for ql-public-data) and **tournament slug**.
+3. Set **stats hub URL** for live scores via WebSocket (`/api/ws/live`).
+4. See `stream-overlay/README.md`.
 
-For real-time scoreboard and player positions on a map, use sibling repo **`ql-stats-hub`**:
+## Live match overlays (`live-overlay/`)
 
-- OBS scoreboard: `http://STATS_HOST:8090/overlay/scoreboard.html?match=MATCH_ID`
-- OBS map overlay: `http://STATS_HOST:8090/overlay/map.html?match=MATCH_ID`
+Scoreboard / map / matches — require `?base=http://STATS_HOST:8090` (ql-stats-hub).
 
-Enable `stream_telemetry` minqlx plugin on game servers (see `ql-stats-hub/README.md`).
+```
+https://cdn.jsdelivr.net/gh/alexeytihomirov/ql-stream-tools@main/live-overlay/map.html?base=http://HOST:8090&match=MATCH_ID
+```
+
+See `live-overlay/README.md`. Hub Statistics tab copies ready-made URLs.
 
 ## AI / project requirements
 
