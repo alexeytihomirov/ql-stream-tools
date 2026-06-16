@@ -1,0 +1,1059 @@
+(function (global) {
+  "use strict";
+
+  var STORAGE_KEY = "ql-map-spawns-settings";
+  var DEFAULTS = {
+    enabled: false,
+    anchor: "player",
+    referencePlayerId: null,
+    showInactive: true,
+    showThreshold: true,
+    middleVal: null,
+    layers: {},
+  };
+
+  function qs(name) {
+    return new URLSearchParams(window.location.search).get(name);
+  }
+
+  function spawnsParam() {
+    return (qs("spawns") || "").toLowerCase();
+  }
+
+  function loadSettings() {
+    var s = Object.assign({}, DEFAULTS);
+    try {
+      var raw = localStorage.getItem(STORAGE_KEY);
+      if (raw) Object.assign(s, JSON.parse(raw));
+    } catch (_e) {
+      /* ignore */
+    }
+    if (!s.layers || typeof s.layers !== "object") s.layers = {};
+    var p = spawnsParam();
+    if (p === "1" || p === "true" || p === "on") s.enabled = true;
+    if (p === "settings") {
+      s.enabled = true;
+      s.panelOpen = true;
+    }
+    if (qs("spawn_anchor") === "cursor" || qs("spawn_anchor") === "player") {
+      s.anchor = qs("spawn_anchor");
+    }
+    return s;
+  }
+
+  function saveSettings(settings) {
+    try {
+      localStorage.setItem(
+        STORAGE_KEY,
+        JSON.stringify({
+          enabled: settings.enabled,
+          anchor: settings.anchor,
+          referencePlayerId: settings.referencePlayerId,
+          showInactive: settings.showInactive,
+          showThreshold: settings.showThreshold,
+          middleVal: settings.middleVal,
+          layers: settings.layers,
+        }),
+      );
+    } catch (_e) {
+      /* private mode */
+    }
+  }
+
+  function autoMiddleVal(spawnCount) {
+    var n = Number(spawnCount) || 0;
+    if (n <= 0) return 0;
+    return Math.floor(n / 2);
+  }
+
+  function stripQuakeColors(text) {
+    return String(text || "")
+      .replace(/\^[0-9a-zA-Z]/g, "")
+      .trim();
+  }
+
+  function playerMotionId(p, index) {
+    return String(p.steam_id64 || p.nickname || "p" + index);
+  }
+
+  function playerDisplayName(p, index) {
+    var label = stripQuakeColors(p.nickname || "");
+    if (label) return label;
+    if (p.steam_id64) return String(p.steam_id64);
+    return "Player " + (index + 1);
+  }
+
+  function classifySpawns(refX, refY, spawns, middleVal) {
+    var n = spawns.length;
+    if (!n || middleVal == null || middleVal < 0 || middleVal >= n) {
+      return { possible: {}, thresholdMax: null, rejectMax: null };
+    }
+
+    var dist = [];
+    for (var i = 0; i < n; i++) {
+      var s = spawns[i];
+      var dx = Math.abs(refX - s.x);
+      var dy = Math.abs(refY - s.y);
+      dist.push({ idx: i, max: Math.max(dx, dy), min: Math.min(dx, dy) });
+    }
+
+    var sorted = dist.slice().sort(function (a, b) {
+      if (a.max === b.max) return b.idx - a.idx;
+      return a.max - b.max;
+    });
+
+    var threshold = sorted[middleVal].max;
+    var possCount = n - middleVal;
+    var possible = {};
+    var c = 0;
+    for (var j = n - 1; j >= 0; j--) {
+      var d = sorted[j];
+      if (d.max >= threshold && c < possCount) {
+        possible[d.idx] = true;
+        c++;
+      }
+    }
+
+    return {
+      possible: possible,
+      thresholdMax: threshold,
+      rejectMax: sorted[middleVal - 1] ? sorted[middleVal - 1].max : null,
+    };
+  }
+
+  function wildcardMatch(pattern, value) {
+    if (!pattern) return true;
+    if (Array.isArray(pattern)) {
+      for (var i = 0; i < pattern.length; i++) {
+        if (wildcardMatch(pattern[i], value)) return true;
+      }
+      return false;
+    }
+    var p = String(pattern);
+    if (p.indexOf("*") < 0) return p === value;
+    if (p.slice(-1) === "*") return value.indexOf(p.slice(0, -1)) === 0;
+    return p === value;
+  }
+
+  function normalizeGametype(gt) {
+    return String(gt || "")
+      .trim()
+      .toLowerCase();
+  }
+
+  function entityMatchesGametype(ent, gametype) {
+    var gt = normalizeGametype(gametype);
+    if (!gt) return true;
+    var attrs = ent.attrs || {};
+    if (attrs.gametype && normalizeGametype(attrs.gametype) !== gt) {
+      return false;
+    }
+    if (attrs.not_gametype && normalizeGametype(attrs.not_gametype) === gt) {
+      return false;
+    }
+    return true;
+  }
+
+  function entityMatchesFilter(ent, filter) {
+    if (!filter) return true;
+    if (filter.classname && !wildcardMatch(filter.classname, ent.classname)) {
+      return false;
+    }
+    if (filter.entity_ids && filter.entity_ids.length) {
+      if (filter.entity_ids.indexOf(ent.id) < 0) return false;
+    }
+    if (filter.attrs) {
+      var attrs = ent.attrs || {};
+      for (var key in filter.attrs) {
+        if (!Object.prototype.hasOwnProperty.call(filter.attrs, key)) continue;
+        if (String(attrs[key]) !== String(filter.attrs[key])) return false;
+      }
+    }
+    return true;
+  }
+
+  var TELEPORT_EXIT_CLASSNAMES = {
+    target_position: true,
+    misc_teleporter_dest: true,
+  };
+
+  var TELEPORT_ENTRANCE_CLASSNAMES = {
+    trigger_teleport: true,
+    misc_teleporter: true,
+  };
+
+  function isTeleportExit(ent) {
+    return !!(ent && TELEPORT_EXIT_CLASSNAMES[ent.classname]);
+  }
+
+  function buildTeleportGraph(entities) {
+    var byName = {};
+    var entrances = [];
+    var exits = [];
+    for (var i = 0; i < entities.length; i++) {
+      var ent = entities[i];
+      var attrs = ent.attrs || {};
+      if (attrs.targetname) byName[attrs.targetname] = ent;
+      if (isTeleportExit(ent)) exits.push(ent);
+    }
+    for (var j = 0; j < entities.length; j++) {
+      var src = entities[j];
+      var srcAttrs = src.attrs || {};
+      var targetKey = srcAttrs.target;
+      if (!targetKey) continue;
+      var dest = byName[targetKey];
+      if (!dest || !isTeleportExit(dest)) continue;
+      entrances.push({ entrance: src, exit: dest });
+    }
+    return { entrances: entrances, exits: exits };
+  }
+
+  function resolveStyle(classname, styles) {
+    if (!styles) return { color: "#cbd5e1", shape: "circle" };
+    var keys = Object.keys(styles);
+    for (var i = 0; i < keys.length; i++) {
+      if (wildcardMatch(keys[i], classname)) return styles[keys[i]];
+    }
+    return { color: "#cbd5e1", shape: "circle" };
+  }
+
+  function resolveSprite(classname, spriteMap) {
+    if (!spriteMap || !classname) return null;
+    var classnames = spriteMap.classnames || spriteMap;
+    if (classnames[classname]) return classnames[classname];
+    return null;
+  }
+
+  function shortLabel(classname) {
+    if (!classname) return "?";
+    if (classname.indexOf("weapon_") === 0) {
+      return classname.slice(7, 10).toUpperCase();
+    }
+    if (classname.indexOf("item_health") === 0) return "HP";
+    if (classname.indexOf("item_armor") === 0) return "AR";
+    if (classname.indexOf("ammo_") === 0) {
+      return classname.slice(5, 8).toUpperCase();
+    }
+    if (classname.indexOf("info_player_") === 0) return "S";
+    return classname.slice(0, 3).toUpperCase();
+  }
+
+  function MapSpawns() {
+    this.settings = loadSettings();
+    this.mapName = null;
+    this.entityData = null;
+    this.displayConfig = null;
+    this.spriteMap = null;
+    this.mapDisplay = null;
+    this.transform = null;
+    this.players = [];
+    this.gametype = null;
+    this.cursorWorld = null;
+    this.layer = null;
+    this.thresholdEl = null;
+    this.refEl = null;
+    this.panel = null;
+    this.toggleBtn = null;
+    this.cursorCaptureEl = null;
+    this._boundMove = this.onPointerMove.bind(this);
+    this._boundLeave = this.onPointerLeave.bind(this);
+  }
+
+  MapSpawns.prototype.entitiesUrl = function (mapName) {
+    if (!window.MapCoords) return "";
+    return MapCoords.assetUrl("maps/entities/" + mapName + ".json");
+  };
+
+  MapSpawns.prototype.displayUrl = function () {
+    if (!window.MapCoords) return "";
+    return MapCoords.assetUrl("maps/entity-display.json");
+  };
+
+  MapSpawns.prototype.spriteMapUrl = function () {
+    if (!window.MapCoords) return "";
+    return MapCoords.assetUrl("maps/sprite-map.json");
+  };
+
+  MapSpawns.prototype.ensureSpriteMap = function () {
+    var self = this;
+    if (this.spriteMap) return Promise.resolve(this.spriteMap);
+    return fetch(this.spriteMapUrl(), { cache: "no-store" })
+      .then(function (res) {
+        if (!res.ok) throw new Error("HTTP " + res.status);
+        return res.json();
+      })
+      .then(function (data) {
+        self.spriteMap = data;
+        return data;
+      })
+      .catch(function () {
+        self.spriteMap = { version: 1, classnames: {} };
+        return self.spriteMap;
+      });
+  };
+
+  MapSpawns.prototype.ensureDisplayConfig = function () {
+    var self = this;
+    if (this.displayConfig) return Promise.resolve(this.displayConfig);
+    return fetch(this.displayUrl(), { cache: "no-store" })
+      .then(function (res) {
+        if (!res.ok) throw new Error("HTTP " + res.status);
+        return res.json();
+      })
+      .then(function (data) {
+        self.displayConfig = data;
+        return data;
+      })
+      .catch(function () {
+        self.displayConfig = { version: 1, maps: {}, classname_styles: {} };
+        return self.displayConfig;
+      });
+  };
+
+  MapSpawns.prototype.layerEnabled = function (layerId) {
+    var mapLayers = this.settings.layers[this.mapName];
+    if (mapLayers && Object.prototype.hasOwnProperty.call(mapLayers, layerId)) {
+      return !!mapLayers[layerId];
+    }
+    if (!this.mapDisplay || !this.mapDisplay.layers) return false;
+    for (var i = 0; i < this.mapDisplay.layers.length; i++) {
+      var layer = this.mapDisplay.layers[i];
+      if (layer.id === layerId) return !!layer.default;
+    }
+    return false;
+  };
+
+  MapSpawns.prototype.setLayerEnabled = function (layerId, enabled) {
+    if (!this.mapName) return;
+    if (!this.settings.layers[this.mapName]) {
+      this.settings.layers[this.mapName] = {};
+    }
+    this.settings.layers[this.mapName][layerId] = !!enabled;
+    saveSettings(this.settings);
+    this.render();
+    this.syncLayerControls();
+  };
+
+  MapSpawns.prototype.effectiveMiddleVal = function (layer, entityCount) {
+    if (this.settings.middleVal != null && this.settings.middleVal !== "") {
+      var raw = String(this.settings.middleVal).trim().toLowerCase();
+      if (raw === "auto" || raw === "") {
+        /* fall through */
+      } else {
+        var n = Number(this.settings.middleVal);
+        if (isFinite(n) && n >= 0) return Math.floor(n);
+      }
+    }
+    if (layer && layer.middle_val != null) {
+      var layerN = Number(layer.middle_val);
+      if (isFinite(layerN) && layerN >= 0) return Math.floor(layerN);
+    }
+    if (entityCount != null && entityCount > 0) return autoMiddleVal(entityCount);
+    return null;
+  };
+
+  MapSpawns.prototype.playersWithCoords = function () {
+    var out = [];
+    for (var i = 0; i < this.players.length; i++) {
+      var p = this.players[i];
+      if (p.x != null && p.y != null) out.push({ player: p, index: i });
+    }
+    return out;
+  };
+
+  MapSpawns.prototype.resolveReferencePlayerId = function () {
+    var live = this.playersWithCoords();
+    if (!live.length) return null;
+    var wanted = this.settings.referencePlayerId;
+    if (wanted) {
+      for (var i = 0; i < live.length; i++) {
+        if (playerMotionId(live[i].player, live[i].index) === wanted) {
+          return wanted;
+        }
+      }
+    }
+    return playerMotionId(live[0].player, live[0].index);
+  };
+
+  MapSpawns.prototype.referencePlayer = function () {
+    var live = this.playersWithCoords();
+    if (!live.length) return null;
+    var wanted = this.resolveReferencePlayerId();
+    for (var i = 0; i < live.length; i++) {
+      var id = playerMotionId(live[i].player, live[i].index);
+      if (id === wanted) return live[i].player;
+    }
+    return live[0].player;
+  };
+
+  MapSpawns.prototype.referenceWorld = function () {
+    if (this.settings.anchor === "cursor") {
+      return this.cursorWorld || null;
+    }
+    if (this.settings.anchor === "player") {
+      var p = this.referencePlayer();
+      if (p) return { x: Number(p.x), y: Number(p.y) };
+    }
+    return null;
+  };
+
+  MapSpawns.prototype.worldToDisplay = function (x, y) {
+    if (!this.transform || !window.MapCoords) return null;
+    var wrap = document.getElementById("map-wrap");
+    if (!wrap) return null;
+    var pixel = MapCoords.worldToPixel(this.transform, x, y);
+    var rect = MapCoords.imageDisplayRect(
+      wrap,
+      this.transform.image_width,
+      this.transform.image_height,
+    );
+    return MapCoords.pixelToDisplay(rect, pixel);
+  };
+
+  MapSpawns.prototype.displayToWorld = function (clientX, clientY) {
+    if (!this.transform || !window.MapCoords) return null;
+    var wrap = document.getElementById("map-wrap");
+    if (!wrap) return null;
+    var rect = wrap.getBoundingClientRect();
+    var localX = clientX - rect.left;
+    var localY = clientY - rect.top;
+    var imageRect = MapCoords.imageDisplayRect(
+      wrap,
+      this.transform.image_width,
+      this.transform.image_height,
+    );
+    var pixel = MapCoords.displayToPixel(imageRect, localX, localY);
+    return MapCoords.pixelToWorld(this.transform, pixel.x, pixel.y);
+  };
+
+  MapSpawns.prototype.clearLayer = function () {
+    if (this.layer) this.layer.innerHTML = "";
+    if (this.thresholdEl) this.thresholdEl.innerHTML = "";
+    if (this.refEl) this.refEl.style.display = "none";
+  };
+
+  MapSpawns.prototype.entitiesForLayer = function (layer) {
+    var entities = (this.entityData && this.entityData.entities) || [];
+    var out = [];
+    var filterGametype = !layer || layer.gametype_filter !== false;
+    for (var i = 0; i < entities.length; i++) {
+      var ent = entities[i];
+      if (filterGametype && !entityMatchesGametype(ent, this.gametype)) continue;
+      if (entityMatchesFilter(ent, layer.filter)) out.push(ent);
+    }
+    return out;
+  };
+
+  MapSpawns.prototype.teleportGraph = function () {
+    return buildTeleportGraph((this.entityData && this.entityData.entities) || []);
+  };
+
+  MapSpawns.prototype.renderTeleportLayer = function (layer) {
+    var layerEl = this.layer;
+    if (!layerEl) return;
+    var graph = this.teleportGraph();
+    var mode = layer.id === "teleport_entrances" ? "entrance" : "exit";
+
+    if (mode === "exit") {
+      var seenExit = {};
+      for (var i = 0; i < graph.exits.length; i++) {
+        var exit = graph.exits[i];
+        if (seenExit[exit.id]) continue;
+        seenExit[exit.id] = true;
+        this.renderTeleportMarker(layerEl, exit, "exit", layer);
+      }
+      return;
+    }
+
+    var seenEnt = {};
+    for (var j = 0; j < graph.entrances.length; j++) {
+      var pair = graph.entrances[j];
+      var ent = pair.entrance;
+      if (seenEnt[ent.id]) continue;
+      seenEnt[ent.id] = true;
+      this.renderTeleportMarker(layerEl, ent, "entrance", layer);
+    }
+  };
+
+  MapSpawns.prototype.renderTeleportMarker = function (parent, ent, kind, layer) {
+    var pos = this.worldToDisplay(ent.x, ent.y);
+    if (!pos) return;
+    var dot = document.createElement("div");
+    dot.className =
+      "map-teleport map-teleport-" +
+      kind +
+      " layer-" +
+      (layer && layer.id ? layer.id : kind);
+    dot.style.left = pos.x + "px";
+    dot.style.top = pos.y + "px";
+    dot.title =
+      (kind === "exit" ? "Teleport exit" : "Teleport entrance") +
+      " #" +
+      ent.id +
+      " (" +
+      Math.round(ent.x) +
+      ", " +
+      Math.round(ent.y) +
+      ")";
+    if (kind === "exit") {
+      var mark = document.createElement("span");
+      mark.className = "map-teleport-x";
+      mark.setAttribute("aria-hidden", "true");
+      mark.textContent = "×";
+      dot.appendChild(mark);
+    }
+    parent.appendChild(dot);
+  };
+
+  MapSpawns.prototype.renderMarker = function (
+    parent,
+    ent,
+    className,
+    title,
+    size,
+  ) {
+    var pos = this.worldToDisplay(ent.x, ent.y);
+    if (!pos) return;
+    var dot = document.createElement("div");
+    dot.className = className;
+    dot.style.width = size + "px";
+    dot.style.height = size + "px";
+    dot.style.left = pos.x + "px";
+    dot.style.top = pos.y + "px";
+    dot.title = title;
+    parent.appendChild(dot);
+  };
+
+  MapSpawns.prototype.renderStaticLayer = function (layer, entities, styles) {
+    var layerEl = this.layer;
+    if (!layerEl) return;
+    var spriteMap = this.spriteMap;
+    for (var i = 0; i < entities.length; i++) {
+      var ent = entities[i];
+      var style = resolveStyle(ent.classname, styles);
+      var size = 16;
+      var label = shortLabel(ent.classname);
+      var spriteRel = resolveSprite(ent.classname, spriteMap);
+      var className =
+        "map-entity map-entity-" +
+        (style.shape || "circle") +
+        " map-entity-static";
+      className += " layer-" + layer.id;
+      if (spriteRel) className += " map-entity-has-sprite";
+      var dot = document.createElement("div");
+      dot.className = className;
+      dot.style.width = size + "px";
+      dot.style.height = size + "px";
+      if (!spriteRel) dot.style.background = style.color || "#cbd5e1";
+      var pos = this.worldToDisplay(ent.x, ent.y);
+      if (!pos) continue;
+      dot.style.left = pos.x + "px";
+      dot.style.top = pos.y + "px";
+      dot.title =
+        "#" +
+        ent.id +
+        " " +
+        ent.classname +
+        " (" +
+        Math.round(ent.x) +
+        ", " +
+        Math.round(ent.y) +
+        ", z " +
+        Math.round(ent.z) +
+        ")";
+      if (spriteRel && window.MapCoords) {
+        var img = document.createElement("img");
+        img.className = "map-entity-sprite";
+        img.src = MapCoords.assetUrl(spriteRel);
+        img.alt = ent.classname;
+        dot.appendChild(img);
+      } else {
+        var tag = document.createElement("span");
+        tag.className = "map-entity-label";
+        tag.textContent = label;
+        dot.appendChild(tag);
+      }
+      layerEl.appendChild(dot);
+    }
+  };
+
+  MapSpawns.prototype.renderDuelLayer = function (layer, entities) {
+    var ref = this.referenceWorld();
+    if (!ref) return;
+
+    var spawns = entities.map(function (ent) {
+      return { x: ent.x, y: ent.y, z: ent.z, id: ent.id };
+    });
+    var middleVal = this.effectiveMiddleVal(layer, spawns.length);
+    var status = classifySpawns(ref.x, ref.y, spawns, middleVal);
+    var layerEl = this.layer;
+    var thresholdEl = this.thresholdEl;
+    if (!layerEl || !thresholdEl) return;
+
+    var refPos = this.worldToDisplay(ref.x, ref.y);
+    if (refPos && this.refEl) {
+      this.refEl.style.display = "";
+      this.refEl.style.left = refPos.x + "px";
+      this.refEl.style.top = refPos.y + "px";
+    }
+
+    if (this.settings.showThreshold && refPos && status.rejectMax != null) {
+      var half = this.worldToDisplay(ref.x + status.rejectMax, ref.y);
+      if (half) {
+        var size = Math.max(4, (half.x - refPos.x) * 2);
+        var box = document.createElement("div");
+        box.className = "map-spawn-threshold";
+        box.style.left = refPos.x - size / 2 + "px";
+        box.style.top = refPos.y - size / 2 + "px";
+        box.style.width = size + "px";
+        box.style.height = size + "px";
+        thresholdEl.appendChild(box);
+      }
+    }
+
+    for (var i = 0; i < spawns.length; i++) {
+      var s = spawns[i];
+      var active = !!status.possible[i];
+      if (!active && !this.settings.showInactive) continue;
+      var ent = entities[i];
+      var zWeight =
+        s.z != null ? Math.max(0, Math.min(1, (Number(s.z) - 24) / 512)) : 0;
+      var size = 10 + zWeight * 6;
+      this.renderMarker(
+        layerEl,
+        ent,
+        "map-spawn" + (active ? " is-active" : " is-inactive"),
+        "#" +
+          ent.id +
+          " spawn (" +
+          Math.round(s.x) +
+          ", " +
+          Math.round(s.y) +
+          ")",
+        size,
+      );
+    }
+  };
+
+  MapSpawns.prototype.render = function () {
+    if (!this.settings.enabled || !this.entityData || !this.transform) {
+      this.clearLayer();
+      return;
+    }
+
+    var layerEl = this.layer;
+    var thresholdEl = this.thresholdEl;
+    if (!layerEl || !thresholdEl) return;
+
+    layerEl.innerHTML = "";
+    thresholdEl.innerHTML = "";
+    if (this.refEl) this.refEl.style.display = "none";
+
+    if (!this.mapDisplay || !this.mapDisplay.layers || !this.mapDisplay.layers.length) {
+      return;
+    }
+
+    var styles =
+      (this.displayConfig && this.displayConfig.classname_styles) || {};
+    var anyDuel = false;
+
+    for (var i = 0; i < this.mapDisplay.layers.length; i++) {
+      var layer = this.mapDisplay.layers[i];
+      if (!this.layerEnabled(layer.id)) continue;
+      if (layer.mode === "teleport") {
+        this.renderTeleportLayer(layer);
+        continue;
+      }
+      var entities = this.entitiesForLayer(layer);
+      if (!entities.length) continue;
+      if (layer.mode === "duel") {
+        anyDuel = true;
+        this.renderDuelLayer(layer, entities);
+      } else {
+        this.renderStaticLayer(layer, entities, styles);
+      }
+    }
+
+    if (!anyDuel && this.refEl) this.refEl.style.display = "none";
+  };
+
+  MapSpawns.prototype.loadEntities = function (mapName) {
+    var self = this;
+    var key = (mapName || "").trim().toLowerCase();
+    if (!key) {
+      this.entityData = null;
+      this.mapDisplay = null;
+      this.render();
+      return Promise.resolve(null);
+    }
+
+    return this.ensureDisplayConfig().then(function (cfg) {
+      self.mapDisplay = (cfg.maps && cfg.maps[key]) || null;
+
+      if (self.mapName === key && self.entityData) {
+        self.updatePanelMeta();
+        self.render();
+        return self.entityData;
+      }
+
+      return fetch(self.entitiesUrl(key), { cache: "no-store" })
+        .then(function (res) {
+          if (!res.ok) throw new Error("HTTP " + res.status);
+          return res.json();
+        })
+        .then(function (data) {
+          self.mapName = key;
+          self.entityData = data;
+          self.updatePanelMeta();
+          self.rebuildLayerControls();
+          self.render();
+          return data;
+        })
+        .catch(function () {
+          self.mapName = key;
+          self.entityData = null;
+          self.updatePanelMeta();
+          self.rebuildLayerControls();
+          self.render();
+          return null;
+        });
+    });
+  };
+
+  MapSpawns.prototype.onMapPayload = function (payload) {
+    this.transform = payload.transform || null;
+    this.players = payload.players || [];
+    this.gametype = payload.gametype || null;
+    var mapName = (payload.map_name || "").trim().toLowerCase();
+    var resolvedId = this.resolveReferencePlayerId();
+    if (resolvedId && resolvedId !== this.settings.referencePlayerId) {
+      this.settings.referencePlayerId = resolvedId;
+      saveSettings(this.settings);
+    }
+    this.syncPlayerPicker();
+    this.syncCursorCapture();
+    if (mapName && mapName !== this.mapName) {
+      this.loadEntities(mapName);
+    } else {
+      this.render();
+    }
+  };
+
+  MapSpawns.prototype.onPointerMove = function (ev) {
+    if (!this.settings.enabled || this.settings.anchor !== "cursor") return;
+    var world = this.displayToWorld(ev.clientX, ev.clientY);
+    if (!world) return;
+    this.cursorWorld = world;
+    this.render();
+  };
+
+  MapSpawns.prototype.onPointerLeave = function () {
+    if (this.settings.anchor !== "cursor") return;
+    this.cursorWorld = null;
+    this.render();
+  };
+
+  MapSpawns.prototype.setEnabled = function (enabled) {
+    this.settings.enabled = !!enabled;
+    saveSettings(this.settings);
+    this.syncChrome();
+    this.syncCursorCapture();
+    this.render();
+  };
+
+  MapSpawns.prototype.togglePanel = function (open) {
+    this.settings.panelOpen = open != null ? !!open : !this.settings.panelOpen;
+    this.syncChrome();
+  };
+
+  MapSpawns.prototype.duelLayerConfig = function () {
+    if (!this.mapDisplay || !this.mapDisplay.layers) return null;
+    for (var i = 0; i < this.mapDisplay.layers.length; i++) {
+      if (this.mapDisplay.layers[i].mode === "duel") {
+        return this.mapDisplay.layers[i];
+      }
+    }
+    return null;
+  };
+
+  MapSpawns.prototype.updatePanelMeta = function () {
+    var meta = document.getElementById("spawn-meta");
+    if (!meta) return;
+    if (!this.mapName) {
+      meta.textContent = "No map loaded";
+      return;
+    }
+    if (!this.entityData) {
+      meta.textContent =
+        this.mapName +
+        " — no entity dump (run batch_extract_map_entities.py on pak00/packs)";
+      return;
+    }
+    var layerCount = (this.mapDisplay && this.mapDisplay.layers) || [];
+    var duel = this.duelLayerConfig();
+    var bits = [
+      this.mapName,
+      (this.entityData.entities || []).length + " entities",
+      layerCount.length + " configured layers",
+    ];
+    if (duel) {
+      var duelEntities = this.entitiesForLayer(duel);
+      bits.push(
+        "duel middle_val " +
+          this.effectiveMiddleVal(duel, duelEntities.length),
+      );
+    }
+    meta.textContent = bits.join(" · ");
+  };
+
+  MapSpawns.prototype.syncLayerControls = function () {
+    var host = document.getElementById("spawn-layer-toggles");
+    if (!host || !this.mapDisplay || !this.mapDisplay.layers) return;
+    var inputs = host.querySelectorAll('input[type="checkbox"][data-layer-id]');
+    inputs.forEach(
+      function (el) {
+        var id = el.getAttribute("data-layer-id");
+        el.checked = this.layerEnabled(id);
+      }.bind(this),
+    );
+  };
+
+  MapSpawns.prototype.syncPlayerPicker = function () {
+    var select = document.getElementById("spawn-reference-player");
+    var field = document.getElementById("spawn-reference-player-field");
+    if (!select) return;
+
+    var live = this.playersWithCoords();
+    var prev = select.value;
+    select.innerHTML = "";
+
+    if (!live.length) {
+      var empty = document.createElement("option");
+      empty.value = "";
+      empty.textContent = "No players on map";
+      select.appendChild(empty);
+      select.disabled = true;
+      if (field) field.classList.add("is-disabled");
+      return;
+    }
+
+    select.disabled = false;
+    if (field) field.classList.remove("is-disabled");
+
+    var resolved = this.resolveReferencePlayerId();
+    for (var i = 0; i < live.length; i++) {
+      var p = live[i].player;
+      var idx = live[i].index;
+      var id = playerMotionId(p, idx);
+      var opt = document.createElement("option");
+      opt.value = id;
+      opt.textContent = playerDisplayName(p, idx);
+      select.appendChild(opt);
+    }
+    select.value = resolved || "";
+    if (select.value !== prev && resolved) {
+      this.settings.referencePlayerId = resolved;
+      saveSettings(this.settings);
+    }
+  };
+
+  MapSpawns.prototype.syncAnchorControls = function () {
+    var playerField = document.getElementById("spawn-reference-player-field");
+    if (playerField) {
+      playerField.classList.toggle("hidden", this.settings.anchor !== "player");
+    }
+    this.syncCursorCapture();
+  };
+
+  MapSpawns.prototype.syncCursorCapture = function () {
+    var el = this.cursorCaptureEl;
+    if (!el) return;
+    var active =
+      !!this.settings.enabled &&
+      this.settings.anchor === "cursor" &&
+      !!this.transform;
+    el.classList.toggle("hidden", !active);
+  };
+
+  MapSpawns.prototype.rebuildLayerControls = function () {
+    var host = document.getElementById("spawn-layer-toggles");
+    if (!host) return;
+    host.innerHTML = "";
+    if (!this.mapDisplay || !this.mapDisplay.layers || !this.mapDisplay.layers.length) {
+      host.textContent = "No display config for this map — edit maps/entity-display.json";
+      return;
+    }
+
+    var self = this;
+    for (var i = 0; i < this.mapDisplay.layers.length; i++) {
+      var layer = this.mapDisplay.layers[i];
+      var label = document.createElement("label");
+      label.className = "dbg-toggle";
+      var input = document.createElement("input");
+      input.type = "checkbox";
+      input.setAttribute("data-layer-id", layer.id);
+      input.checked = this.layerEnabled(layer.id);
+      input.addEventListener("change", function () {
+        var layerId = this.getAttribute("data-layer-id");
+        self.setLayerEnabled(layerId, this.checked);
+      });
+      label.appendChild(input);
+      label.appendChild(document.createTextNode(" " + (layer.label || layer.id)));
+      host.appendChild(label);
+    }
+  };
+
+  MapSpawns.prototype.buildPanel = function () {
+    var panel = this.panel;
+    if (!panel) return;
+    panel.innerHTML =
+      '<header class="map-spawns-head">' +
+      "<h2>Settings</h2>" +
+      '<p class="map-spawns-hint">Map entities · duel spawn pool · item layers via <code>maps/entity-display.json</code></p>' +
+      "</header>" +
+      '<section class="map-spawns-section">' +
+      '<label class="dbg-toggle"><input type="checkbox" id="spawn-enabled" /> Show overlay</label>' +
+      '<div id="spawn-layer-toggles"></div>' +
+      "</section>" +
+      '<section class="map-spawns-section">' +
+      "<h3>Duel layer</h3>" +
+      '<label class="dbg-toggle"><input type="radio" name="spawn-anchor" value="player" /> Anchor: player</label>' +
+      '<label class="dbg-field" id="spawn-reference-player-field">' +
+      "Reference player " +
+      '<select id="spawn-reference-player"></select>' +
+      "</label>" +
+      '<label class="dbg-toggle"><input type="radio" name="spawn-anchor" value="cursor" /> Anchor: mouse</label>' +
+      '<label class="dbg-toggle"><input type="checkbox" id="spawn-show-inactive" /> Show rejected spawns</label>' +
+      '<label class="dbg-toggle"><input type="checkbox" id="spawn-show-threshold" /> Show threshold square</label>' +
+      '<label class="dbg-field">middle_val override <input type="number" id="spawn-middle-val" min="0" step="1" placeholder="auto" /></label>' +
+      '<div id="spawn-meta" class="dbg-meta"></div>' +
+      "</section>" +
+      '<section class="map-spawns-section map-spawns-credit">' +
+      "<p>Extract: <code>batch_extract_map_entities.py</code> + <code>extract_item_sprites.py</code> (pak00). Config: <code>build_entity_display.py</code>.</p>" +
+      "</section>";
+
+    var self = this;
+    var enabled = document.getElementById("spawn-enabled");
+    var inactive = document.getElementById("spawn-show-inactive");
+    var threshold = document.getElementById("spawn-show-threshold");
+    var middle = document.getElementById("spawn-middle-val");
+    var playerSelect = document.getElementById("spawn-reference-player");
+    var anchors = panel.querySelectorAll('input[name="spawn-anchor"]');
+
+    if (enabled) {
+      enabled.checked = this.settings.enabled;
+      enabled.addEventListener("change", function () {
+        self.setEnabled(enabled.checked);
+      });
+    }
+    if (inactive) {
+      inactive.checked = this.settings.showInactive;
+      inactive.addEventListener("change", function () {
+        self.settings.showInactive = inactive.checked;
+        saveSettings(self.settings);
+        self.render();
+      });
+    }
+    if (threshold) {
+      threshold.checked = this.settings.showThreshold;
+      threshold.addEventListener("change", function () {
+        self.settings.showThreshold = threshold.checked;
+        saveSettings(self.settings);
+        self.render();
+      });
+    }
+    if (middle) {
+      middle.addEventListener("change", function () {
+        var v = middle.value.trim();
+        self.settings.middleVal = v === "" ? null : Number(v);
+        saveSettings(self.settings);
+        self.updatePanelMeta();
+        self.render();
+      });
+    }
+    anchors.forEach(function (el) {
+      el.checked = el.value === self.settings.anchor;
+      el.addEventListener("change", function () {
+        if (!el.checked) return;
+        self.settings.anchor = el.value;
+        saveSettings(self.settings);
+        self.syncAnchorControls();
+        self.render();
+      });
+    });
+    if (playerSelect) {
+      playerSelect.addEventListener("change", function () {
+        self.settings.referencePlayerId = playerSelect.value || null;
+        saveSettings(self.settings);
+        self.render();
+      });
+    }
+
+    this.syncPlayerPicker();
+    this.syncAnchorControls();
+    this.rebuildLayerControls();
+    this.updatePanelMeta();
+  };
+
+  MapSpawns.prototype.syncChrome = function () {
+    var panel = this.panel;
+    var btn = this.toggleBtn;
+    if (panel) {
+      panel.classList.toggle("hidden", !this.settings.panelOpen);
+    }
+    if (btn) {
+      btn.classList.remove("hidden");
+      btn.setAttribute("aria-pressed", this.settings.enabled ? "true" : "false");
+    }
+    document.body.classList.toggle("map-spawns-mode", !!this.settings.panelOpen);
+  };
+
+  MapSpawns.prototype.init = function () {
+    this.layer = document.getElementById("map-spawns");
+    this.thresholdEl = document.getElementById("map-spawn-threshold");
+    this.refEl = document.getElementById("map-spawn-ref");
+    this.panel = document.getElementById("map-spawns-panel");
+    this.toggleBtn = document.getElementById("map-spawns-toggle");
+    this.cursorCaptureEl = document.getElementById("map-spawn-cursor");
+
+    if (!this.layer) return;
+
+    this.buildPanel();
+    this.syncChrome();
+    this.syncCursorCapture();
+
+    var self = this;
+    if (this.toggleBtn) {
+      this.toggleBtn.addEventListener("click", function () {
+        self.togglePanel();
+      });
+    }
+
+    var capture = this.cursorCaptureEl;
+    if (capture) {
+      capture.addEventListener("pointermove", this._boundMove);
+      capture.addEventListener("pointerleave", this._boundLeave);
+    }
+
+    if (window.OverlayApp && typeof OverlayApp.onMapPayload === "function") {
+      OverlayApp.onMapPayload(function (payload) {
+        self.onMapPayload(payload);
+      });
+    }
+
+    this.ensureDisplayConfig();
+    this.ensureSpriteMap().then(function () {
+      self.render();
+    });
+  };
+
+  var instance = new MapSpawns();
+
+  global.MapSpawns = {
+    init: function () {
+      instance.init();
+    },
+    classifySpawns: classifySpawns,
+    autoMiddleVal: autoMiddleVal,
+  };
+})(window);

@@ -1,0 +1,19 @@
+{
+  "maps": [
+    "aerowalk",
+    "battleforged",
+    "bloodrun",
+    "campgrounds",
+    "campgroundsintel",
+    "cure",
+    "furiousheights",
+    "hektik",
+    "lostworld",
+    "silence",
+    "sinister",
+    "terminatria",
+    "toxicity",
+    "windsongkeep"
+  ],
+  "source": "ql-spawns/Memento_Mori"
+}

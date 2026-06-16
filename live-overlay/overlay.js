@@ -25,7 +25,9 @@
   function requireApiBase() {
     var base = apiBase();
     if (!base) {
-      throw new Error("Missing stats hub URL — add ?base=http://HOST:8090 to the OBS URL");
+      throw new Error(
+        "Missing stats hub URL — add ?base=http://HOST:8090 to the OBS URL",
+      );
     }
     return base;
   }
@@ -79,7 +81,11 @@
   function openOverlayWindow(page, id, features) {
     var url = overlayPageUrl(page, id);
     var name = "ql-overlay-" + page + (id ? "-" + id : "");
-    window.open(url, name, features || "noopener,noreferrer,width=960,height=720");
+    window.open(
+      url,
+      name,
+      features || "noopener,noreferrer,width=960,height=720",
+    );
   }
 
   function setStatus(text, isError) {
@@ -141,7 +147,9 @@
     if (board) board.classList.remove("hidden");
     if (title) title.textContent = data.score_summary || data.match_id;
     if (meta)
-      meta.textContent = [data.map_name, data.gametype, data.server_name].filter(Boolean).join(" · ");
+      meta.textContent = [data.map_name, data.gametype, data.server_name]
+        .filter(Boolean)
+        .join(" · ");
     renderPlayers(data.players);
     setStatus("");
   }
@@ -164,7 +172,9 @@
         "<h3>" +
         (row.score_summary || mid) +
         "</h3><p>" +
-        [row.map_name, row.gametype, row.server_name].filter(Boolean).join(" · ") +
+        [row.map_name, row.gametype, row.server_name]
+          .filter(Boolean)
+          .join(" · ") +
         "</p>" +
         '<p class="match-card-id">' +
         mid +
@@ -181,7 +191,10 @@
     }
     list.querySelectorAll("[data-open]").forEach(function (btn) {
       btn.addEventListener("click", function () {
-        openOverlayWindow(btn.getAttribute("data-open"), btn.getAttribute("data-match"));
+        openOverlayWindow(
+          btn.getAttribute("data-open"),
+          btn.getAttribute("data-match"),
+        );
       });
     });
     setStatus(rows.length + " match(es)");
@@ -191,7 +204,44 @@
   var cachedTransform = null;
   var currentImageSrc = "";
   var mapImageLoaded = false;
-  var mapMotion = { byId: {}, loopId: 0, renderTransform: null, zFloor: null, zSpan: 220 };
+  var mapMotion = {
+    byId: {},
+    loopId: 0,
+    renderTransform: null,
+    zFloor: null,
+    zCeiling: null,
+    zSpanMin: 48,
+  };
+
+  var mapKillFeed = [];
+
+  function pushKillFeed(entry) {
+    mapKillFeed.unshift(entry);
+    if (mapKillFeed.length > 5) mapKillFeed.length = 5;
+    renderKillFeed();
+  }
+
+  function renderKillFeed() {
+    var el = document.getElementById("map-killfeed");
+    if (!el) return;
+    el.innerHTML = "";
+    for (var i = 0; i < mapKillFeed.length; i++) {
+      var row = mapKillFeed[i];
+      var line = document.createElement("div");
+      line.className = "map-killfeed-line";
+      var killer = stripQuakeColors(row.killer_name || row.killer_steam_id64 || "");
+      var victim = stripQuakeColors(row.victim_name || row.victim_steam_id64 || "?");
+      line.textContent = killer ? killer + " → " + victim : victim + " died";
+      el.appendChild(line);
+    }
+  }
+
+  function handleDeathEvent(data) {
+    pushKillFeed(data);
+    if (typeof console !== "undefined" && console.info) {
+      console.info("[overlay] death", data);
+    }
+  }
 
   function stripQuakeColors(text) {
     return String(text || "")
@@ -222,24 +272,29 @@
     };
   }
 
-  function noteZFloor(z) {
+  function noteZExtent(z) {
     if (z == null || !isFinite(Number(z))) return;
     var v = Number(z);
     if (mapMotion.zFloor == null || v < mapMotion.zFloor) {
       mapMotion.zFloor = v;
     }
+    if (mapMotion.zCeiling == null || v > mapMotion.zCeiling) {
+      mapMotion.zCeiling = v;
+    }
   }
 
   function dotSizeFromZ(z) {
     var base = 8;
-    var extra = 12;
+    var extra = 6;
     if (z == null) return base;
     var floor = mapMotion.zFloor;
-    if (floor == null) return base;
-    var rise = Number(z) - floor;
-    var span = mapMotion.zSpan || 220;
-    if (span < 32) span = 32;
-    var t = Math.max(0, Math.min(1, rise / span));
+    var ceil = mapMotion.zCeiling;
+    if (floor == null || ceil == null) return base;
+    var span = ceil - floor;
+    if (span < mapMotion.zSpanMin) {
+      return base + extra * 0.5;
+    }
+    var t = Math.max(0, Math.min(1, (Number(z) - floor) / span));
     return base + t * extra;
   }
 
@@ -258,15 +313,28 @@
     stopMotionLoop();
     for (var id in mapMotion.byId) {
       var st = mapMotion.byId[id];
-      if (st.el.marker && st.el.marker.parentNode) st.el.marker.parentNode.removeChild(st.el.marker);
+      if (st.el.marker && st.el.marker.parentNode)
+        st.el.marker.parentNode.removeChild(st.el.marker);
     }
     mapMotion.byId = {};
     mapMotion.renderTransform = null;
     mapMotion.zFloor = null;
+    mapMotion.zCeiling = null;
   }
 
   function playerLabelText(p) {
-    return stripQuakeColors(p.nickname || p.steam_id64 || "");
+    var base = stripQuakeColors(p.nickname || p.steam_id64 || "");
+    if (p.health == null) return base;
+    var hp = Math.round(Number(p.health));
+    if (!isFinite(hp)) return base;
+    var bits = [base, hp + "hp"];
+    if (p.armor != null && isFinite(Number(p.armor))) {
+      bits.push(Math.round(Number(p.armor)) + "ar");
+    }
+    if (p.powerups && p.powerups.length) {
+      bits.push(p.powerups.join("+"));
+    }
+    return bits.join(" · ");
   }
 
   function createPlayerElements(layer, p) {
@@ -287,7 +355,14 @@
     marker.appendChild(view);
     layer.appendChild(marker);
     marker.title =
-      playerLabelText(p) + " (" + fmtCoord(p.x) + ", " + fmtCoord(p.y) + ", z " + fmtCoord(p.z) + ")";
+      playerLabelText(p) +
+      " (" +
+      fmtCoord(p.x) +
+      ", " +
+      fmtCoord(p.y) +
+      ", z " +
+      fmtCoord(p.z) +
+      ")";
     return { marker: marker, label: label, dot: dot, view: view };
   }
 
@@ -299,7 +374,14 @@
       el.label.style.display = text ? "" : "none";
     }
     el.marker.title =
-      text + " (" + fmtCoord(p.x) + ", " + fmtCoord(p.y) + ", z " + fmtCoord(p.z) + ")";
+      text +
+      " (" +
+      fmtCoord(p.x) +
+      ", " +
+      fmtCoord(p.y) +
+      ", z " +
+      fmtCoord(p.z) +
+      ")";
   }
 
   function placePlayerElement(el, pos, yaw, dotSize) {
@@ -311,7 +393,7 @@
     el.dot.style.height = size + "px";
     if (yaw != null && !isNaN(yaw) && el.view) {
       el.view.style.display = "";
-      el.view.style.transform = "rotate(" + (-yaw + 90) + "deg)";
+      el.view.style.transform = "rotate(" + -yaw + "deg)";
     } else if (el.view) {
       el.view.style.display = "none";
     }
@@ -320,7 +402,11 @@
   function worldToDisplayPos(transform, wrap, x, y) {
     if (!transform || !wrap || !window.MapCoords) return null;
     var pixel = MapCoords.worldToPixel(transform, x, y);
-    var rect = MapCoords.imageDisplayRect(wrap, transform.image_width, transform.image_height);
+    var rect = MapCoords.imageDisplayRect(
+      wrap,
+      transform.image_width,
+      transform.image_height,
+    );
     return MapCoords.pixelToDisplay(rect, pixel);
   }
 
@@ -385,13 +471,18 @@
     var players = payload.players || [];
     var seen = {};
     if (payload.transform && payload.transform.world_z_span != null) {
-      mapMotion.zSpan = Number(payload.transform.world_z_span) || mapMotion.zSpan;
+      mapMotion.zSpanMin =
+        Number(payload.transform.world_z_span) || mapMotion.zSpanMin;
+    }
+
+    for (var i = 0; i < players.length; i++) {
+      var p = players[i];
+      if (p.z != null) noteZExtent(Number(p.z));
     }
 
     for (var i = 0; i < players.length; i++) {
       var p = players[i];
       if (p.x == null || p.y == null) continue;
-      noteZFloor(p.z != null ? Number(p.z) : null);
       var id = playerMotionId(p, i);
       seen[id] = true;
       var target = {
@@ -428,7 +519,9 @@
     }
 
     if (meta) {
-      meta.textContent = [payload.map_name, players.length + " players"].join(" · ");
+      meta.textContent = [payload.map_name, players.length + " players"].join(
+        " · ",
+      );
     }
 
     ensureMotionLoop();
@@ -462,6 +555,7 @@
       if (key !== cachedMapKey) {
         clearMapMotion();
         mapMotion.zFloor = null;
+        mapMotion.zCeiling = null;
       }
       cachedMapKey = key;
       cachedTransform = transform;
@@ -516,10 +610,18 @@
       setStatus("map-coords.js missing", true);
       return;
     }
-    var prepared = await MapCoords.prepareMapPayload(data.map_name, data.players || []);
+    var prepared = await MapCoords.prepareMapPayload(
+      data.map_name,
+      data.players || [],
+    );
     var merged = Object.assign({}, data, prepared);
-    if (window.MapDebug && typeof window.MapDebug.applyTransform === "function") {
-      merged.transform = window.MapDebug.applyTransform(merged.transform) || merged.transform;
+    if (data.gametype != null) merged.gametype = data.gametype;
+    if (
+      window.MapDebug &&
+      typeof window.MapDebug.applyTransform === "function"
+    ) {
+      merged.transform =
+        window.MapDebug.applyTransform(merged.transform) || merged.transform;
     }
     if (merged.transform) {
       mapImageLoaded = true;
@@ -544,7 +646,9 @@
 
   async function prefetchMapHttp(id) {
     try {
-      var data = await fetchJson("/api/matches/" + encodeURIComponent(id) + "/positions");
+      var data = await fetchJson(
+        "/api/matches/" + encodeURIComponent(id) + "/positions",
+      );
       await handleMapSnapshot(data);
     } catch (err) {
       if (String(err.message || err).indexOf("404") >= 0) {
@@ -561,7 +665,7 @@
     var suffix = mapImageLoaded ? "?players_only=1" : "";
     try {
       var data = await fetchJson(
-        "/api/matches/" + encodeURIComponent(id) + "/positions" + suffix
+        "/api/matches/" + encodeURIComponent(id) + "/positions" + suffix,
       );
       await handleMapSnapshot(data);
     } catch (err) {
@@ -578,7 +682,13 @@
     var base = requireApiBase();
     var wsProto = base.startsWith("https") ? "wss" : "ws";
     var hostPath = base.replace(/^https?:\/\//, "");
-    return wsProto + "://" + hostPath + "/api/ws/live?match=" + encodeURIComponent(id);
+    return (
+      wsProto +
+      "://" +
+      hostPath +
+      "/api/ws/live?match=" +
+      encodeURIComponent(id)
+    );
   }
 
   function initMapWebSocket() {
@@ -656,6 +766,8 @@
               handleMapSnapshot(data).catch(function (err) {
                 setStatus(String(err.message || err), true);
               });
+            } else if (data.event === "death") {
+              handleDeathEvent(data);
             }
           };
           ws.onclose = function () {
@@ -735,7 +847,9 @@
         select.innerHTML = "";
         var auto = document.createElement("option");
         auto.value = "";
-        auto.textContent = rows.length ? "First live match (auto)" : "No live matches";
+        auto.textContent = rows.length
+          ? "First live match (auto)"
+          : "No live matches";
         select.appendChild(auto);
         for (var i = 0; i < rows.length; i++) {
           var row = rows[i];
@@ -749,7 +863,9 @@
         if (prev && select.querySelector('option[value="' + prev + '"]')) {
           select.value = prev;
         }
-        setStatus(rows.length ? rows.length + " live match(es)" : "No live matches");
+        setStatus(
+          rows.length ? rows.length + " live match(es)" : "No live matches",
+        );
       } catch (err) {
         setStatus(String(err.message || err), true);
       }

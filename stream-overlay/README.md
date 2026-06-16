@@ -2,6 +2,9 @@
 
 Local HTML overlay for OBS (or similar). **Live scores** via WebSocket to **ql-stats-hub**; tournament meta/logos from **ql-public-data** CDN — **no connection to QL Hub**.
 
+**Documentation (HTML):** [`docs.html`](docs.html) — full guide for `stream-overlay` + `live-overlay` (map calibration, smooth, hub).  
+CDN: `https://cdn.jsdelivr.net/gh/owner/ql-stream-tools@main/stream-overlay/docs.html`
+
 Hub publishes `tournaments/{slug}/overlay-live.json` and logo assets when tournament data is synced to GitHub (jsDelivr).
 
 ## Requirements
@@ -89,6 +92,22 @@ The match popup uses **#00ff00** outside the card for OBS Color/Chroma Key.
 | 404 overlay-live.json | Tournament slug correct; Hub publish enabled; live match exists |
 | “No live matches” | Match status `live` in Hub for this tournament |
 | Deprecated Hub config error | Clear localStorage; use CDN fields only |
+
+## Tournament regulations
+
+Official event rules live in **ql-public-data**, not in this folder:
+
+```text
+tournaments/{slug}/regulations.md
+```
+
+Example (Fast Learning Cup):
+
+```text
+https://cdn.jsdelivr.net/gh/alexeytihomirov/ql-public-data@main/tournaments/fast-learning-cup/regulations.md
+```
+
+Generic network/cvars guide: `ql-stream-tools/player-guide/`.
 
 ## Architecture
 

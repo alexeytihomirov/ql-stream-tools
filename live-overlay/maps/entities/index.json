@@ -1,0 +1,10 @@
+{
+  "maps": [
+    "bloodrun",
+    "tortured"
+  ],
+  "sources": {
+    "pak00": "d:\\QuakeLiveData\\pak00",
+    "packs": "d:\\QuakeLiveData\\packs"
+  }
+}

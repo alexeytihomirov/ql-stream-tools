@@ -3,9 +3,24 @@
 
   var transformsPromise = null;
   var transformsCache = null;
+  var DEFAULT_CDN_ASSETS =
+    "https://cdn.jsdelivr.net/gh/alexeytihomirov/ql-stream-tools@main/live-overlay/";
+
+  function overlayAssetsRoot() {
+    var params = new URLSearchParams(window.location.search);
+    var explicit = (params.get("assets") || "").trim();
+    if (explicit) {
+      return explicit.endsWith("/") ? explicit : explicit + "/";
+    }
+    // file:// cannot fetch sibling files (map_transforms.json, PNGs) — use CDN or ?assets=
+    if (window.location.protocol === "file:") {
+      return DEFAULT_CDN_ASSETS;
+    }
+    return new URL("./", window.location.href).href;
+  }
 
   function assetUrl(relative) {
-    return new URL(relative, window.location.href).href;
+    return new URL(relative, overlayAssetsRoot()).href;
   }
 
   function loadTransforms() {
@@ -44,6 +59,7 @@
       world_max_x: Number(row.world_max_x),
       world_min_y: Number(row.world_min_y),
       world_max_y: Number(row.world_max_y),
+      world_z_span: row.world_z_span != null ? Number(row.world_z_span) : null,
       image_width: Number(row.image_width || 512),
       image_height: Number(row.image_height || 512),
     };
@@ -63,6 +79,115 @@
             ((y - transform.world_min_y) / spanY) * transform.image_height) *
             100
         ) / 100,
+    };
+  }
+
+  function pixelToWorld(transform, px, py) {
+    var spanX = transform.world_max_x - transform.world_min_x;
+    var spanY = transform.world_max_y - transform.world_min_y;
+    if (spanX <= 0 || spanY <= 0) {
+      return { x: transform.world_min_x, y: transform.world_min_y };
+    }
+    return {
+      x: Math.round((transform.world_min_x + (px / transform.image_width) * spanX) * 100) / 100,
+      y:
+        Math.round(
+          (transform.world_min_y +
+            ((transform.image_height - py) / transform.image_height) * spanY) *
+            100
+        ) / 100,
+    };
+  }
+
+  function transformSnippet(mapName, transform) {
+    if (!transform) {
+      return "";
+    }
+    var key = (mapName || "_default").trim().toLowerCase() || "_default";
+    return (
+      '    "' +
+      key +
+      '": {\n' +
+      '      "image_url": "' +
+      (transform.image_url || "maps/placeholder.png") +
+      '",\n' +
+      '      "world_min_x": ' +
+      transform.world_min_x +
+      ",\n" +
+      '      "world_max_x": ' +
+      transform.world_max_x +
+      ",\n" +
+      '      "world_min_y": ' +
+      transform.world_min_y +
+      ",\n" +
+      '      "world_max_y": ' +
+      transform.world_max_y +
+      ",\n" +
+      '      "image_width": ' +
+      transform.image_width +
+      ",\n" +
+      '      "image_height": ' +
+      transform.image_height +
+      "\n" +
+      "    }"
+    );
+  }
+
+  function imageDisplayRect(container, imageWidth, imageHeight) {
+    var cw = container.clientWidth || 512;
+    var ch = container.clientHeight || 512;
+    var iw = imageWidth || 512;
+    var ih = imageHeight || 512;
+    var scale = Math.min(cw / iw, ch / ih);
+    var dw = iw * scale;
+    var dh = ih * scale;
+    return {
+      offsetX: (cw - dw) / 2,
+      offsetY: (ch - dh) / 2,
+      scale: scale,
+      width: dw,
+      height: dh,
+      imageWidth: iw,
+      imageHeight: ih,
+    };
+  }
+
+  function pixelToDisplay(rect, pixel) {
+    return {
+      x: rect.offsetX + pixel.x * rect.scale,
+      y: rect.offsetY + pixel.y * rect.scale,
+    };
+  }
+
+  function displayToPixel(rect, displayX, displayY) {
+    return {
+      x: (displayX - rect.offsetX) / rect.scale,
+      y: (displayY - rect.offsetY) / rect.scale,
+    };
+  }
+
+  function fromCenter(centerX, centerY, spanX, spanY, imageWidth, imageHeight, imageUrl, mapName) {
+    return {
+      map_name: mapName,
+      image_url: imageUrl || "maps/placeholder.png",
+      world_min_x: centerX - spanX / 2,
+      world_max_x: centerX + spanX / 2,
+      world_min_y: centerY - spanY / 2,
+      world_max_y: centerY + spanY / 2,
+      image_width: imageWidth || 512,
+      image_height: imageHeight || 512,
+    };
+  }
+
+  function toCenter(transform) {
+    if (!transform) {
+      return { center_x: 0, center_y: 0, span_x: 8192, span_y: 8192 };
+    }
+    return {
+      center_x: (transform.world_min_x + transform.world_max_x) / 2,
+      center_y: (transform.world_min_y + transform.world_max_y) / 2,
+      span_x: transform.world_max_x - transform.world_min_x,
+      span_y: transform.world_max_y - transform.world_min_y,
     };
   }
 
@@ -105,6 +230,13 @@
     loadTransforms: loadTransforms,
     getTransform: getTransform,
     worldToPixel: worldToPixel,
+    pixelToWorld: pixelToWorld,
+    transformSnippet: transformSnippet,
+    fromCenter: fromCenter,
+    toCenter: toCenter,
+    imageDisplayRect: imageDisplayRect,
+    pixelToDisplay: pixelToDisplay,
+    displayToPixel: displayToPixel,
     prepareMapPayload: prepareMapPayload,
     resolveImageUrl: resolveImageUrl,
     assetUrl: assetUrl,

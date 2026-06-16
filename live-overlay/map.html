@@ -7,15 +7,44 @@
     <link rel="stylesheet" href="overlay.css" />
   </head>
   <body class="overlay-body map-body">
-    <div id="map-wrap" class="map-wrap hidden">
-      <img id="map-image" alt="map" />
-      <div id="map-players"></div>
+    <div class="map-layout">
+      <div class="map-main">
+        <div id="map-wrap" class="map-wrap hidden">
+          <img id="map-image" alt="map" />
+          <div id="map-calib" class="map-calib hidden" aria-hidden="true">
+            <div class="map-calib-box">
+              <svg id="map-calib-grid" class="map-calib-grid" aria-hidden="true"></svg>
+              <div class="map-calib-move" title="Drag = offset · Wheel = scale"></div>
+            </div>
+          </div>
+          <div id="map-spawn-threshold" class="map-spawn-layer" aria-hidden="true"></div>
+          <div id="map-spawns" class="map-spawn-layer" aria-hidden="true"></div>
+          <div id="map-spawn-ref" class="map-spawn-ref" aria-hidden="true"></div>
+          <div id="map-spawn-cursor" class="map-spawn-cursor hidden" aria-hidden="true"></div>
+          <div id="map-players"></div>
+          <div id="map-killfeed" class="map-killfeed" aria-live="polite"></div>
+          <button
+            type="button"
+            id="map-spawns-toggle"
+            class="map-spawns-toggle hidden"
+            title="Map overlay settings"
+            aria-label="Map overlay settings"
+          >
+            Settings
+          </button>
+        </div>
+        <div id="map-meta" class="map-meta"></div>
+        <div id="status" class="status"></div>
+      </div>
+      <aside id="map-debug" class="map-debug hidden" aria-label="Map calibration debug"></aside>
+      <aside id="map-spawns-panel" class="map-spawns-panel hidden" aria-label="Map overlay settings"></aside>
     </div>
-    <div id="map-meta" class="map-meta"></div>
-    <div id="status" class="status"></div>
     <script src="map-coords.js"></script>
     <script src="overlay.js"></script>
+    <script src="map-debug.js"></script>
+    <script src="map-spawns.js"></script>
     <script>
+      MapSpawns.init();
       OverlayApp.initMap();
     </script>
   </body>
