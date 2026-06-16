@@ -204,6 +204,7 @@
   var cachedTransform = null;
   var currentImageSrc = "";
   var mapImageLoaded = false;
+  var lastMapContext = { map_name: null, gametype: null };
   var mapMotion = {
     byId: {},
     loopId: 0,
@@ -214,6 +215,53 @@
   };
 
   var mapKillFeed = [];
+  var mapPickupFeed = [];
+
+  var PICKUP_LABELS = {
+    item_armor_body: "RA",
+    item_armor_combat: "YA",
+    item_armor_shard: "Shard",
+    item_health_mega: "Mega",
+    item_health_large: "50hp",
+    item_health: "25hp",
+    item_quad: "Quad",
+    item_regen: "Regen",
+    item_haste: "Haste",
+    item_enviro: "BS",
+    item_invis: "Invis",
+    item_invulnerability: "Invuln",
+  };
+
+  function pickupLabel(item) {
+    return PICKUP_LABELS[item] || String(item || "item").replace(/^item_/, "");
+  }
+
+  function pushPickupFeed(entry) {
+    mapPickupFeed.unshift(entry);
+    if (mapPickupFeed.length > 4) mapPickupFeed.length = 4;
+    renderPickupFeed();
+  }
+
+  function renderPickupFeed() {
+    var el = document.getElementById("map-pickups");
+    if (!el) return;
+    el.innerHTML = "";
+    for (var i = 0; i < mapPickupFeed.length; i++) {
+      var row = mapPickupFeed[i];
+      var line = document.createElement("div");
+      line.className = "map-pickup-line";
+      var who = stripQuakeColors(row.nickname || row.steam_id64 || "?");
+      line.textContent = who + " · " + pickupLabel(row.item);
+      el.appendChild(line);
+    }
+  }
+
+  function handlePickupEvent(data) {
+    pushPickupFeed(data);
+    if (typeof console !== "undefined" && console.info) {
+      console.info("[overlay] pickup", data);
+    }
+  }
 
   function pushKillFeed(entry) {
     mapKillFeed.unshift(entry);
@@ -299,7 +347,29 @@
   }
 
   function playerMotionId(p, index) {
-    return String(p.steam_id64 || p.nickname || "p" + index);
+    if (p.steam_id64 != null && String(p.steam_id64).trim() !== "") {
+      return String(p.steam_id64).trim();
+    }
+    return String(p.nickname || "p" + index);
+  }
+
+  function normalizePlayersList(raw) {
+    if (!raw) return [];
+    return Array.isArray(raw) ? raw : [];
+  }
+
+  function prunePlayerMarkers(layer, seen) {
+    for (var key in mapMotion.byId) {
+      if (seen[key]) continue;
+      var gone = mapMotion.byId[key];
+      if (gone.el && gone.el.marker && gone.el.marker.parentNode) {
+        gone.el.marker.parentNode.removeChild(gone.el.marker);
+      }
+      delete mapMotion.byId[key];
+    }
+    if (!Object.keys(mapMotion.byId).length) {
+      stopMotionLoop();
+    }
   }
 
   function stopMotionLoop() {
@@ -462,14 +532,21 @@
     var layer = document.getElementById("map-players");
     var wrap = document.getElementById("map-wrap");
     var meta = document.getElementById("map-meta");
-    if (!layer || !wrap) return;
+    if (!layer) return;
+
+    var players = normalizePlayersList(payload.players);
+    var seen = {};
+    for (var i = 0; i < players.length; i++) {
+      var probe = players[i];
+      if (probe.x == null || probe.y == null) continue;
+      seen[playerMotionId(probe, i)] = true;
+    }
+    prunePlayerMarkers(layer, seen);
 
     var transform = payload.transform || cachedTransform;
-    if (!transform) return;
+    if (!transform || !wrap) return;
     mapMotion.renderTransform = transform;
 
-    var players = payload.players || [];
-    var seen = {};
     if (payload.transform && payload.transform.world_z_span != null) {
       mapMotion.zSpanMin =
         Number(payload.transform.world_z_span) || mapMotion.zSpanMin;
@@ -484,7 +561,6 @@
       var p = players[i];
       if (p.x == null || p.y == null) continue;
       var id = playerMotionId(p, i);
-      seen[id] = true;
       var target = {
         x: Number(p.x),
         y: Number(p.y),
@@ -505,16 +581,6 @@
         if (instant) {
           st.display = cloneWorldPose(target);
         }
-      }
-    }
-
-    for (var key in mapMotion.byId) {
-      if (!seen[key]) {
-        var gone = mapMotion.byId[key];
-        if (gone.el.marker && gone.el.marker.parentNode) {
-          gone.el.marker.parentNode.removeChild(gone.el.marker);
-        }
-        delete mapMotion.byId[key];
       }
     }
 
@@ -610,12 +676,23 @@
       setStatus("map-coords.js missing", true);
       return;
     }
+    if (data.map_name) {
+      lastMapContext.map_name = data.map_name;
+    } else if (lastMapContext.map_name) {
+      data.map_name = lastMapContext.map_name;
+    }
+    if (data.gametype != null && data.gametype !== "") {
+      lastMapContext.gametype = data.gametype;
+    }
+
     var prepared = await MapCoords.prepareMapPayload(
       data.map_name,
-      data.players || [],
+      normalizePlayersList(data.players),
     );
     var merged = Object.assign({}, data, prepared);
-    if (data.gametype != null) merged.gametype = data.gametype;
+    if (merged.gametype == null || merged.gametype === "") {
+      merged.gametype = lastMapContext.gametype;
+    }
     if (
       window.MapDebug &&
       typeof window.MapDebug.applyTransform === "function"
@@ -768,6 +845,8 @@
               });
             } else if (data.event === "death") {
               handleDeathEvent(data);
+            } else if (data.event === "pickup") {
+              handlePickupEvent(data);
             }
           };
           ws.onclose = function () {

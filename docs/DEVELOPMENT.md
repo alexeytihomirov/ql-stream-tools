@@ -5,7 +5,11 @@
 | Path | Purpose |
 |------|---------|
 | `stream-overlay/` | Tournament popup (CDN config today; target WS) |
+| `stream-overlay/docs.html` | Operator documentation (stream + live overlays) |
 | `live-overlay/` | **Target** home for scoreboard, map, matches (migrate from stats-hub) |
+| `player-guide/` | Public HTML: tournament regulations, network cvars, timeNudge |
+| `docs/TOURNAMENT-REGULATIONS.md` | Generic technical rules + pointer to event SoT |
+| `docs/tournaments/*.md` | Links to `ql-public-data/tournaments/{slug}/regulations.md` |
 
 ## Stack
 
@@ -38,7 +42,7 @@ Default branch: `main`.
 
 ## Skill
 
-`.cursor/skills/ql-stream-tools/SKILL.md`
+`skills/ql-stream-tools/SKILL.md`
 
 ## Before PR
 

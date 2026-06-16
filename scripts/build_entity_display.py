@@ -1,13 +1,20 @@
 #!/usr/bin/env python3
-"""Build / merge entity-display.json from extracted entities + ql-spawns duel pools."""
+"""Build / merge entity-display.json from extracted map entities.
+
+Layer semantics (overlay):
+- all_dm_spawns: every info_player_deathmatch on the map — static neutral dots, no
+  green/red duel classification.
+- duel_spawns: the same DM spawn points, but the duel algorithm (Chebyshev distance
+  from anchor, middle_val rejects the closest N, green = active pool / red = rejected).
+  In QL duel only a subset of DM spawns are used per respawn wave; middle_val defaults
+  to floor(n/2) over the full extracted spawn count.
+"""
 from __future__ import annotations
 
 import argparse
 import json
 import sys
 from pathlib import Path
-
-from map_entities_lib import match_coords
 
 ITEM_FILTER = {
     "classname": [
@@ -27,20 +34,15 @@ def auto_middle_val(spawn_count: int) -> int:
     return spawn_count // 2
 
 
-def duel_layer(map_name: str, entity_ids: list[int], middle_val: int | None) -> dict:
-    layer: dict = {
+def duel_layer(middle_val: int | None) -> dict:
+    return {
         "id": "duel_spawns",
         "label": "Duel spawn pool",
         "mode": "duel",
-        "filter": {
-            "classname": "info_player_deathmatch",
-            "entity_ids": entity_ids,
-        },
+        "filter": {"classname": "info_player_deathmatch"},
         "default": True,
+        **({"middle_val": middle_val} if middle_val is not None else {}),
     }
-    if middle_val is not None:
-        layer["middle_val"] = middle_val
-    return layer
 
 
 def items_layer() -> dict:
@@ -91,12 +93,6 @@ def main() -> int:
         default=repo / "live-overlay" / "maps" / "entities",
     )
     parser.add_argument(
-        "--spawns-dir",
-        type=Path,
-        default=repo / "live-overlay" / "maps" / "spawns",
-        help="Legacy ql-spawns JSON (duel coords + middle_val)",
-    )
-    parser.add_argument(
         "--output",
         type=Path,
         default=repo / "live-overlay" / "maps" / "entity-display.json",
@@ -136,21 +132,17 @@ def main() -> int:
         ent_data = json.loads(ent_path.read_text(encoding="utf-8"))
         entities = ent_data.get("entities") or []
 
-        layers = [items_layer(), all_spawns_layer(), teleport_exit_layer(), teleport_entrance_layer()]
-        spawn_path = args.spawns_dir / f"{map_name}.json"
-        if spawn_path.is_file():
-            spawn_data = json.loads(spawn_path.read_text(encoding="utf-8"))
-            coords = spawn_data.get("spawns") or []
-            middle_val = spawn_data.get("middle_val")
-            if coords:
-                try:
-                    entity_ids = match_coords(entities, coords)
-                except ValueError as exc:
-                    print(f"warn: {map_name}: {exc}", file=sys.stderr)
-                    entity_ids = []
-                if entity_ids:
-                    mv = int(middle_val) if middle_val is not None else auto_middle_val(len(entity_ids))
-                    layers.insert(0, duel_layer(map_name, entity_ids, mv))
+        dm_count = sum(
+            1 for ent in entities if ent.get("classname") == "info_player_deathmatch"
+        )
+        layers = [
+            items_layer(),
+            all_spawns_layer(),
+            teleport_exit_layer(),
+            teleport_entrance_layer(),
+        ]
+        if dm_count:
+            layers.insert(0, duel_layer(auto_middle_val(dm_count)))
 
         display["maps"][map_name] = {"layers": layers}
 

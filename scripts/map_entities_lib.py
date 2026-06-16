@@ -8,6 +8,13 @@ from pathlib import Path
 
 _PAIR = re.compile(r'"([^"]+)"\s+"([^"]*)"')
 _ENTITY_MARKER = re.compile(r"// entity (\d+)\s*\r?\n")
+# Three world-space points per brush plane (ignore texture coordinate tuples).
+_BRUSH_PLANE = re.compile(
+    r"\(\s*([-\d.]+)\s+([-\d.]+)\s+([-\d.]+)\s*\)"
+    r"\s*\(\s*([-\d.]+)\s+([-\d.]+)\s+([-\d.]+)\s*\)"
+    r"\s*\(\s*([-\d.]+)\s+([-\d.]+)\s+([-\d.]+)\s*\)",
+    re.MULTILINE,
+)
 
 # Overlay-relevant defaults; extract keeps every entity with origin.
 ITEM_CLASS_PREFIXES = ("weapon_", "item_", "ammo_")
@@ -55,12 +62,12 @@ def _brace_block(text: str, start: int = 0) -> tuple[str, int] | None:
     return None
 
 
-def parse_entity_blocks(text: str) -> list[tuple[int, dict[str, str]]]:
+def parse_entity_blocks(text: str) -> list[tuple[int, dict[str, str], str]]:
     markers = list(_ENTITY_MARKER.finditer(text))
     if not markers:
         return []
 
-    out: list[tuple[int, dict[str, str]]] = []
+    out: list[tuple[int, dict[str, str], str]] = []
     for idx, match in enumerate(markers):
         ent_id = int(match.group(1))
         body_start = match.end()
@@ -72,25 +79,33 @@ def parse_entity_blocks(text: str) -> list[tuple[int, dict[str, str]]]:
         inner, _ = block
         pairs = dict(_PAIR.findall(inner))
         if pairs:
-            out.append((ent_id, pairs))
+            out.append((ent_id, pairs, chunk))
     return out
 
 
-def entity_row(ent_id: int, pairs: dict[str, str]) -> dict | None:
-    origin = pairs.get("origin")
-    if not origin:
+def brush_centroid(chunk: str) -> tuple[float, float, float] | None:
+    """Approximate center of a brushDef volume from its plane corner points."""
+    points: list[tuple[float, float, float]] = []
+    for match in _BRUSH_PLANE.finditer(chunk):
+        for group in (1, 4, 7):
+            points.append(
+                (float(match.group(group)), float(match.group(group + 1)), float(match.group(group + 2)))
+            )
+    if not points:
         return None
-    try:
-        x, y, z = (float(v) for v in origin.split())
-    except ValueError:
-        return None
+    xs = [p[0] for p in points]
+    ys = [p[1] for p in points]
+    zs = [p[2] for p in points]
+    return (sum(xs) / len(xs), sum(ys) / len(ys), sum(zs) / len(zs))
 
+
+def _entity_attrs(pairs: dict[str, str]) -> dict[str, str]:
+    return {k: v for k, v in pairs.items() if k not in {"classname", "origin"}}
+
+
+def entity_row(ent_id: int, pairs: dict[str, str], *, x: float, y: float, z: float) -> dict:
     classname = pairs.get("classname", "")
-    attrs = {
-        k: v
-        for k, v in pairs.items()
-        if k not in {"classname", "origin"}
-    }
+    attrs = _entity_attrs(pairs)
     row: dict = {
         "id": ent_id,
         "classname": classname,
@@ -103,12 +118,35 @@ def entity_row(ent_id: int, pairs: dict[str, str]) -> dict | None:
     return row
 
 
+def entity_row_from_pairs(ent_id: int, pairs: dict[str, str]) -> dict | None:
+    origin = pairs.get("origin")
+    if not origin:
+        return None
+    try:
+        x, y, z = (float(v) for v in origin.split())
+    except ValueError:
+        return None
+    return entity_row(ent_id, pairs, x=x, y=y, z=z)
+
+
 def entities_from_map_text(text: str) -> list[dict]:
+    """Extract overlay entities: origin-based points + brush trigger_teleport centroids.
+
+    trigger_push / jumppads are intentionally omitted (not overlay markers).
+    """
     rows: list[dict] = []
-    for ent_id, pairs in parse_entity_blocks(text):
-        row = entity_row(ent_id, pairs)
+    for ent_id, pairs, chunk in parse_entity_blocks(text):
+        classname = pairs.get("classname", "")
+        row = entity_row_from_pairs(ent_id, pairs)
         if row:
             rows.append(row)
+            continue
+        if classname not in TELEPORT_TRIGGER_CLASSNAMES:
+            continue
+        centroid = brush_centroid(chunk)
+        if not centroid:
+            continue
+        rows.append(entity_row(ent_id, pairs, x=centroid[0], y=centroid[1], z=centroid[2]))
     return rows
 
 
@@ -266,6 +304,8 @@ def build_teleport_graph(entities: list[dict]) -> dict:
             exits.append(ent)
 
     for ent in entities:
+        if ent.get("classname") not in TELEPORT_TRIGGER_CLASSNAMES:
+            continue
         attrs = ent.get("attrs") or {}
         target_key = attrs.get("target")
         if not target_key:

@@ -73,7 +73,10 @@
   }
 
   function playerMotionId(p, index) {
-    return String(p.steam_id64 || p.nickname || "p" + index);
+    if (p.steam_id64 != null && String(p.steam_id64).trim() !== "") {
+      return String(p.steam_id64).trim();
+    }
+    return String(p.nickname || "p" + index);
   }
 
   function playerDisplayName(p, index) {
@@ -136,9 +139,20 @@
   }
 
   function normalizeGametype(gt) {
-    return String(gt || "")
+    var g = String(gt || "")
       .trim()
       .toLowerCase();
+    if (!g) return "";
+    if (g === "1v1" || g === "1on1" || g === "oneonone" || g === "one_on_one") {
+      return "duel";
+    }
+    if (g === "ffa" || g === "freeforall" || g === "free_for_all") {
+      return "dm";
+    }
+    if (g === "tourney" || g === "tournament") {
+      return "duel";
+    }
+    return g;
   }
 
   function entityMatchesGametype(ent, gametype) {
@@ -182,8 +196,20 @@
     misc_teleporter: true,
   };
 
+  var HIDDEN_ENTITY_CLASSNAMES = {
+    trigger_push: true,
+  };
+
   function isTeleportExit(ent) {
     return !!(ent && TELEPORT_EXIT_CLASSNAMES[ent.classname]);
+  }
+
+  function isTeleportEntrance(ent) {
+    return !!(ent && TELEPORT_ENTRANCE_CLASSNAMES[ent.classname]);
+  }
+
+  function isHiddenEntity(ent) {
+    return !!(ent && HIDDEN_ENTITY_CLASSNAMES[ent.classname]);
   }
 
   function buildTeleportGraph(entities) {
@@ -198,6 +224,7 @@
     }
     for (var j = 0; j < entities.length; j++) {
       var src = entities[j];
+      if (!isTeleportEntrance(src)) continue;
       var srcAttrs = src.attrs || {};
       var targetKey = srcAttrs.target;
       if (!targetKey) continue;
@@ -248,6 +275,7 @@
     this.transform = null;
     this.players = [];
     this.gametype = null;
+    this.lastGametype = null;
     this.cursorWorld = null;
     this.layer = null;
     this.thresholdEl = null;
@@ -438,6 +466,7 @@
     var filterGametype = !layer || layer.gametype_filter !== false;
     for (var i = 0; i < entities.length; i++) {
       var ent = entities[i];
+      if (isHiddenEntity(ent)) continue;
       if (filterGametype && !entityMatchesGametype(ent, this.gametype)) continue;
       if (entityMatchesFilter(ent, layer.filter)) out.push(ent);
     }
@@ -578,6 +607,8 @@
   };
 
   MapSpawns.prototype.renderDuelLayer = function (layer, entities) {
+    // Duel spawn pool: same info_player_deathmatch points as all_dm_spawns, but
+    // classifySpawns marks green (active pool) vs red (rejected) from anchor.
     var ref = this.referenceWorld();
     if (!ref) return;
 
@@ -670,6 +701,7 @@
         anyDuel = true;
         this.renderDuelLayer(layer, entities);
       } else {
+        // all_dm_spawns and items: static markers (no green/red duel logic).
         this.renderStaticLayer(layer, entities, styles);
       }
     }
@@ -722,8 +754,11 @@
 
   MapSpawns.prototype.onMapPayload = function (payload) {
     this.transform = payload.transform || null;
-    this.players = payload.players || [];
-    this.gametype = payload.gametype || null;
+    this.players = Array.isArray(payload.players) ? payload.players : [];
+    if (payload.gametype != null && payload.gametype !== "") {
+      this.lastGametype = payload.gametype;
+    }
+    this.gametype = this.lastGametype || null;
     var mapName = (payload.map_name || "").trim().toLowerCase();
     var resolvedId = this.resolveReferencePlayerId();
     if (resolvedId && resolvedId !== this.settings.referencePlayerId) {
@@ -909,7 +944,7 @@
     panel.innerHTML =
       '<header class="map-spawns-head">' +
       "<h2>Settings</h2>" +
-      '<p class="map-spawns-hint">Map entities · duel spawn pool · item layers via <code>maps/entity-display.json</code></p>' +
+      '<p class="map-spawns-hint">Map entities · duel spawn pool (green/red) vs all DM spawns (static) · items filtered by gametype</p>' +
       "</header>" +
       '<section class="map-spawns-section">' +
       '<label class="dbg-toggle"><input type="checkbox" id="spawn-enabled" /> Show overlay</label>' +

@@ -34,19 +34,7 @@
           "label": "Duel spawn pool",
           "mode": "duel",
           "filter": {
-            "classname": "info_player_deathmatch",
-            "entity_ids": [
-              13,
-              26,
-              30,
-              31,
-              33,
-              36,
-              56,
-              144,
-              146,
-              147
-            ]
+            "classname": "info_player_deathmatch"
           },
           "default": true,
           "middle_val": 5
@@ -92,6 +80,16 @@
     },
     "tortured": {
       "layers": [
+        {
+          "id": "duel_spawns",
+          "label": "Duel spawn pool",
+          "mode": "duel",
+          "filter": {
+            "classname": "info_player_deathmatch"
+          },
+          "default": true,
+          "middle_val": 4
+        },
         {
           "id": "items",
           "label": "Items, weapons, ammo",

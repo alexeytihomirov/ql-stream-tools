@@ -1,7 +1,7 @@
 {
   "map_name": "bloodrun",
   "source": "d:\\QuakeLiveData\\pak00\\maps\\bloodrun_converted.map",
-  "entity_count": 147,
+  "entity_count": 149,
   "entities": [
     {
       "id": 1,
@@ -304,6 +304,16 @@
       }
     },
     {
+      "id": 37,
+      "classname": "trigger_teleport",
+      "x": 668.4444444444445,
+      "y": -1299.5555555555557,
+      "z": 88.88888888888889,
+      "attrs": {
+        "target": "t4"
+      }
+    },
+    {
       "id": 38,
       "classname": "target_position",
       "x": -576.0,
@@ -357,6 +367,16 @@
       "attrs": {
         "targetname": "t1",
         "angle": "180"
+      }
+    },
+    {
+      "id": 46,
+      "classname": "trigger_teleport",
+      "x": -275.55555555555554,
+      "y": 156.44444444444446,
+      "z": 76.44444444444444,
+      "attrs": {
+        "target": "t1"
       }
     },
     {
@@ -1556,6 +1576,10 @@
     "weapon_rocketlauncher": [
       35
     ],
+    "trigger_teleport": [
+      37,
+      46
+    ],
     "target_position": [
       38,
       39,
@@ -1598,6 +1622,42 @@
       153,
       154,
       155
+    ]
+  },
+  "teleports": {
+    "exit_count": 4,
+    "pair_count": 2,
+    "pairs": [
+      {
+        "entrance_id": 37,
+        "exit_id": 38,
+        "entrance_classname": "trigger_teleport",
+        "exit_classname": "target_position"
+      },
+      {
+        "entrance_id": 46,
+        "exit_id": 45,
+        "entrance_classname": "trigger_teleport",
+        "exit_classname": "target_position"
+      }
+    ],
+    "exits": [
+      {
+        "id": 38,
+        "classname": "target_position"
+      },
+      {
+        "id": 39,
+        "classname": "target_position"
+      },
+      {
+        "id": 43,
+        "classname": "target_position"
+      },
+      {
+        "id": 45,
+        "classname": "target_position"
+      }
     ]
   }
 }
