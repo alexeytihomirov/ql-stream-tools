@@ -11,10 +11,11 @@
     },
     "bloodrun": {
       "image_url": "maps/bloodrun.png",
-      "world_min_x": -3200,
-      "world_max_x": 1600,
-      "world_min_y": -2400,
-      "world_max_y": 2400,
+      "world_min_x": -1142,
+      "world_max_x": 1654,
+      "world_min_y": -1676,
+      "world_max_y": 1120,
+      "world_z_span": 280,
       "image_width": 512,
       "image_height": 512
     },

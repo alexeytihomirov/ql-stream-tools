@@ -5,7 +5,9 @@
 
   function qs(name, fallback) {
     var params = new URLSearchParams(window.location.search);
-    return params.get(name) || fallback || "";
+    if (!params.has(name)) return fallback || "";
+    var v = params.get(name);
+    return v === null ? fallback || "" : v;
   }
 
   function apiBase() {
@@ -34,6 +36,20 @@
 
   function mapPollMs() {
     return Math.max(500, Number(qs("poll", "100")) || 100);
+  }
+
+  function mapSmoothEnabled() {
+    var v = String(qs("smooth", "1")).toLowerCase();
+    return v !== "0" && v !== "false" && v !== "off";
+  }
+
+  function mapSmoothMs() {
+    return Math.max(40, Math.min(800, Number(qs("smooth_ms", "180")) || 180));
+  }
+
+  function mapSmoothAlpha() {
+    // Per-frame blend (~60fps); higher smooth_ms = slower catch-up.
+    return 1 - Math.exp(-16.67 / mapSmoothMs());
   }
 
   function useWebSocket() {
@@ -175,6 +191,248 @@
   var cachedTransform = null;
   var currentImageSrc = "";
   var mapImageLoaded = false;
+  var mapMotion = { byId: {}, loopId: 0, renderTransform: null, zFloor: null, zSpan: 220 };
+
+  function stripQuakeColors(text) {
+    return String(text || "")
+      .replace(/\^[0-9a-zA-Z]/g, "")
+      .trim();
+  }
+
+  function fmtCoord(v) {
+    if (v == null) return "?";
+    return Math.round(Number(v) * 10) / 10;
+  }
+
+  function lerpNum(a, b, t) {
+    return a + (b - a) * t;
+  }
+
+  function lerpYaw(a, b, t) {
+    var delta = ((b - a + 540) % 360) - 180;
+    return a + delta * t;
+  }
+
+  function cloneWorldPose(p) {
+    return {
+      x: p.x,
+      y: p.y,
+      z: p.z != null ? p.z : null,
+      yaw: p.yaw != null ? p.yaw : null,
+    };
+  }
+
+  function noteZFloor(z) {
+    if (z == null || !isFinite(Number(z))) return;
+    var v = Number(z);
+    if (mapMotion.zFloor == null || v < mapMotion.zFloor) {
+      mapMotion.zFloor = v;
+    }
+  }
+
+  function dotSizeFromZ(z) {
+    var base = 8;
+    var extra = 12;
+    if (z == null) return base;
+    var floor = mapMotion.zFloor;
+    if (floor == null) return base;
+    var rise = Number(z) - floor;
+    var span = mapMotion.zSpan || 220;
+    if (span < 32) span = 32;
+    var t = Math.max(0, Math.min(1, rise / span));
+    return base + t * extra;
+  }
+
+  function playerMotionId(p, index) {
+    return String(p.steam_id64 || p.nickname || "p" + index);
+  }
+
+  function stopMotionLoop() {
+    if (mapMotion.loopId) {
+      cancelAnimationFrame(mapMotion.loopId);
+      mapMotion.loopId = 0;
+    }
+  }
+
+  function clearMapMotion() {
+    stopMotionLoop();
+    for (var id in mapMotion.byId) {
+      var st = mapMotion.byId[id];
+      if (st.el.marker && st.el.marker.parentNode) st.el.marker.parentNode.removeChild(st.el.marker);
+    }
+    mapMotion.byId = {};
+    mapMotion.renderTransform = null;
+    mapMotion.zFloor = null;
+  }
+
+  function playerLabelText(p) {
+    return stripQuakeColors(p.nickname || p.steam_id64 || "");
+  }
+
+  function createPlayerElements(layer, p) {
+    var marker = document.createElement("div");
+    marker.className = "map-marker";
+    var label = document.createElement("div");
+    label.className = "map-label";
+    var labelText = playerLabelText(p);
+    label.textContent = labelText;
+    if (!labelText) label.style.display = "none";
+    var dot = document.createElement("div");
+    dot.className = "map-dot";
+    var view = document.createElement("div");
+    view.className = "map-view";
+    view.setAttribute("aria-hidden", "true");
+    marker.appendChild(label);
+    marker.appendChild(dot);
+    marker.appendChild(view);
+    layer.appendChild(marker);
+    marker.title =
+      playerLabelText(p) + " (" + fmtCoord(p.x) + ", " + fmtCoord(p.y) + ", z " + fmtCoord(p.z) + ")";
+    return { marker: marker, label: label, dot: dot, view: view };
+  }
+
+  function updatePlayerTitle(el, p) {
+    if (!el || !el.marker) return;
+    var text = playerLabelText(p);
+    if (el.label) {
+      el.label.textContent = text;
+      el.label.style.display = text ? "" : "none";
+    }
+    el.marker.title =
+      text + " (" + fmtCoord(p.x) + ", " + fmtCoord(p.y) + ", z " + fmtCoord(p.z) + ")";
+  }
+
+  function placePlayerElement(el, pos, yaw, dotSize) {
+    if (!el || !el.marker) return;
+    el.marker.style.left = pos.x + "px";
+    el.marker.style.top = pos.y + "px";
+    var size = dotSize != null ? dotSize : 8;
+    el.dot.style.width = size + "px";
+    el.dot.style.height = size + "px";
+    if (yaw != null && !isNaN(yaw) && el.view) {
+      el.view.style.display = "";
+      el.view.style.transform = "rotate(" + (-yaw + 90) + "deg)";
+    } else if (el.view) {
+      el.view.style.display = "none";
+    }
+  }
+
+  function worldToDisplayPos(transform, wrap, x, y) {
+    if (!transform || !wrap || !window.MapCoords) return null;
+    var pixel = MapCoords.worldToPixel(transform, x, y);
+    var rect = MapCoords.imageDisplayRect(wrap, transform.image_width, transform.image_height);
+    return MapCoords.pixelToDisplay(rect, pixel);
+  }
+
+  function ensureMotionLoop() {
+    if (mapMotion.loopId) return;
+
+    function frame() {
+      var wrap = document.getElementById("map-wrap");
+      var transform = mapMotion.renderTransform || cachedTransform;
+      if (!wrap || !transform || !window.MapCoords) {
+        mapMotion.loopId = 0;
+        return;
+      }
+
+      var ids = Object.keys(mapMotion.byId);
+      if (!ids.length) {
+        mapMotion.loopId = 0;
+        return;
+      }
+
+      var smooth = mapSmoothEnabled();
+      var alpha = smooth ? mapSmoothAlpha() : 1;
+
+      for (var i = 0; i < ids.length; i++) {
+        var st = mapMotion.byId[ids[i]];
+        var d = st.display;
+        var tg = st.target;
+        d.x = lerpNum(d.x, tg.x, alpha);
+        d.y = lerpNum(d.y, tg.y, alpha);
+        if (tg.z != null) {
+          d.z = d.z == null ? tg.z : lerpNum(d.z, tg.z, alpha);
+        } else {
+          d.z = null;
+        }
+        if (tg.yaw != null) {
+          d.yaw = d.yaw == null ? tg.yaw : lerpYaw(d.yaw, tg.yaw, alpha);
+        } else {
+          d.yaw = null;
+        }
+        var pos = worldToDisplayPos(transform, wrap, d.x, d.y);
+        if (pos) placePlayerElement(st.el, pos, d.yaw, dotSizeFromZ(d.z));
+      }
+
+      mapMotion.loopId = requestAnimationFrame(frame);
+    }
+
+    mapMotion.loopId = requestAnimationFrame(frame);
+  }
+
+  function setMapSnapshot(payload, opts) {
+    opts = opts || {};
+    var instant = !!opts.instant || !mapSmoothEnabled();
+    var layer = document.getElementById("map-players");
+    var wrap = document.getElementById("map-wrap");
+    var meta = document.getElementById("map-meta");
+    if (!layer || !wrap) return;
+
+    var transform = payload.transform || cachedTransform;
+    if (!transform) return;
+    mapMotion.renderTransform = transform;
+
+    var players = payload.players || [];
+    var seen = {};
+    if (payload.transform && payload.transform.world_z_span != null) {
+      mapMotion.zSpan = Number(payload.transform.world_z_span) || mapMotion.zSpan;
+    }
+
+    for (var i = 0; i < players.length; i++) {
+      var p = players[i];
+      if (p.x == null || p.y == null) continue;
+      noteZFloor(p.z != null ? Number(p.z) : null);
+      var id = playerMotionId(p, i);
+      seen[id] = true;
+      var target = {
+        x: Number(p.x),
+        y: Number(p.y),
+        z: p.z != null ? Number(p.z) : null,
+        yaw: p.yaw != null ? Number(p.yaw) : null,
+      };
+
+      var st = mapMotion.byId[id];
+      if (!st) {
+        st = mapMotion.byId[id] = {
+          el: createPlayerElements(layer, p),
+          display: cloneWorldPose(target),
+          target: cloneWorldPose(target),
+        };
+      } else {
+        updatePlayerTitle(st.el, p);
+        st.target = cloneWorldPose(target);
+        if (instant) {
+          st.display = cloneWorldPose(target);
+        }
+      }
+    }
+
+    for (var key in mapMotion.byId) {
+      if (!seen[key]) {
+        var gone = mapMotion.byId[key];
+        if (gone.el.marker && gone.el.marker.parentNode) {
+          gone.el.marker.parentNode.removeChild(gone.el.marker);
+        }
+        delete mapMotion.byId[key];
+      }
+    }
+
+    if (meta) {
+      meta.textContent = [payload.map_name, players.length + " players"].join(" · ");
+    }
+
+    ensureMotionLoop();
+  }
 
   function mapKey(payload) {
     var t = payload.transform;
@@ -201,6 +459,10 @@
 
     var url = resolveImageUrl(transform);
     if (key !== cachedMapKey || url !== currentImageSrc) {
+      if (key !== cachedMapKey) {
+        clearMapMotion();
+        mapMotion.zFloor = null;
+      }
       cachedMapKey = key;
       cachedTransform = transform;
       if (url && url !== currentImageSrc) {
@@ -212,46 +474,29 @@
   }
 
   function applyMapDots(payload) {
-    var layer = document.getElementById("map-players");
-    var wrap = document.getElementById("map-wrap");
-    var meta = document.getElementById("map-meta");
-    if (!layer || !wrap) return;
+    setMapSnapshot(payload, { instant: false });
+  }
 
-    var transform = payload.transform || cachedTransform;
-    layer.innerHTML = "";
-
-    var scaleX = wrap.clientWidth / (transform && transform.image_width ? transform.image_width : 512);
-    var scaleY = wrap.clientHeight / (transform && transform.image_height ? transform.image_height : 512);
-
-    var players = payload.players || [];
-    for (var i = 0; i < players.length; i++) {
-      var p = players[i];
-      if (!p.pixel) continue;
-      var dot = document.createElement("div");
-      dot.className = "map-dot";
-      dot.style.left = p.pixel.x * scaleX + "px";
-      dot.style.top = p.pixel.y * scaleY + "px";
-      dot.title = p.nickname || p.steam_id64;
-      layer.appendChild(dot);
-
-      if (p.yaw != null) {
-        var view = document.createElement("div");
-        view.className = "map-view";
-        view.style.left = p.pixel.x * scaleX + "px";
-        view.style.top = p.pixel.y * scaleY + "px";
-        view.style.transform = "rotate(" + (-p.yaw + 90) + "deg)";
-        layer.appendChild(view);
-      }
-    }
-
-    if (meta) {
-      meta.textContent = [payload.map_name, players.length + " players"].join(" · ");
-    }
+  function applyMapDotsPreview(payload) {
+    setMapSnapshot(payload, { instant: true });
   }
 
   function applyMapPayload(payload) {
     applyMapImage(payload);
     applyMapDots(payload);
+    notifyMapPayload(payload);
+  }
+
+  var mapPayloadListeners = [];
+
+  function notifyMapPayload(payload) {
+    for (var i = 0; i < mapPayloadListeners.length; i++) {
+      try {
+        mapPayloadListeners[i](payload);
+      } catch (_err) {
+        /* debug hook */
+      }
+    }
   }
 
   function showNoMatchStatus(id) {
@@ -273,6 +518,9 @@
     }
     var prepared = await MapCoords.prepareMapPayload(data.map_name, data.players || []);
     var merged = Object.assign({}, data, prepared);
+    if (window.MapDebug && typeof window.MapDebug.applyTransform === "function") {
+      merged.transform = window.MapDebug.applyTransform(merged.transform) || merged.transform;
+    }
     if (merged.transform) {
       mapImageLoaded = true;
     }
@@ -526,6 +774,12 @@
     },
     initMap: function () {
       boot(function () {
+        var wrap = document.getElementById("map-wrap");
+        if (wrap && window.ResizeObserver) {
+          new ResizeObserver(function () {
+            ensureMotionLoop();
+          }).observe(wrap);
+        }
         if (useWebSocket()) {
           initMapWebSocket();
         } else {
@@ -534,6 +788,10 @@
       });
     },
     initViewer: initViewer,
+    onMapPayload: function (fn) {
+      mapPayloadListeners.push(fn);
+    },
+    _applyMapDotsPreview: applyMapDotsPreview,
     overlayPageUrl: overlayPageUrl,
     openOverlayWindow: openOverlayWindow,
     _mapKey: mapKey,
