@@ -90,6 +90,97 @@ td:nth-child(2) {
   font-size: 13px;
 }
 
+.match-card-id {
+  margin-top: 6px !important;
+  font-size: 11px !important;
+  font-family: ui-monospace, monospace;
+  word-break: break-all;
+}
+
+.match-card-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin-top: 10px;
+}
+
+.overlay-btn {
+  padding: 6px 10px;
+  border-radius: 6px;
+  border: 1px solid rgba(255, 255, 255, 0.16);
+  background: rgba(255, 255, 255, 0.06);
+  color: var(--text);
+  font-size: 12px;
+  cursor: pointer;
+}
+
+.overlay-btn:hover {
+  border-color: var(--accent);
+  color: var(--accent);
+}
+
+.overlay-btn-primary {
+  background: rgba(94, 234, 212, 0.12);
+  border-color: rgba(94, 234, 212, 0.35);
+}
+
+.viewer-body {
+  padding: 16px;
+  background: #0b0d14;
+  min-height: 100vh;
+}
+
+.viewer-panel {
+  max-width: 480px;
+  padding: 16px;
+  border-radius: 10px;
+  background: var(--bg);
+  border: 1px solid rgba(255, 255, 255, 0.08);
+}
+
+.viewer-title {
+  margin: 0 0 8px;
+  font-size: 18px;
+  color: var(--accent);
+}
+
+.viewer-hint,
+.viewer-obs-hint {
+  margin: 0 0 12px;
+  font-size: 13px;
+  color: var(--muted);
+  line-height: 1.45;
+}
+
+.viewer-field {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  margin-bottom: 12px;
+  font-size: 13px;
+}
+
+.viewer-field select {
+  padding: 8px 10px;
+  border-radius: 6px;
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  background: #111522;
+  color: var(--text);
+}
+
+.viewer-actions {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.viewer-actions .overlay-btn {
+  width: 100%;
+  text-align: left;
+  font-size: 14px;
+  padding: 10px 12px;
+}
+
 .map-wrap {
   position: relative;
   width: 512px;

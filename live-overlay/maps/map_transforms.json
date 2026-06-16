@@ -1,0 +1,31 @@
+{
+  "maps": {
+    "_default": {
+      "image_url": "maps/placeholder.png",
+      "world_min_x": -4096,
+      "world_max_x": 4096,
+      "world_min_y": -4096,
+      "world_max_y": 4096,
+      "image_width": 512,
+      "image_height": 512
+    },
+    "bloodrun": {
+      "image_url": "maps/bloodrun.png",
+      "world_min_x": -3200,
+      "world_max_x": 1600,
+      "world_min_y": -2400,
+      "world_max_y": 2400,
+      "image_width": 512,
+      "image_height": 512
+    },
+    "aerowalk": {
+      "image_url": "maps/aerowalk.png",
+      "world_min_x": -2000,
+      "world_max_x": 2000,
+      "world_min_y": -2000,
+      "world_max_y": 2000,
+      "image_width": 512,
+      "image_height": 512
+    }
+  }
+}

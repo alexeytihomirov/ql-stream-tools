@@ -44,6 +44,28 @@
     return qs("match");
   }
 
+  function overlayPageUrl(page, id) {
+    var base = apiBase();
+    var params = new URLSearchParams(window.location.search);
+    if (base && !params.get("base")) {
+      params.set("base", base);
+    }
+    if (id) {
+      params.set("match", id);
+    } else {
+      params.delete("match");
+    }
+    var path = page + ".html";
+    var query = params.toString();
+    return query ? path + "?" + query : path;
+  }
+
+  function openOverlayWindow(page, id, features) {
+    var url = overlayPageUrl(page, id);
+    var name = "ql-overlay-" + page + (id ? "-" + id : "");
+    window.open(url, name, features || "noopener,noreferrer,width=960,height=720");
+  }
+
   function setStatus(text, isError) {
     var el = document.getElementById("status");
     if (!el) return;
@@ -121,14 +143,31 @@
       var row = rows[i];
       var card = document.createElement("div");
       card.className = "match-card";
+      var mid = row.match_id || "";
       card.innerHTML =
         "<h3>" +
-        (row.score_summary || row.match_id) +
+        (row.score_summary || mid) +
         "</h3><p>" +
         [row.map_name, row.gametype, row.server_name].filter(Boolean).join(" · ") +
-        "</p>";
+        "</p>" +
+        '<p class="match-card-id">' +
+        mid +
+        "</p>" +
+        '<div class="match-card-actions">' +
+        '<button type="button" class="overlay-btn" data-open="scoreboard" data-match="' +
+        mid +
+        '">Scoreboard</button>' +
+        '<button type="button" class="overlay-btn" data-open="map" data-match="' +
+        mid +
+        '">Map</button>' +
+        "</div>";
       list.appendChild(card);
     }
+    list.querySelectorAll("[data-open]").forEach(function (btn) {
+      btn.addEventListener("click", function () {
+        openOverlayWindow(btn.getAttribute("data-open"), btn.getAttribute("data-match"));
+      });
+    });
     setStatus(rows.length + " match(es)");
   }
 
@@ -145,11 +184,10 @@
   }
 
   function resolveImageUrl(transform) {
-    if (!transform || !transform.image_url) return "";
-    var base = requireApiBase();
-    return transform.image_url.startsWith("http")
-      ? transform.image_url
-      : base + transform.image_url;
+    if (window.MapCoords) {
+      return MapCoords.resolveImageUrl(transform);
+    }
+    return "";
   }
 
   function applyMapImage(payload) {
@@ -222,16 +260,23 @@
 
   async function loadDefaultTransform() {
     try {
-      var transform = await fetchJson("/api/maps/_default/transform");
-      applyMapPayload({ transform: transform, map_name: transform.map_name, players: [] });
+      await handleMapSnapshot({ map_name: "_default", players: [] });
     } catch (_err) {
       /* placeholder unavailable */
     }
   }
 
   async function handleMapSnapshot(data) {
-    if (data.transform) mapImageLoaded = true;
-    applyMapPayload(data);
+    if (!window.MapCoords) {
+      setStatus("map-coords.js missing", true);
+      return;
+    }
+    var prepared = await MapCoords.prepareMapPayload(data.map_name, data.players || []);
+    var merged = Object.assign({}, data, prepared);
+    if (merged.transform) {
+      mapImageLoaded = true;
+    }
+    applyMapPayload(merged);
     if (data.status === "no_match") {
       showNoMatchStatus(data.match_id || matchId());
       return;
@@ -407,6 +452,67 @@
     }
   }
 
+  function initViewer() {
+    var select = document.getElementById("viewer-match");
+    var openScoreboard = document.getElementById("viewer-open-scoreboard");
+    var openMap = document.getElementById("viewer-open-map");
+    var openMatches = document.getElementById("viewer-open-matches");
+
+    function selectedMatchId() {
+      return select && select.value ? select.value : "";
+    }
+
+    function bindOpen(btn, page) {
+      if (!btn) return;
+      btn.addEventListener("click", function () {
+        try {
+          requireApiBase();
+          openOverlayWindow(page, selectedMatchId());
+        } catch (err) {
+          setStatus(String(err.message || err), true);
+        }
+      });
+    }
+
+    bindOpen(openScoreboard, "scoreboard");
+    bindOpen(openMap, "map");
+    bindOpen(openMatches, "matches");
+
+    async function refreshViewer() {
+      try {
+        requireApiBase();
+        var rows = await fetchJson("/api/stream/matches");
+        if (!select) return;
+        var prev = select.value;
+        select.innerHTML = "";
+        var auto = document.createElement("option");
+        auto.value = "";
+        auto.textContent = rows.length ? "First live match (auto)" : "No live matches";
+        select.appendChild(auto);
+        for (var i = 0; i < rows.length; i++) {
+          var row = rows[i];
+          var opt = document.createElement("option");
+          opt.value = row.match_id;
+          opt.textContent =
+            (row.score_summary || row.match_id) +
+            (row.map_name ? " · " + row.map_name : "");
+          select.appendChild(opt);
+        }
+        if (prev && select.querySelector('option[value="' + prev + '"]')) {
+          select.value = prev;
+        }
+        setStatus(rows.length ? rows.length + " live match(es)" : "No live matches");
+      } catch (err) {
+        setStatus(String(err.message || err), true);
+      }
+    }
+
+    boot(function () {
+      refreshViewer();
+      setInterval(refreshViewer, pollMs());
+    });
+  }
+
   window.OverlayApp = {
     initScoreboard: function () {
       boot(function () {
@@ -427,6 +533,9 @@
         }
       });
     },
+    initViewer: initViewer,
+    overlayPageUrl: overlayPageUrl,
+    openOverlayWindow: openOverlayWindow,
     _mapKey: mapKey,
     _resolveImageUrl: resolveImageUrl,
     useWebSocket: useWebSocket,

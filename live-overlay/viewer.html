@@ -1,0 +1,42 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>QL Live — Viewer</title>
+    <link rel="stylesheet" href="overlay.css" />
+  </head>
+  <body class="overlay-body viewer-body">
+    <div class="viewer-panel">
+      <h1 class="viewer-title">QL Live overlay</h1>
+      <p class="viewer-hint">
+        Open separate browser windows for OBS Browser Source. Add
+        <code>?base=http://HOST:8090</code> if not stored.
+      </p>
+      <label class="viewer-field">
+        <span>Match</span>
+        <select id="viewer-match"></select>
+      </label>
+      <div class="viewer-actions">
+        <button type="button" id="viewer-open-matches" class="overlay-btn overlay-btn-primary">
+          Matches list
+        </button>
+        <button type="button" id="viewer-open-scoreboard" class="overlay-btn overlay-btn-primary">
+          Scoreboard
+        </button>
+        <button type="button" id="viewer-open-map" class="overlay-btn overlay-btn-primary">
+          Map
+        </button>
+      </div>
+      <p class="viewer-obs-hint">
+        OBS: one Browser Source per window. For a fixed match use
+        <code>&amp;match=MATCH_ID</code> in the URL.
+      </p>
+    </div>
+    <div id="status" class="status"></div>
+    <script src="overlay.js"></script>
+    <script>
+      OverlayApp.initViewer();
+    </script>
+  </body>
+</html>

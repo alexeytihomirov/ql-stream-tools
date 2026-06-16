@@ -12,13 +12,14 @@
 | Таблица счёта / scoreboard | stats-hub match state | **WebSocket**; HTTP poll — только fallback |
 | Позиции на карте | stats-hub telemetry | **WebSocket**; poll **не** использовать |
 | Список матчей | stats-hub stream API | WS или редкий REST; не частый poll |
+| Player guide (регламент) | Статический HTML | CDN / локальный файл; без API |
 
 ## Правила real-time
 
 1. **WebSocket** — основной канал для всех live-данных.
 2. HTTP poll допустим **только** как fallback для матчей и таблицы счёта.
 3. Телеметрия карты — **только WS**, без poll fallback.
-4. PNG карт: **одна загрузка**, кэш по `map_name` / map key; не запрашивать картинку на каждый tick позиций.
+4. PNG карт: **ql-stream-tools/live-overlay/maps/** — одна загрузка, кэш по `map_name`; калибровка в `map_transforms.json`.
 5. Не увеличивать нагрузку на game server — все запросы к **stats-hub**, не к QLDS.
 
 ## Подключение к stats-hub

@@ -23,4 +23,23 @@ https://cdn.jsdelivr.net/gh/alexeytihomirov/ql-stream-tools@main/live-overlay/ma
 
 Map overlay uses WebSocket by default; HTTP poll is fallback only if WS is silent.
 
+## Map calibration (world → minimap pixels)
+
+Edit **`live-overlay/maps/map_transforms.json`** (key = lowercase `map_name` from stats-hub).
+
+| Field | Meaning |
+|-------|---------|
+| `world_min_x` / `world_max_x` | Left/right world bounds on the PNG |
+| `world_min_y` / `world_max_y` | Bottom/top world bounds |
+| `image_width` / `image_height` | PNG size in pixels |
+| `image_url` | Path relative to overlay, e.g. `maps/bloodrun.png` |
+
+Place PNG in `live-overlay/maps/`. Regenerate placeholders:
+
+```bash
+python scripts/gen_map_placeholders.py
+```
+
+Tune bounds in-game: compare telemetry `x`/`y` with dot position on the image.
+
 Hub **Statistics** tab generates ready-made URLs when stats-hub is deployed.
