@@ -1625,7 +1625,7 @@
     ]
   },
   "teleports": {
-    "exit_count": 4,
+    "exit_count": 2,
     "pair_count": 2,
     "pairs": [
       {
@@ -1644,14 +1644,6 @@
     "exits": [
       {
         "id": 38,
-        "classname": "target_position"
-      },
-      {
-        "id": 39,
-        "classname": "target_position"
-      },
-      {
-        "id": 43,
         "classname": "target_position"
       },
       {

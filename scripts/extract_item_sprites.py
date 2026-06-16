@@ -35,9 +35,9 @@ CLASSNAME_SPRITES: dict[str, str] = {
   "item_health": "icons/iconh_green.png",
   "item_health_large": "icons/iconh_red.png",
   "item_health_mega": "icons/iconh_mega.png",
-  # armor
-  "item_armor_shard": "icons/iconr_shard.png",
-  "item_armor_combat": "icons/iconr_green.png",
+  # armor (QL: YA = yellow/combat, shard = green, RA = red/body)
+  "item_armor_shard": "icons/iconr_green.png",
+  "item_armor_combat": "icons/iconr_yellow.png",
   "item_armor_body": "icons/iconr_red.png",
   # powerups
   "item_quad": "icons/quad.png",

@@ -204,7 +204,13 @@
   var cachedTransform = null;
   var currentImageSrc = "";
   var mapImageLoaded = false;
-  var lastMapContext = { map_name: null, gametype: null };
+  var lastMapContext = { map_name: null, gametype: null, match_id: null };
+  var mapDebugState = {
+    lastPayload: null,
+    lastWsMessage: null,
+    lastWsEvent: null,
+    wsFrameCount: 0,
+  };
   var mapMotion = {
     byId: {},
     loopId: 0,
@@ -347,10 +353,27 @@
   }
 
   function playerMotionId(p, index) {
-    if (p.steam_id64 != null && String(p.steam_id64).trim() !== "") {
-      return String(p.steam_id64).trim();
-    }
+    var steam = normalizeSteamId64(p.steam_id64);
+    if (steam) return steam;
     return String(p.nickname || "p" + index);
+  }
+
+  function normalizeSteamId64(value) {
+    if (value == null || value === "") return "";
+    if (typeof value === "number" && isFinite(value)) {
+      return String(Math.trunc(value));
+    }
+    var text = String(value).trim();
+    if (!text) return "";
+    if (text.indexOf(".") >= 0) text = text.split(".", 1)[0];
+    return text;
+  }
+
+  function playerShouldRenderOnMap(p) {
+    if (!p) return false;
+    if (p.connected === false || p.online === false) return false;
+    if (p.x == null || p.y == null) return false;
+    return true;
   }
 
   function normalizePlayersList(raw) {
@@ -534,11 +557,18 @@
     var meta = document.getElementById("map-meta");
     if (!layer) return;
 
+    mapDebugState.lastPayload = payload;
+
+    if (payload.match_id && payload.match_id !== lastMapContext.match_id) {
+      lastMapContext.match_id = payload.match_id;
+      clearMapMotion();
+    }
+
     var players = normalizePlayersList(payload.players);
     var seen = {};
     for (var i = 0; i < players.length; i++) {
       var probe = players[i];
-      if (probe.x == null || probe.y == null) continue;
+      if (!playerShouldRenderOnMap(probe)) continue;
       seen[playerMotionId(probe, i)] = true;
     }
     prunePlayerMarkers(layer, seen);
@@ -559,7 +589,7 @@
 
     for (var i = 0; i < players.length; i++) {
       var p = players[i];
-      if (p.x == null || p.y == null) continue;
+      if (!playerShouldRenderOnMap(p)) continue;
       var id = playerMotionId(p, i);
       var target = {
         x: Number(p.x),
@@ -683,6 +713,9 @@
     }
     if (data.gametype != null && data.gametype !== "") {
       lastMapContext.gametype = data.gametype;
+    }
+    if (data.match_id) {
+      lastMapContext.match_id = data.match_id;
     }
 
     var prepared = await MapCoords.prepareMapPayload(
@@ -839,6 +872,9 @@
             clearSilentTimer();
             stopHttpPoll();
             var data = JSON.parse(ev.data);
+            mapDebugState.lastWsMessage = data;
+            mapDebugState.lastWsEvent = data.event || null;
+            mapDebugState.wsFrameCount += 1;
             if (data.event === "positions" || data.event === "snapshot") {
               handleMapSnapshot(data).catch(function (err) {
                 setStatus(String(err.message || err), true);
@@ -987,6 +1023,28 @@
       mapPayloadListeners.push(fn);
     },
     _applyMapDotsPreview: applyMapDotsPreview,
+    getMapMotionKeys: function () {
+      return Object.keys(mapMotion.byId);
+    },
+    getMapDebugState: function () {
+      return {
+        last_ws_event: mapDebugState.lastWsEvent,
+        ws_frame_count: mapDebugState.wsFrameCount,
+        last_ws_player_count: mapDebugState.lastWsMessage
+          ? (mapDebugState.lastWsMessage.players || []).length
+          : null,
+        last_ws_snippet: mapDebugState.lastWsMessage
+          ? {
+              event: mapDebugState.lastWsMessage.event,
+              match_id: mapDebugState.lastWsMessage.match_id,
+              map_name: mapDebugState.lastWsMessage.map_name,
+              gametype: mapDebugState.lastWsMessage.gametype,
+              player_count: (mapDebugState.lastWsMessage.players || []).length,
+            }
+          : null,
+        map_motion_count: Object.keys(mapMotion.byId).length,
+      };
+    },
     overlayPageUrl: overlayPageUrl,
     openOverlayWindow: openOverlayWindow,
     _mapKey: mapKey,

@@ -2,7 +2,9 @@
   "use strict";
 
   var STORAGE_KEY = "ql-map-spawns-settings";
+  var SETTINGS_VERSION = 2;
   var DEFAULTS = {
+    version: SETTINGS_VERSION,
     enabled: false,
     anchor: "player",
     referencePlayerId: null,
@@ -29,6 +31,15 @@
       /* ignore */
     }
     if (!s.layers || typeof s.layers !== "object") s.layers = {};
+    if (Number(s.version) !== SETTINGS_VERSION) {
+      s.layers = {};
+      s.version = SETTINGS_VERSION;
+      try {
+        localStorage.setItem(STORAGE_KEY, JSON.stringify(s));
+      } catch (_e2) {
+        /* private mode */
+      }
+    }
     var p = spawnsParam();
     if (p === "1" || p === "true" || p === "on") s.enabled = true;
     if (p === "settings") {
@@ -38,6 +49,8 @@
     if (qs("spawn_anchor") === "cursor" || qs("spawn_anchor") === "player") {
       s.anchor = qs("spawn_anchor");
     }
+    var gtParam = qs("gametype");
+    if (gtParam) s.gametypeOverride = gtParam;
     return s;
   }
 
@@ -53,6 +66,7 @@
           showThreshold: settings.showThreshold,
           middleVal: settings.middleVal,
           layers: settings.layers,
+          version: SETTINGS_VERSION,
         }),
       );
     } catch (_e) {
@@ -141,18 +155,42 @@
   function normalizeGametype(gt) {
     var g = String(gt || "")
       .trim()
-      .toLowerCase();
+      .toLowerCase()
+      .replace(/[\s-]+/g, "_");
     if (!g) return "";
-    if (g === "1v1" || g === "1on1" || g === "oneonone" || g === "one_on_one") {
+    if (
+      g === "1v1" ||
+      g === "1on1" ||
+      g === "oneonone" ||
+      g === "one_on_one" ||
+      g === "duel" ||
+      g === "duels"
+    ) {
       return "duel";
     }
-    if (g === "ffa" || g === "freeforall" || g === "free_for_all") {
+    if (
+      g === "ffa" ||
+      g === "freeforall" ||
+      g === "free_for_all" ||
+      g === "deathmatch" ||
+      g === "dm"
+    ) {
       return "dm";
     }
     if (g === "tourney" || g === "tournament") {
       return "duel";
     }
     return g;
+  }
+
+  function resolvePayloadGametype(payload, gametypeOverride) {
+    if (gametypeOverride) return gametypeOverride;
+    var gtParam = qs("gametype");
+    if (gtParam) return gtParam;
+    if (payload && payload.gametype != null && payload.gametype !== "") {
+      return payload.gametype;
+    }
+    return null;
   }
 
   function entityMatchesGametype(ent, gametype) {
@@ -215,12 +253,11 @@
   function buildTeleportGraph(entities) {
     var byName = {};
     var entrances = [];
-    var exits = [];
+    var linkedExitIds = {};
     for (var i = 0; i < entities.length; i++) {
       var ent = entities[i];
       var attrs = ent.attrs || {};
       if (attrs.targetname) byName[attrs.targetname] = ent;
-      if (isTeleportExit(ent)) exits.push(ent);
     }
     for (var j = 0; j < entities.length; j++) {
       var src = entities[j];
@@ -230,7 +267,15 @@
       if (!targetKey) continue;
       var dest = byName[targetKey];
       if (!dest || !isTeleportExit(dest)) continue;
+      linkedExitIds[dest.id] = true;
       entrances.push({ entrance: src, exit: dest });
+    }
+    var exits = [];
+    for (var k = 0; k < entities.length; k++) {
+      var candidate = entities[k];
+      if (isTeleportExit(candidate) && linkedExitIds[candidate.id]) {
+        exits.push(candidate);
+      }
     }
     return { entrances: entrances, exits: exits };
   }
@@ -276,6 +321,8 @@
     this.players = [];
     this.gametype = null;
     this.lastGametype = null;
+    this.lastMatchId = null;
+    this.lastPayload = null;
     this.cursorWorld = null;
     this.layer = null;
     this.thresholdEl = null;
@@ -463,7 +510,7 @@
   MapSpawns.prototype.entitiesForLayer = function (layer) {
     var entities = (this.entityData && this.entityData.entities) || [];
     var out = [];
-    var filterGametype = !layer || layer.gametype_filter !== false;
+    var filterGametype = !!(layer && layer.gametype_filter);
     for (var i = 0; i < entities.length; i++) {
       var ent = entities[i];
       if (isHiddenEntity(ent)) continue;
@@ -471,6 +518,115 @@
       if (entityMatchesFilter(ent, layer.filter)) out.push(ent);
     }
     return out;
+  };
+
+  MapSpawns.prototype.gametypeFilterStats = function () {
+    var entities = (this.entityData && this.entityData.entities) || [];
+    var gt = normalizeGametype(this.gametype);
+    var stats = {
+      total: entities.length,
+      duelTagged: 0,
+      notDuelTagged: 0,
+      universal: 0,
+      shown: 0,
+      hidden: 0,
+    };
+    for (var i = 0; i < entities.length; i++) {
+      var ent = entities[i];
+      if (isHiddenEntity(ent)) continue;
+      var attrs = ent.attrs || {};
+      if (attrs.gametype && normalizeGametype(attrs.gametype) === "duel") {
+        stats.duelTagged++;
+      } else if (attrs.not_gametype && normalizeGametype(attrs.not_gametype) === "duel") {
+        stats.notDuelTagged++;
+      } else if (!attrs.gametype && !attrs.not_gametype) {
+        stats.universal++;
+      }
+      if (!gt || entityMatchesGametype(ent, this.gametype)) {
+        stats.shown++;
+      } else {
+        stats.hidden++;
+      }
+    }
+    return stats;
+  };
+
+  MapSpawns.prototype.debugState = function () {
+    var duel = this.duelLayerConfig();
+    var duelEntities = duel ? this.entitiesForLayer(duel) : [];
+    var ref = this.referenceWorld();
+    var graph = this.teleportGraph();
+    var layerRows = [];
+    if (this.mapDisplay && this.mapDisplay.layers) {
+      for (var i = 0; i < this.mapDisplay.layers.length; i++) {
+        var layer = this.mapDisplay.layers[i];
+        var ents = this.entitiesForLayer(layer);
+        layerRows.push({
+          id: layer.id,
+          enabled: this.layerEnabled(layer.id),
+          mode: layer.mode,
+          gametype_filter: !!layer.gametype_filter,
+          count: ents.length,
+        });
+      }
+    }
+    var motionKeys =
+      window.OverlayApp && typeof OverlayApp.getMapMotionKeys === "function"
+        ? OverlayApp.getMapMotionKeys()
+        : [];
+    var overlayDebug =
+      window.OverlayApp && typeof OverlayApp.getMapDebugState === "function"
+        ? OverlayApp.getMapDebugState()
+        : null;
+    var players = this.players || [];
+    var playerRows = [];
+    for (var p = 0; p < players.length; p++) {
+      var row = players[p];
+      var pid = playerMotionId(row, p);
+      playerRows.push({
+        id: pid,
+        nick: stripQuakeColors(row.nickname || "") || row.steam_id64 || "?",
+        x: row.x,
+        y: row.y,
+        inMapMotion: motionKeys.indexOf(pid) >= 0,
+        alive: row.alive,
+      });
+    }
+    var orphanKeys = motionKeys.filter(function (key) {
+      for (var j = 0; j < playerRows.length; j++) {
+        if (playerRows[j].id === key) return false;
+      }
+      return true;
+    });
+    var teleportPairs = graph.entrances.map(function (pair) {
+      return {
+        entrance_id: pair.entrance.id,
+        exit_id: pair.exit.id,
+        exit_classname: pair.exit.classname,
+      };
+    });
+    return {
+      map_name: this.mapName,
+      gametype_raw: this.gametype,
+      gametype_normalized: normalizeGametype(this.gametype),
+      gametype_override: this.settings.gametypeOverride || qs("gametype") || null,
+      last_match_id: this.lastMatchId,
+      anchor: this.settings.anchor,
+      reference_world: ref,
+      middle_val_effective: duel
+        ? this.effectiveMiddleVal(duel, duelEntities.length)
+        : null,
+      layers: layerRows,
+      gametype_filter: this.gametypeFilterStats(),
+      players: playerRows,
+      map_motion_keys: motionKeys,
+      orphan_motion_keys: orphanKeys,
+      teleport_pairs: teleportPairs,
+      teleport_exit_count: graph.exits.length,
+      overlay: overlayDebug,
+      entity_overlay_enabled: !!this.settings.enabled,
+      last_payload_event: this.lastPayload && this.lastPayload.event,
+    };
   };
 
   MapSpawns.prototype.teleportGraph = function () {
@@ -753,10 +909,16 @@
   };
 
   MapSpawns.prototype.onMapPayload = function (payload) {
+    this.lastPayload = payload;
+    if (payload.match_id && payload.match_id !== this.lastMatchId) {
+      this.lastMatchId = payload.match_id;
+      this.lastGametype = null;
+    }
     this.transform = payload.transform || null;
     this.players = Array.isArray(payload.players) ? payload.players : [];
-    if (payload.gametype != null && payload.gametype !== "") {
-      this.lastGametype = payload.gametype;
+    var resolvedGt = resolvePayloadGametype(payload, this.settings.gametypeOverride);
+    if (resolvedGt != null && resolvedGt !== "") {
+      this.lastGametype = resolvedGt;
     }
     this.gametype = this.lastGametype || null;
     var mapName = (payload.map_name || "").trim().toLowerCase();
@@ -1073,6 +1235,9 @@
     if (window.OverlayApp && typeof OverlayApp.onMapPayload === "function") {
       OverlayApp.onMapPayload(function (payload) {
         self.onMapPayload(payload);
+        if (window.MapSpawns && typeof MapSpawns.refreshDebugPanel === "function") {
+          MapSpawns.refreshDebugPanel();
+        }
       });
     }
 
@@ -1090,5 +1255,15 @@
     },
     classifySpawns: classifySpawns,
     autoMiddleVal: autoMiddleVal,
+    normalizeGametype: normalizeGametype,
+    entityMatchesGametype: entityMatchesGametype,
+    debugState: function () {
+      return instance.debugState();
+    },
+    refreshDebugPanel: function () {
+      if (window.MapDebug && typeof MapDebug.renderEntityOverlay === "function") {
+        MapDebug.renderEntityOverlay();
+      }
+    },
   };
 })(window);

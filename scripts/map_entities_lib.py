@@ -290,18 +290,20 @@ def classify_prefix(classname: str) -> str:
 
 
 def build_teleport_graph(entities: list[dict]) -> dict:
-    """Link entrance entities (target key) to exit entities (targetname)."""
+    """Link trigger_teleport / misc_teleporter entrances to exit targetnames.
+
+    target_position entities used only as jumppad landings (trigger_push) must not
+    appear as teleport exits unless linked from a teleport entrance.
+    """
     by_name: dict[str, dict] = {}
-    exits: list[dict] = []
     pairs: list[dict] = []
+    linked_exit_ids: set[int] = set()
 
     for ent in entities:
         attrs = ent.get("attrs") or {}
         targetname = attrs.get("targetname")
         if targetname:
             by_name[str(targetname)] = ent
-        if ent.get("classname") in TELEPORT_EXIT_CLASSNAMES:
-            exits.append(ent)
 
     for ent in entities:
         if ent.get("classname") not in TELEPORT_TRIGGER_CLASSNAMES:
@@ -313,14 +315,22 @@ def build_teleport_graph(entities: list[dict]) -> dict:
         dest = by_name.get(str(target_key))
         if not dest or dest.get("classname") not in TELEPORT_EXIT_CLASSNAMES:
             continue
+        exit_id = int(dest["id"])
+        linked_exit_ids.add(exit_id)
         pairs.append(
             {
                 "entrance_id": int(ent["id"]),
-                "exit_id": int(dest["id"]),
+                "exit_id": exit_id,
                 "entrance_classname": ent.get("classname"),
                 "exit_classname": dest.get("classname"),
             }
         )
+
+    exits = [
+        ent
+        for ent in entities
+        if int(ent["id"]) in linked_exit_ids
+    ]
 
     return {
         "exit_count": len(exits),

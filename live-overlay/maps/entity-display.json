@@ -36,6 +36,7 @@
           "filter": {
             "classname": "info_player_deathmatch"
           },
+          "gametype_filter": false,
           "default": true,
           "middle_val": 5
         },
@@ -62,6 +63,7 @@
               "info_player_deathmatch"
             ]
           },
+          "gametype_filter": false,
           "default": false
         },
         {
@@ -113,6 +115,7 @@
               "info_player_deathmatch"
             ]
           },
+          "gametype_filter": false,
           "default": false
         },
         {

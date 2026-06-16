@@ -40,6 +40,7 @@ def duel_layer(middle_val: int | None) -> dict:
         "label": "Duel spawn pool",
         "mode": "duel",
         "filter": {"classname": "info_player_deathmatch"},
+        "gametype_filter": False,
         "default": True,
         **({"middle_val": middle_val} if middle_val is not None else {}),
     }
@@ -80,6 +81,7 @@ def all_spawns_layer() -> dict:
         "label": "All deathmatch spawns",
         "mode": "static",
         "filter": ALL_SPAWN_FILTER,
+        "gametype_filter": False,
         "default": False,
     }
 

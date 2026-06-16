@@ -503,6 +503,23 @@ body.map-debug-mode .status {
   font-weight: 700;
 }
 
+.dbg-list {
+  margin: 6px 0 0;
+  padding-left: 18px;
+  font-size: 12px;
+  color: #b8c4dc;
+}
+
+.dbg-warn {
+  color: #fb923c;
+}
+
+.dbg-table-compact th,
+.dbg-table-compact td {
+  padding: 3px 6px;
+  font-size: 11px;
+}
+
 .map-debug-click {
   position: absolute;
   width: 14px;
