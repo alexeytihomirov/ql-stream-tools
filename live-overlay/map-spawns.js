@@ -511,9 +511,11 @@
     var entities = (this.entityData && this.entityData.entities) || [];
     var out = [];
     var filterGametype = !!(layer && layer.gametype_filter);
+    var gtKnown = !!normalizeGametype(this.gametype);
     for (var i = 0; i < entities.length; i++) {
       var ent = entities[i];
       if (isHiddenEntity(ent)) continue;
+      if (filterGametype && !gtKnown) continue;
       if (filterGametype && !entityMatchesGametype(ent, this.gametype)) continue;
       if (entityMatchesFilter(ent, layer.filter)) out.push(ent);
     }

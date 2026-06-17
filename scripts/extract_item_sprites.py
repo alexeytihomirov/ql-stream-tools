@@ -30,13 +30,13 @@ CLASSNAME_SPRITES: dict[str, str] = {
   "ammo_grenades": "icons/icona_grenade.png",
   "ammo_slugs": "icons/icona_railgun.png",
   "ammo_pack": "icons/ammo_pack.png",
-  # health
-  "item_health_small": "icons/iconh_yellow.png",
-  "item_health": "icons/iconh_green.png",
+  # health (QL HUD: green=5, yellow=25, red=50, mega=M)
+  "item_health_small": "icons/iconh_green.png",
+  "item_health": "icons/iconh_yellow.png",
   "item_health_large": "icons/iconh_red.png",
   "item_health_mega": "icons/iconh_mega.png",
-  # armor (QL: YA = yellow/combat, shard = green, RA = red/body)
-  "item_armor_shard": "icons/iconr_green.png",
+  # armor (QL: shard = plate tiles, YA = yellow/combat, RA = red/body)
+  "item_armor_shard": "icons/iconr_shard.png",
   "item_armor_combat": "icons/iconr_yellow.png",
   "item_armor_body": "icons/iconr_red.png",
   # powerups

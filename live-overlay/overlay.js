@@ -560,8 +560,8 @@
     mapDebugState.lastPayload = payload;
 
     if (payload.match_id && payload.match_id !== lastMapContext.match_id) {
-      lastMapContext.match_id = payload.match_id;
       clearMapMotion();
+      lastMapContext.match_id = payload.match_id;
     }
 
     var players = normalizePlayersList(payload.players);
@@ -713,9 +713,6 @@
     }
     if (data.gametype != null && data.gametype !== "") {
       lastMapContext.gametype = data.gametype;
-    }
-    if (data.match_id) {
-      lastMapContext.match_id = data.match_id;
     }
 
     var prepared = await MapCoords.prepareMapPayload(
