@@ -58,6 +58,11 @@
     return qs("transport", "ws") !== "poll";
   }
 
+  function debugPickups() {
+    var v = String(qs("debug_pickups", "0")).toLowerCase();
+    return v === "1" || v === "true" || v === "on";
+  }
+
   function matchId() {
     return qs("match");
   }
@@ -490,8 +495,15 @@
     if (!data || typeof data !== "object") return;
     pushPickupFeed(data);
     notifyPickup(data);
-    if (typeof console !== "undefined" && console.info) {
-      console.info("[overlay] pickup", data);
+    if (debugPickups() && typeof console !== "undefined" && console.info) {
+      console.info(
+        "[pickup-debug] source=%s item=%s action=%s match=%s",
+        data.source || "?",
+        data.item || "?",
+        data.action || "pickup",
+        data.match_id || "?",
+        data,
+      );
     }
   }
 

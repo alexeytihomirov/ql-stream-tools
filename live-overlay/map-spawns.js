@@ -711,6 +711,7 @@
     if (!item || !ITEM_RESPAWN_SEC[item]) return;
     if (!entityVisibleForCategory(item, this.settings.itemCategories)) return;
     if (!this.layerEnabled("items")) return;
+    // Respawn ring only: match entity by WS item classname + coords; never rewrite data.item.
     var matchRadius =
       data && data.source === "minqlx" ? 72 : PICKUP_MATCH_RADIUS;
     var ent = this.findNearestItemEntity(item, data.x, data.y, matchRadius);
