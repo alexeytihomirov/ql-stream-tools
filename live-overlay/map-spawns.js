@@ -678,6 +678,31 @@
     return best;
   };
 
+  MapSpawns.prototype.findItemEntityForPickup = function (data, maxDist) {
+    var item = data && data.item;
+    if (!item) return null;
+    var entityId = data && data.entity_id;
+    if (entityId != null && entityId !== "") {
+      var entities = (this.entityData && this.entityData.entities) || [];
+      var wantId = Number(entityId);
+      if (isFinite(wantId)) {
+        for (var i = 0; i < entities.length; i++) {
+          var ent = entities[i];
+          if (Number(ent.id) !== wantId) continue;
+          if (ent.classname !== item) continue;
+          if (isHiddenEntity(ent)) continue;
+          return ent;
+        }
+      }
+    }
+    return this.findNearestItemEntity(
+      item,
+      data && data.x,
+      data && data.y,
+      maxDist,
+    );
+  };
+
   MapSpawns.prototype.respawnDurationMs = function (item, data) {
     if (data && data.respawn_sec != null && isFinite(Number(data.respawn_sec))) {
       return Math.max(500, Number(data.respawn_sec) * 1000);
@@ -714,7 +739,7 @@
     // Respawn ring only: match entity by WS item classname + coords; never rewrite data.item.
     var matchRadius =
       data && data.source === "minqlx" ? 72 : PICKUP_MATCH_RADIUS;
-    var ent = this.findNearestItemEntity(item, data.x, data.y, matchRadius);
+    var ent = this.findItemEntityForPickup(data, matchRadius);
     if (!ent) return;
     var respawnMs = this.respawnDurationMs(item, data);
     if (!respawnMs) return;

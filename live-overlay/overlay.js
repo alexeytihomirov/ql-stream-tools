@@ -497,8 +497,9 @@
     notifyPickup(data);
     if (debugPickups() && typeof console !== "undefined" && console.info) {
       console.info(
-        "[pickup-debug] source=%s item=%s action=%s match=%s",
+        "[pickup-debug] source=%s entity_id=%s item=%s action=%s match=%s",
         data.source || "?",
+        data.entity_id != null ? data.entity_id : "?",
         data.item || "?",
         data.action || "pickup",
         data.match_id || "?",
