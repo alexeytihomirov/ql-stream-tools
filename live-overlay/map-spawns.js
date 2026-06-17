@@ -642,7 +642,7 @@
     return String(sec);
   }
 
-  MapSpawns.prototype.findNearestItemEntity = function (classname, x, y) {
+  MapSpawns.prototype.findNearestItemEntity = function (classname, x, y, maxDist) {
     var entities = (this.entityData && this.entityData.entities) || [];
     if (!classname) return null;
 
@@ -662,9 +662,9 @@
     var wy = Number(y);
     if (!isFinite(wx) || !isFinite(wy)) return matches[0];
 
-    var maxDist = PICKUP_MATCH_RADIUS;
+    var radius = maxDist != null && isFinite(Number(maxDist)) ? Number(maxDist) : PICKUP_MATCH_RADIUS;
     var best = null;
-    var bestD2 = maxDist * maxDist;
+    var bestD2 = radius * radius;
     for (var j = 0; j < matches.length; j++) {
       var near = matches[j];
       var dx = Number(near.x) - wx;
@@ -700,6 +700,9 @@
   };
 
   MapSpawns.prototype.onPickupEvent = function (data) {
+    if (data && String(data.action || "pickup").toLowerCase() === "drop") {
+      return;
+    }
     var transform =
       this.transform || (this.lastPayload && this.lastPayload.transform);
     if (!this.settings.enabled || !this.entityData || !transform) return;
@@ -708,7 +711,9 @@
     if (!item || !ITEM_RESPAWN_SEC[item]) return;
     if (!entityVisibleForCategory(item, this.settings.itemCategories)) return;
     if (!this.layerEnabled("items")) return;
-    var ent = this.findNearestItemEntity(item, data.x, data.y);
+    var matchRadius =
+      data && data.source === "minqlx" ? 72 : PICKUP_MATCH_RADIUS;
+    var ent = this.findNearestItemEntity(item, data.x, data.y, matchRadius);
     if (!ent) return;
     var respawnMs = this.respawnDurationMs(item, data);
     if (!respawnMs) return;

@@ -578,6 +578,26 @@ body.map-debug-mode .status {
   z-index: 1;
 }
 
+.map-fov {
+  position: absolute;
+  left: 50%;
+  top: 50%;
+  width: 160px;
+  height: 160px;
+  margin-left: -80px;
+  margin-top: -80px;
+  overflow: visible;
+  pointer-events: none;
+  transform-origin: 50% 50%;
+  z-index: 0;
+}
+
+.map-fov-fill {
+  fill: rgba(255, 255, 255, 0.1);
+  stroke: rgba(255, 255, 255, 0.28);
+  stroke-width: 1;
+}
+
 .map-view {
   position: absolute;
   left: 50%;

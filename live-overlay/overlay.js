@@ -645,12 +645,30 @@
     return a + delta * t;
   }
 
+  function defaultMapFov() {
+    return Math.max(70, Math.min(130, Number(qs("fov", "100")) || 100));
+  }
+
+  function fovConeLengthPx() {
+    return Math.max(36, Math.min(140, Number(qs("fov_px", "80")) || 80));
+  }
+
+  function fovWedgePath(fovDeg, length) {
+    var half = ((fovDeg || 100) * Math.PI) / 360;
+    var x1 = Math.cos(-half) * length;
+    var y1 = Math.sin(-half) * length;
+    var x2 = Math.cos(half) * length;
+    var y2 = Math.sin(half) * length;
+    return "M 0 0 L " + x1 + " " + y1 + " L " + x2 + " " + y2 + " Z";
+  }
+
   function cloneWorldPose(p) {
     return {
       x: p.x,
       y: p.y,
       z: p.z != null ? p.z : null,
       yaw: p.yaw != null ? p.yaw : null,
+      fov: p.fov != null ? p.fov : null,
     };
   }
 
@@ -774,10 +792,18 @@
     if (!labelText) label.style.display = "none";
     var dot = document.createElement("div");
     dot.className = "map-dot";
+    var fov = document.createElementNS("http://www.w3.org/2000/svg", "svg");
+    fov.setAttribute("class", "map-fov");
+    fov.setAttribute("viewBox", "-100 -100 200 200");
+    fov.setAttribute("aria-hidden", "true");
+    var fovPath = document.createElementNS("http://www.w3.org/2000/svg", "path");
+    fovPath.setAttribute("class", "map-fov-fill");
+    fov.appendChild(fovPath);
     var view = document.createElement("div");
     view.className = "map-view";
     view.setAttribute("aria-hidden", "true");
     marker.appendChild(label);
+    marker.appendChild(fov);
     marker.appendChild(dot);
     marker.appendChild(view);
     layer.appendChild(marker);
@@ -790,7 +816,7 @@
       ", z " +
       fmtCoord(p.z) +
       ")";
-    return { marker: marker, label: label, dot: dot, view: view };
+    return { marker: marker, label: label, dot: dot, fov: fov, fovPath: fovPath, view: view };
   }
 
   function updatePlayerTitle(el, p) {
@@ -811,18 +837,22 @@
       ")";
   }
 
-  function placePlayerElement(el, pos, yaw, dotSize) {
+  function placePlayerElement(el, pos, yaw, dotSize, fov) {
     if (!el || !el.marker) return;
     el.marker.style.left = pos.x + "px";
     el.marker.style.top = pos.y + "px";
     var size = dotSize != null ? dotSize : 8;
     el.dot.style.width = size + "px";
     el.dot.style.height = size + "px";
-    if (yaw != null && !isNaN(yaw) && el.view) {
-      el.view.style.display = "";
-      el.view.style.transform = "rotate(" + -yaw + "deg)";
-    } else if (el.view) {
-      el.view.style.display = "none";
+    var fovDeg = fov != null && !isNaN(fov) ? Number(fov) : defaultMapFov();
+    if (yaw != null && !isNaN(yaw) && el.fov && el.fovPath) {
+      el.fov.style.display = "";
+      el.fov.style.transform = "rotate(" + -yaw + "deg)";
+      el.fovPath.setAttribute("d", fovWedgePath(fovDeg, fovConeLengthPx()));
+      if (el.view) el.view.style.display = "none";
+    } else {
+      if (el.fov) el.fov.style.display = "none";
+      if (el.view) el.view.style.display = "none";
     }
   }
 
@@ -873,8 +903,13 @@
         } else {
           d.yaw = null;
         }
+        if (tg.fov != null) {
+          d.fov = d.fov == null ? tg.fov : lerpNum(d.fov, tg.fov, alpha);
+        } else {
+          d.fov = null;
+        }
         var pos = worldToDisplayPos(transform, wrap, d.x, d.y);
-        if (pos) placePlayerElement(st.el, pos, d.yaw, dotSizeFromZ(d.z));
+        if (pos) placePlayerElement(st.el, pos, d.yaw, dotSizeFromZ(d.z), d.fov);
       }
 
       renderDeathMarkers();
@@ -936,6 +971,7 @@
         y: Number(p.y),
         z: p.z != null ? Number(p.z) : null,
         yaw: p.yaw != null ? Number(p.yaw) : null,
+        fov: p.fov != null ? Number(p.fov) : null,
       };
 
       var st = mapMotion.byId[id];
