@@ -46,7 +46,11 @@ CLASSNAME_SPRITES: dict[str, str] = {
   "item_invis": "icons/invis.png",
   "item_enviro": "icons/envirosuit.png",
   "item_flight": "icons/flight.png",
-  "item_invulnerability": "icons/invulnerability.png",
+    "item_invulnerability": "icons/invulnerability.png",
+}
+
+AWARD_SPRITES: dict[str, str] = {
+    "medal_excellent": "menu/medals/medal_excellent.png",
 }
 
 
@@ -91,6 +95,18 @@ def main() -> int:
             shutil.copy2(src, dest)
             copied += 1
         sprite_map[classname] = f"maps/sprites/{dest_name}"
+
+    for asset_name, rel in sorted(AWARD_SPRITES.items()):
+        src = args.pak00 / rel
+        if not src.is_file():
+            missing.append(f"{asset_name}: {rel}")
+            continue
+        dest_name = Path(rel).name
+        dest = args.output_dir / dest_name
+        if not dest.exists() or src.stat().st_mtime > dest.stat().st_mtime:
+            shutil.copy2(src, dest)
+            copied += 1
+        sprite_map[asset_name] = f"maps/sprites/{dest_name}"
 
     payload = {
         "version": 1,

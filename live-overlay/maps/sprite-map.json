@@ -33,6 +33,7 @@
     "weapon_plasmagun": "maps/sprites/iconw_plasma.png",
     "weapon_railgun": "maps/sprites/iconw_railgun.png",
     "weapon_rocketlauncher": "maps/sprites/iconw_rocket.png",
-    "weapon_shotgun": "maps/sprites/iconw_shotgun.png"
+    "weapon_shotgun": "maps/sprites/iconw_shotgun.png",
+    "medal_excellent": "maps/sprites/medal_excellent.png"
   }
 }

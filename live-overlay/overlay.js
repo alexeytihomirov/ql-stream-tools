@@ -221,12 +221,30 @@
   };
 
   var mapKillFeed = [];
-  var mapPickupFeed = [];
+  var mapPickupToasts = [];
+  var mapPickupLog = [];
+  var pickupSpriteMap = null;
+  var pickupToastLoopId = 0;
+  var pickupToastSeq = 0;
+  var PICKUP_TOAST_MS = 4500;
+  var PICKUP_LOG_MAX = 200;
   var mapDeathMarkers = [];
   var mapLastKnownPos = {};
 
   function deathMarkerSec() {
-    return Math.max(2, Math.min(120, Number(qs("death_sec", "10")) || 10));
+    return Math.max(2, Math.min(120, Number(qs("death_sec", "4")) || 4));
+  }
+
+  var deathSpriteUrl = "";
+
+  function resolveDeathSpriteUrl() {
+    if (deathSpriteUrl) return deathSpriteUrl;
+    if (window.MapCoords && typeof MapCoords.assetUrl === "function") {
+      deathSpriteUrl = MapCoords.assetUrl("maps/sprites/medal_excellent.png");
+    } else {
+      deathSpriteUrl = "maps/sprites/medal_excellent.png";
+    }
+    return deathSpriteUrl;
   }
 
   function fmtPickupTime(iso) {
@@ -258,36 +276,218 @@
     item_enviro: "BS",
     item_invis: "Invis",
     item_invulnerability: "Invuln",
+    weapon_railgun: "Rail",
+    weapon_rocketlauncher: "RL",
+    weapon_lightning: "LG",
+    weapon_plasmagun: "PG",
+    weapon_shotgun: "SG",
+    weapon_grenadelauncher: "GL",
+    weapon_machinegun: "MG",
+    weapon_gauntlet: "Gauntlet",
+    weapon_hmg: "HMG",
+    weapon_nailgun: "NG",
+    weapon_chaingun: "CG",
+    weapon_bfg: "BFG",
   };
 
   function pickupLabel(item) {
     return PICKUP_LABELS[item] || String(item || "item").replace(/^item_/, "");
   }
 
-  function pushPickupFeed(entry) {
-    mapPickupFeed.unshift(entry);
-    if (mapPickupFeed.length > 4) mapPickupFeed.length = 4;
+  function pickupSpriteUrl(item) {
+    if (!item || !pickupSpriteMap) return "";
+    var classnames = pickupSpriteMap.classnames || pickupSpriteMap;
+    var rel = classnames[item];
+    if (!rel) return "";
+    if (window.MapCoords && typeof MapCoords.assetUrl === "function") {
+      return MapCoords.assetUrl(rel);
+    }
+    return rel;
+  }
+
+  function loadPickupSpriteMap() {
+    if (pickupSpriteMap) return Promise.resolve(pickupSpriteMap);
+    var url =
+      window.MapCoords && typeof MapCoords.assetUrl === "function"
+        ? MapCoords.assetUrl("maps/sprite-map.json")
+        : "maps/sprite-map.json";
+    return fetch(url, { cache: "no-store" })
+      .then(function (res) {
+        if (!res.ok) throw new Error("sprite-map HTTP " + res.status);
+        return res.json();
+      })
+      .then(function (data) {
+        pickupSpriteMap = data || { classnames: {} };
+        return pickupSpriteMap;
+      })
+      .catch(function () {
+        pickupSpriteMap = { classnames: {} };
+        return pickupSpriteMap;
+      });
+  }
+
+  function prunePickupToasts() {
+    var now = Date.now();
+    var kept = [];
+    for (var i = 0; i < mapPickupToasts.length; i++) {
+      if (mapPickupToasts[i].expiresAt > now) kept.push(mapPickupToasts[i]);
+    }
+    mapPickupToasts = kept;
+  }
+
+  function ensurePickupToastLoop() {
+    if (pickupToastLoopId) return;
+    function frame() {
+      prunePickupToasts();
+      renderPickupFeed();
+      if (mapPickupToasts.length) {
+        pickupToastLoopId = requestAnimationFrame(frame);
+      } else {
+        pickupToastLoopId = 0;
+      }
+    }
+    pickupToastLoopId = requestAnimationFrame(frame);
+  }
+
+  function pushPickupLog(entry) {
+    mapPickupLog.unshift({
+      item: entry.item,
+      player: entry.player || entry.nickname || entry.steam_id64 || "?",
+      time: entry.time || null,
+      loggedAt: Date.now(),
+    });
+    if (mapPickupLog.length > PICKUP_LOG_MAX) {
+      mapPickupLog.length = PICKUP_LOG_MAX;
+    }
+    renderPickupLog();
+  }
+
+  function pushPickupToast(entry) {
+    pickupToastSeq += 1;
+    var now = Date.now();
+    mapPickupToasts.unshift({
+      id: pickupToastSeq,
+      data: entry,
+      expiresAt: now + PICKUP_TOAST_MS,
+      fadeAt: now + PICKUP_TOAST_MS - 700,
+    });
+    if (mapPickupToasts.length > 6) mapPickupToasts.length = 6;
     renderPickupFeed();
+    ensurePickupToastLoop();
+  }
+
+  function renderPickupLog() {
+    var list = document.getElementById("map-pickup-log-list");
+    if (!list) return;
+    list.innerHTML = "";
+    for (var i = 0; i < mapPickupLog.length; i++) {
+      var row = mapPickupLog[i];
+      var line = document.createElement("div");
+      line.className = "map-pickup-log-line";
+      var icon = document.createElement("img");
+      icon.className = "map-pickup-log-icon";
+      icon.alt = pickupLabel(row.item);
+      var sprite = pickupSpriteUrl(row.item);
+      if (sprite) {
+        icon.src = sprite;
+      } else {
+        icon.style.display = "none";
+      }
+      var text = document.createElement("span");
+      text.className = "map-pickup-log-text";
+      var who = stripQuakeColors(row.player || "?");
+      var when = fmtPickupTime(row.time);
+      text.textContent =
+        who + " · " + pickupLabel(row.item) + (when ? " · " + when : "");
+      line.appendChild(icon);
+      line.appendChild(text);
+      list.appendChild(line);
+    }
+  }
+
+  function setPickupLogOpen(open) {
+    var panel = document.getElementById("map-pickup-log");
+    if (!panel) return;
+    panel.classList.toggle("hidden", !open);
+    document.body.classList.toggle("map-pickup-log-open", !!open);
+  }
+
+  function initPickupLogUi() {
+    var btn = document.getElementById("map-pickup-log-btn");
+    var closeBtn = document.getElementById("map-pickup-log-close");
+    if (btn) {
+      btn.classList.remove("hidden");
+      btn.addEventListener("click", function () {
+        var panel = document.getElementById("map-pickup-log");
+        setPickupLogOpen(panel && panel.classList.contains("hidden"));
+      });
+    }
+    if (closeBtn) {
+      closeBtn.addEventListener("click", function () {
+        setPickupLogOpen(false);
+      });
+    }
+    loadPickupSpriteMap().then(function () {
+      renderPickupLog();
+    });
+  }
+
+  function pushPickupFeed(entry) {
+    pushPickupLog(entry);
+    pushPickupToast(entry);
   }
 
   function renderPickupFeed() {
     var el = document.getElementById("map-pickups");
     if (!el) return;
+    prunePickupToasts();
     el.innerHTML = "";
-    for (var i = 0; i < mapPickupFeed.length; i++) {
-      var row = mapPickupFeed[i];
+    var now = Date.now();
+    for (var i = 0; i < mapPickupToasts.length; i++) {
+      var toast = mapPickupToasts[i];
+      var row = toast.data;
       var line = document.createElement("div");
       line.className = "map-pickup-line";
-      var who = stripQuakeColors(row.nickname || row.steam_id64 || "?");
+      if (now >= toast.fadeAt) line.classList.add("is-fading");
+      var icon = document.createElement("img");
+      icon.className = "map-pickup-icon";
+      icon.alt = pickupLabel(row.item);
+      var sprite = pickupSpriteUrl(row.item);
+      if (sprite) {
+        icon.src = sprite;
+      } else {
+        icon.style.display = "none";
+      }
+      var text = document.createElement("span");
+      text.className = "map-pickup-text";
+      var who = stripQuakeColors(row.player || row.nickname || row.steam_id64 || "?");
       var when = fmtPickupTime(row.time);
-      line.textContent =
+      text.textContent =
         who + " · " + pickupLabel(row.item) + (when ? " · " + when : "");
+      line.appendChild(icon);
+      line.appendChild(text);
       el.appendChild(line);
     }
   }
 
+  var pickupListeners = [];
+
+  function notifyPickup(data) {
+    for (var i = 0; i < pickupListeners.length; i++) {
+      try {
+        pickupListeners[i](data);
+      } catch (err) {
+        if (typeof console !== "undefined" && console.warn) {
+          console.warn("[overlay] pickup hook failed", err);
+        }
+      }
+    }
+  }
+
   function handlePickupEvent(data) {
+    if (!data || typeof data !== "object") return;
     pushPickupFeed(data);
+    notifyPickup(data);
     if (typeof console !== "undefined" && console.info) {
       console.info("[overlay] pickup", data);
     }
@@ -372,9 +572,13 @@
       var row = mapDeathMarkers[i];
       if (!row.el) {
         var marker = document.createElement("div");
-        marker.className = "map-death-marker";
+        marker.className = "map-death-marker map-death-marker-sprite";
         marker.setAttribute("aria-hidden", "true");
-        marker.textContent = "✕";
+        var deathImg = document.createElement("img");
+        deathImg.className = "map-death-marker-img";
+        deathImg.src = resolveDeathSpriteUrl();
+        deathImg.alt = "";
+        marker.appendChild(deathImg);
         marker.title = stripQuakeColors(
           row.victim_name || row.victim_steam_id64 || "death",
         );
@@ -547,14 +751,15 @@
     if (p.health == null) return base;
     var hp = Math.round(Number(p.health));
     if (!isFinite(hp)) return base;
-    var bits = [base, hp + "hp"];
-    if (p.armor != null && isFinite(Number(p.armor))) {
-      bits.push(Math.round(Number(p.armor)) + "ar");
-    }
+    var ar =
+      p.armor != null && isFinite(Number(p.armor))
+        ? Math.round(Number(p.armor))
+        : 0;
+    var label = base + " [" + hp + "/" + ar + "]";
     if (p.powerups && p.powerups.length) {
-      bits.push(p.powerups.join("+"));
+      label += " · " + p.powerups.join("+");
     }
-    return bits.join(" · ");
+    return label;
   }
 
   function createPlayerElements(layer, p) {
@@ -794,6 +999,7 @@
       }
     }
     wrap.classList.remove("hidden");
+    renderPickupFeed();
   }
 
   function applyMapDots(payload) {
@@ -1172,6 +1378,7 @@
             ensureMotionLoop();
           }).observe(wrap);
         }
+        initPickupLogUi();
         if (useWebSocket()) {
           initMapWebSocket();
         } else {
@@ -1182,6 +1389,9 @@
     initViewer: initViewer,
     onMapPayload: function (fn) {
       mapPayloadListeners.push(fn);
+    },
+    onPickup: function (fn) {
+      pickupListeners.push(fn);
     },
     _applyMapDotsPreview: applyMapDotsPreview,
     getMapMotionKeys: function () {

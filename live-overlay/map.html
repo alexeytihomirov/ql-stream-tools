@@ -19,12 +19,40 @@
           </div>
           <div id="map-spawn-threshold" class="map-spawn-layer" aria-hidden="true"></div>
           <div id="map-spawns" class="map-spawn-layer" aria-hidden="true"></div>
+          <div id="map-item-respawns" class="map-item-respawn-layer" aria-hidden="true"></div>
           <div id="map-spawn-ref" class="map-spawn-ref" aria-hidden="true"></div>
           <div id="map-deaths" class="map-death-layer" aria-hidden="true"></div>
           <div id="map-spawn-cursor" class="map-spawn-cursor hidden" aria-hidden="true"></div>
           <div id="map-players"></div>
           <div id="map-killfeed" class="map-killfeed" aria-live="polite"></div>
           <div id="map-pickups" class="map-pickups" aria-live="polite"></div>
+          <button
+            type="button"
+            id="map-pickup-log-btn"
+            class="map-pickup-log-btn hidden"
+            title="Pickup history"
+            aria-label="Pickup history"
+          >
+            Pickups
+          </button>
+          <aside
+            id="map-pickup-log"
+            class="map-pickup-log hidden"
+            aria-label="Pickup history"
+          >
+            <header class="map-pickup-log-head">
+              <h3>Pickup log</h3>
+              <button
+                type="button"
+                id="map-pickup-log-close"
+                class="map-pickup-log-close"
+                aria-label="Close pickup log"
+              >
+                ×
+              </button>
+            </header>
+            <div id="map-pickup-log-list" class="map-pickup-log-list"></div>
+          </aside>
           <button
             type="button"
             id="map-spawns-toggle"

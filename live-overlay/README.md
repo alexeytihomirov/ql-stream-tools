@@ -25,7 +25,7 @@ https://cdn.jsdelivr.net/gh/alexeytihomirov/ql-stream-tools@main/live-overlay/ma
 | `transport` | no | `ws` (default) or `poll` for map overlay |
 | `smooth` | map only | `1` (default) — EMA smoothing between telemetry; `0` = snap each frame |
 | `smooth_ms` | map only | Smoothing time constant in ms (default `180`; try `250` if still jittery) |
-| `death_sec` | map only | Death marker lifetime on map in seconds (default `10`) |
+| `death_sec` | map only | Death marker lifetime on map in seconds (default `4`) |
 | `debug` | map only | `1` — calibration panel (world/pixel coords, click sampler, JSON snippet) |
 
 Map overlay uses WebSocket by default; HTTP poll is fallback only if WS is silent.
@@ -33,10 +33,13 @@ Map overlay uses WebSocket by default; HTTP poll is fallback only if WS is silen
 ### Map overlay settings (`map.html` → **Settings**)
 
 - Layer toggles per map (duel spawns, items, DM spawns, teleports) — persisted in `localStorage`
-- **Item categories** (when items layer is on): weapons, ammo (excluding `ammo_pack`), health, armor, powerups
+- **Item categories** (when items layer is on): weapons, ammo, green (5 HP), health (25/50/mega), shards (off by default), armor (YA/RA), powerups
 - Duel anchor (player / mouse), threshold square, rejected spawns — threshold and ref marker use the same smooth motion as player dots (`smooth` / `smooth_ms`)
-- Death markers: muted cross at victim position from WS `death` event (fade out; `death_sec` URL param)
-- Pickup feed (`#map-pickups`): player nick, item label, time from WS `pickup` events
+- Death markers: `medal_excellent` sprite at victim position from WS `death` event (fade out; `death_sec` URL param)
+- Item respawn: on WS `pickup`, nearest item sprite within 128 world units dims with radial fill + countdown (QL default respawn times; items layer must be on; shards hidden unless enabled in settings)
+- Player labels: `Nick [health/armor]` plus active powerups
+- Pickup toasts (`#map-pickups`): transient messages with item sprite, auto-fade ~4.5s
+- Pickup log (**Pickups** button): scrollable full history with sprites from WS `pickup` events
 
 ### Map calibration debug (`map.html?debug=1`)
 

@@ -2,13 +2,83 @@
   "use strict";
 
   var STORAGE_KEY = "ql-map-spawns-settings";
-  var SETTINGS_VERSION = 3;
+  var SETTINGS_VERSION = 5;
+
+  var GREEN_CLASSNAMES = ["item_health_small"];
+  var HEALTH_CLASSNAMES = [
+    "item_health",
+    "item_health_large",
+    "item_health_mega",
+  ];
+  var SHARD_CLASSNAMES = ["item_armor_shard"];
+  var ARMOR_CLASSNAMES = [
+    "item_armor_combat",
+    "item_armor_body",
+  ];
+  var POWERUP_CLASSNAME_LIST = [
+    "item_quad",
+    "item_regen",
+    "item_haste",
+    "item_enviro",
+    "item_invis",
+    "item_invulnerability",
+  ];
+
+  var CLASSNAME_LABELS = {
+    item_health_small: "Green (5 HP)",
+    item_health: "25 HP",
+    item_health_large: "50 HP",
+    item_health_mega: "Mega",
+    item_armor_shard: "Shard",
+    item_armor_combat: "Yellow (YA)",
+    item_armor_body: "Red (RA)",
+    item_quad: "Quad",
+    item_regen: "Regen",
+    item_haste: "Haste",
+    item_enviro: "Battle Suit",
+    item_invis: "Invis",
+    item_invulnerability: "Invuln",
+  };
+
+  // QL default respawn seconds (telemetry has no respawn_at yet).
+  var ITEM_RESPAWN_SEC = {
+    item_health_small: 35,
+    item_health: 35,
+    item_health_large: 35,
+    item_health_mega: 35,
+    item_armor_shard: 2,
+    item_armor_combat: 25,
+    item_armor_body: 25,
+    item_quad: 120,
+    item_regen: 120,
+    item_haste: 120,
+    item_enviro: 120,
+    item_invis: 120,
+    item_invulnerability: 120,
+  };
+  var PICKUP_MATCH_RADIUS = 128;
+
   var DEFAULT_ITEM_CATEGORIES = {
     weapons: true,
     ammo: true,
     health: true,
+    green: true,
+    shards: false,
     armor: true,
     powerups: true,
+    item_health_small: true,
+    item_health: true,
+    item_health_large: true,
+    item_health_mega: true,
+    item_armor_shard: false,
+    item_armor_combat: true,
+    item_armor_body: true,
+    item_quad: true,
+    item_regen: true,
+    item_haste: true,
+    item_enviro: true,
+    item_invis: true,
+    item_invulnerability: true,
   };
   var DEFAULTS = {
     version: SETTINGS_VERSION,
@@ -45,8 +115,13 @@
       s.itemCategories = Object.assign({}, DEFAULT_ITEM_CATEGORIES, s.itemCategories);
     }
     if (Number(s.version) !== SETTINGS_VERSION) {
-      if (Number(s.version) < 3) {
+      var prevVersion = Number(s.version) || 0;
+      if (prevVersion < 3) {
         s.itemCategories = Object.assign({}, DEFAULT_ITEM_CATEGORIES);
+      } else if (prevVersion < 4) {
+        s.itemCategories = migrateItemCategoriesV4(s.itemCategories);
+      } else if (prevVersion < 5) {
+        s.itemCategories = migrateItemCategoriesV5(s.itemCategories);
       }
       s.version = SETTINGS_VERSION;
       try {
@@ -67,6 +142,44 @@
     var gtParam = qs("gametype");
     if (gtParam) s.gametypeOverride = gtParam;
     return s;
+  }
+
+  function migrateItemCategoriesV4(old) {
+    old = old || {};
+    var next = Object.assign({}, DEFAULT_ITEM_CATEGORIES, old);
+    if (old.health === false) {
+      for (var hi = 0; hi < HEALTH_CLASSNAMES.length; hi++) {
+        next[HEALTH_CLASSNAMES[hi]] = false;
+      }
+    }
+    if (old.armor === false) {
+      for (var ai = 0; ai < ARMOR_CLASSNAMES.length; ai++) {
+        next[ARMOR_CLASSNAMES[ai]] = false;
+      }
+    }
+    if (old.powerups === false) {
+      for (var pi = 0; pi < POWERUP_CLASSNAME_LIST.length; pi++) {
+        next[POWERUP_CLASSNAME_LIST[pi]] = false;
+      }
+    }
+    return next;
+  }
+
+  function migrateItemCategoriesV5(old) {
+    old = old || {};
+    var next = Object.assign({}, DEFAULT_ITEM_CATEGORIES, old);
+    if (old.green == null) {
+      next.green = old.health !== false && old.item_health_small !== false;
+    }
+    if (old.shards == null) {
+      next.shards = old.armor !== false && old.item_armor_shard !== false;
+    }
+    return next;
+  }
+
+  function itemClassnameLabel(classname) {
+    if (CLASSNAME_LABELS[classname]) return CLASSNAME_LABELS[classname];
+    return String(classname || "").replace(/^item_/, "");
   }
 
   function saveSettings(settings) {
@@ -280,17 +393,33 @@
     if (!classname) return null;
     if (classname.indexOf("weapon_") === 0) return "weapons";
     if (classname.indexOf("ammo_") === 0) return "ammo";
+    if (classname === "item_health_small") return "green";
+    if (classname === "item_armor_shard") return "shards";
     if (classname.indexOf("item_health") === 0) return "health";
     if (classname.indexOf("item_armor") === 0) return "armor";
     if (POWERUP_CLASSNAMES[classname]) return "powerups";
     return null;
   }
 
-  function entityPassesItemCategory(ent, settings) {
-    var cat = entityItemCategory(ent && ent.classname);
+  function entityVisibleForCategory(classname, itemCategories) {
+    var cat = entityItemCategory(classname);
     if (!cat) return true;
-    var cats = (settings && settings.itemCategories) || DEFAULT_ITEM_CATEGORIES;
-    return cats[cat] !== false;
+    var cats = itemCategories || DEFAULT_ITEM_CATEGORIES;
+    if (cats[cat] === false) return false;
+    if (
+      classname &&
+      Object.prototype.hasOwnProperty.call(cats, classname)
+    ) {
+      return cats[classname] !== false;
+    }
+    return true;
+  }
+
+  function entityPassesItemCategory(ent, settings) {
+    return entityVisibleForCategory(
+      ent && ent.classname,
+      settings && settings.itemCategories,
+    );
   }
 
   function isTeleportExit(ent) {
@@ -385,6 +514,9 @@
     this.panel = null;
     this.toggleBtn = null;
     this.cursorCaptureEl = null;
+    this.respawnLayer = null;
+    this._itemRespawns = {};
+    this._respawnLoopId = 0;
     this._anchorMotion = {
       ref: null,
       threshold: null,
@@ -412,6 +544,194 @@
       return OverlayApp.lerpNum(a, b, t);
     }
     return a + (b - a) * t;
+  };
+
+  MapSpawns.prototype._stopRespawnLoop = function () {
+    if (this._respawnLoopId) {
+      cancelAnimationFrame(this._respawnLoopId);
+      this._respawnLoopId = 0;
+    }
+  };
+
+  MapSpawns.prototype._clearItemRespawns = function () {
+    this._stopRespawnLoop();
+    for (var key in this._itemRespawns) {
+      var row = this._itemRespawns[key];
+      if (row.el && row.el.parentNode) row.el.parentNode.removeChild(row.el);
+    }
+    this._itemRespawns = {};
+    if (this.respawnLayer) this.respawnLayer.innerHTML = "";
+  };
+
+  MapSpawns.prototype._itemRespawnKey = function (entityId) {
+    return (this.mapName || "") + ":" + entityId;
+  };
+
+  MapSpawns.prototype._itemOnRespawnCooldown = function (entityId) {
+    var row = this._itemRespawns[this._itemRespawnKey(entityId)];
+    return !!(row && row.expiresAt > Date.now());
+  };
+
+  function formatRespawnCountdown(remainingMs, respawnMs) {
+    var totalSec = Math.max(1, Math.round(respawnMs / 1000));
+    if (remainingMs <= 0) return "0";
+    var sec = Math.round(remainingMs / 1000);
+    if (sec < 1) sec = 1;
+    if (sec > totalSec) sec = totalSec;
+    return String(sec);
+  }
+
+  MapSpawns.prototype.findNearestItemEntity = function (classname, x, y) {
+    var entities = (this.entityData && this.entityData.entities) || [];
+    if (!classname) return null;
+
+    var matches = [];
+    for (var i = 0; i < entities.length; i++) {
+      var ent = entities[i];
+      if (ent.classname !== classname) continue;
+      if (isHiddenEntity(ent)) continue;
+      matches.push(ent);
+    }
+    if (!matches.length) return null;
+    if (matches.length === 1) return matches[0];
+
+    if (x == null || y == null) return matches[0];
+
+    var wx = Number(x);
+    var wy = Number(y);
+    if (!isFinite(wx) || !isFinite(wy)) return matches[0];
+
+    var maxDist = PICKUP_MATCH_RADIUS;
+    var best = null;
+    var bestD2 = maxDist * maxDist;
+    for (var j = 0; j < matches.length; j++) {
+      var near = matches[j];
+      var dx = Number(near.x) - wx;
+      var dy = Number(near.y) - wy;
+      var d2 = dx * dx + dy * dy;
+      if (d2 <= bestD2) {
+        bestD2 = d2;
+        best = near;
+      }
+    }
+    return best;
+  };
+
+  MapSpawns.prototype.respawnDurationMs = function (item, data) {
+    if (data && data.respawn_sec != null && isFinite(Number(data.respawn_sec))) {
+      return Math.max(500, Number(data.respawn_sec) * 1000);
+    }
+    if (data && data.respawn_at) {
+      try {
+        var at = new Date(data.respawn_at).getTime();
+        var left = at - Date.now();
+        if (isFinite(at) && left > 0) return left;
+      } catch (_e) {
+        /* ignore */
+      }
+    }
+    var sec = ITEM_RESPAWN_SEC[item];
+    if (sec == null) return 0;
+    return sec * 1000;
+  };
+
+  MapSpawns.prototype.onPickupEvent = function (data) {
+    var transform =
+      this.transform || (this.lastPayload && this.lastPayload.transform);
+    if (!this.settings.enabled || !this.entityData || !transform) return;
+    if (!this.transform) this.transform = transform;
+    var item = data && data.item;
+    if (!item || !ITEM_RESPAWN_SEC[item]) return;
+    if (!entityVisibleForCategory(item, this.settings.itemCategories)) return;
+    if (!this.layerEnabled("items")) return;
+    var ent = this.findNearestItemEntity(item, data.x, data.y);
+    if (!ent) return;
+    var respawnMs = this.respawnDurationMs(item, data);
+    if (!respawnMs) return;
+    var key = this._itemRespawnKey(ent.id);
+    var existing = this._itemRespawns[key];
+    if (existing && existing.el && existing.el.parentNode) {
+      existing.el.parentNode.removeChild(existing.el);
+    }
+    this._itemRespawns[key] = {
+      entityId: ent.id,
+      classname: item,
+      x: Number(ent.x),
+      y: Number(ent.y),
+      expiresAt: Date.now() + respawnMs,
+      respawnMs: respawnMs,
+      el: null,
+      elRing: null,
+      elCount: null,
+    };
+    this.render();
+    this.renderRespawnOverlays();
+    this._ensureRespawnLoop();
+  };
+
+  MapSpawns.prototype.renderRespawnOverlays = function () {
+    var layer = this.respawnLayer;
+    if (!layer || !this.transform) return false;
+    var now = Date.now();
+    var active = false;
+    for (var key in this._itemRespawns) {
+      if (!Object.prototype.hasOwnProperty.call(this._itemRespawns, key)) continue;
+      var row = this._itemRespawns[key];
+      if (row.expiresAt <= now) {
+        if (row.el && row.el.parentNode) row.el.parentNode.removeChild(row.el);
+        delete this._itemRespawns[key];
+        continue;
+      }
+      active = true;
+      var remaining = row.expiresAt - now;
+      var progress = 1 - remaining / Math.max(1, row.respawnMs);
+      if (!row.el) {
+        row.el = document.createElement("div");
+        row.el.className = "map-item-respawn";
+        var ring = document.createElement("div");
+        ring.className = "map-item-respawn-ring";
+        var count = document.createElement("span");
+        count.className = "map-item-respawn-count";
+        row.el.appendChild(ring);
+        row.el.appendChild(count);
+        row.elRing = ring;
+        row.elCount = count;
+        layer.appendChild(row.el);
+      }
+      var pos = this.worldToDisplay(row.x, row.y);
+      if (!pos) continue;
+      row.el.style.left = pos.x + "px";
+      row.el.style.top = pos.y + "px";
+      var pct = Math.max(0, Math.min(100, progress * 100));
+      row.elRing.style.background =
+        "conic-gradient(#4ade80 " +
+        pct +
+        "%, rgba(20, 24, 32, 0.82) " +
+        pct +
+        "%)";
+      row.elCount.textContent = formatRespawnCountdown(remaining, row.respawnMs);
+    }
+    if (!active && !Object.keys(this._itemRespawns).length) {
+      layer.innerHTML = "";
+    }
+    return active;
+  };
+
+  MapSpawns.prototype._ensureRespawnLoop = function () {
+    var self = this;
+    if (this._respawnLoopId) return;
+
+    function frame() {
+      var stillActive = self.renderRespawnOverlays();
+      if (stillActive) {
+        self._respawnLoopId = requestAnimationFrame(frame);
+      } else {
+        self._respawnLoopId = 0;
+        self.render();
+      }
+    }
+
+    this._respawnLoopId = requestAnimationFrame(frame);
   };
 
   MapSpawns.prototype._stopAnchorMotionLoop = function () {
@@ -551,14 +871,36 @@
     this.syncItemCategoryControls();
   };
 
+  MapSpawns.prototype.setItemClassnameEnabled = function (classname, enabled) {
+    if (!this.settings.itemCategories) {
+      this.settings.itemCategories = Object.assign({}, DEFAULT_ITEM_CATEGORIES);
+    }
+    this.settings.itemCategories[classname] = !!enabled;
+    saveSettings(this.settings);
+    this.render();
+    this.syncItemCategoryControls();
+  };
+
   MapSpawns.prototype.syncItemCategoryControls = function () {
     var host = document.getElementById("spawn-item-category-toggles");
     if (!host) return;
-    var inputs = host.querySelectorAll("input[data-item-category]");
-    for (var i = 0; i < inputs.length; i++) {
-      var input = inputs[i];
+    var cats = this.settings.itemCategories || DEFAULT_ITEM_CATEGORIES;
+    var categoryInputs = host.querySelectorAll("input[data-item-category]");
+    for (var i = 0; i < categoryInputs.length; i++) {
+      var input = categoryInputs[i];
       var cat = input.getAttribute("data-item-category");
-      input.checked = this.settings.itemCategories[cat] !== false;
+      input.checked = cats[cat] !== false;
+    }
+    var classnameInputs = host.querySelectorAll("input[data-item-classname]");
+    for (var j = 0; j < classnameInputs.length; j++) {
+      var cInput = classnameInputs[j];
+      var cn = cInput.getAttribute("data-item-classname");
+      var parent = cInput.getAttribute("data-item-parent-category");
+      var parentOff = parent && cats[parent] === false;
+      cInput.checked = !parentOff && cats[cn] !== false;
+      cInput.disabled = !!parentOff;
+      var wrap = cInput.closest("label");
+      if (wrap) wrap.classList.toggle("is-disabled", !!parentOff);
     }
   };
 
@@ -955,6 +1297,9 @@
         " map-entity-static";
       className += " layer-" + layer.id;
       if (spriteRel) className += " map-entity-has-sprite";
+      if (this._itemOnRespawnCooldown(ent.id)) {
+        className += " map-entity-respawn-cooldown";
+      }
       var dot = document.createElement("div");
       dot.className = className;
       dot.style.width = size + "px";
@@ -1141,6 +1486,7 @@
     if (payload.match_id && payload.match_id !== this.lastMatchId) {
       this.lastMatchId = payload.match_id;
       this.lastGametype = null;
+      this._clearItemRespawns();
     }
     this.transform = payload.transform || null;
     this.players = Array.isArray(payload.players) ? payload.players : [];
@@ -1158,6 +1504,7 @@
     this.syncPlayerPicker();
     this.syncCursorCapture();
     if (mapName && mapName !== this.mapName) {
+      this._clearItemRespawns();
       this.loadEntities(mapName);
     } else {
       this.render();
@@ -1328,35 +1675,91 @@
     }
   };
 
+  MapSpawns.prototype._appendItemCategoryToggle = function (host, categoryKey, labelText) {
+    var label = document.createElement("label");
+    label.className = "dbg-toggle spawn-item-category-parent";
+    var input = document.createElement("input");
+    input.type = "checkbox";
+    input.setAttribute("data-item-category", categoryKey);
+    input.checked = this.settings.itemCategories[categoryKey] !== false;
+    var self = this;
+    input.addEventListener("change", function () {
+      self.setItemCategoryEnabled(categoryKey, this.checked);
+    });
+    label.appendChild(input);
+    label.appendChild(document.createTextNode(" " + labelText));
+    host.appendChild(label);
+  };
+
+  MapSpawns.prototype._appendItemClassnameGroup = function (
+    host,
+    categoryKey,
+    categoryLabel,
+    classnames,
+  ) {
+    var group = document.createElement("div");
+    group.className = "spawn-item-category-group";
+
+    var head = document.createElement("div");
+    head.className = "spawn-item-category-group-head";
+    this._appendItemCategoryToggle(head, categoryKey, categoryLabel);
+    group.appendChild(head);
+
+    if (classnames && classnames.length) {
+      var details = document.createElement("details");
+      details.className = "spawn-item-category-details";
+      details.open = true;
+      var summary = document.createElement("summary");
+      summary.textContent = "Individual types";
+      details.appendChild(summary);
+
+      var children = document.createElement("div");
+      children.className = "spawn-item-category-children";
+      var self = this;
+      for (var i = 0; i < classnames.length; i++) {
+        var cn = classnames[i];
+        var childLabel = document.createElement("label");
+        childLabel.className = "dbg-toggle spawn-item-category-child";
+        var childInput = document.createElement("input");
+        childInput.type = "checkbox";
+        childInput.setAttribute("data-item-classname", cn);
+        childInput.setAttribute("data-item-parent-category", categoryKey);
+        childInput.checked = self.settings.itemCategories[cn] !== false;
+        childInput.addEventListener("change", function () {
+          var classname = this.getAttribute("data-item-classname");
+          self.setItemClassnameEnabled(classname, this.checked);
+        });
+        childLabel.appendChild(childInput);
+        childLabel.appendChild(
+          document.createTextNode(" " + itemClassnameLabel(cn)),
+        );
+        children.appendChild(childLabel);
+      }
+      details.appendChild(children);
+      group.appendChild(details);
+    }
+
+    host.appendChild(group);
+  };
+
   MapSpawns.prototype.rebuildItemCategoryControls = function () {
     var host = document.getElementById("spawn-item-category-toggles");
     if (!host) return;
     host.innerHTML = "";
-    var rows = [
-      ["weapons", "Weapons"],
-      ["ammo", "Ammo (excl. ammo_pack)"],
-      ["health", "Health"],
-      ["armor", "Armor"],
-      ["powerups", "Powerups"],
-    ];
-    var self = this;
-    for (var i = 0; i < rows.length; i++) {
-      var key = rows[i][0];
-      var text = rows[i][1];
-      var label = document.createElement("label");
-      label.className = "dbg-toggle";
-      var input = document.createElement("input");
-      input.type = "checkbox";
-      input.setAttribute("data-item-category", key);
-      input.checked = self.settings.itemCategories[key] !== false;
-      input.addEventListener("change", function () {
-        var cat = this.getAttribute("data-item-category");
-        self.setItemCategoryEnabled(cat, this.checked);
-      });
-      label.appendChild(input);
-      label.appendChild(document.createTextNode(" " + text));
-      host.appendChild(label);
-    }
+
+    this._appendItemCategoryToggle(host, "weapons", "Weapons");
+    this._appendItemCategoryToggle(host, "ammo", "Ammo (excl. ammo_pack)");
+    this._appendItemClassnameGroup(host, "green", "Green", GREEN_CLASSNAMES);
+    this._appendItemClassnameGroup(host, "health", "Health", HEALTH_CLASSNAMES);
+    this._appendItemClassnameGroup(host, "shards", "Shards", SHARD_CLASSNAMES);
+    this._appendItemClassnameGroup(host, "armor", "Armor", ARMOR_CLASSNAMES);
+    this._appendItemClassnameGroup(
+      host,
+      "powerups",
+      "Powerups",
+      POWERUP_CLASSNAME_LIST,
+    );
+    this.syncItemCategoryControls();
   };
 
   MapSpawns.prototype.buildPanel = function () {
@@ -1373,7 +1776,7 @@
       "</section>" +
       '<section class="map-spawns-section">' +
       "<h3>Item categories</h3>" +
-      '<p class="map-spawns-hint">When the items layer is on — toggle weapons, ammo (no ammo_pack), health, armor, powerups.</p>' +
+      '<p class="map-spawns-hint">When the items layer is on — toggle categories; expand Green, Health, Shards, Armor, or Powerups for per-type filters. Shards are off by default (no map respawn ring).</p>' +
       '<div id="spawn-item-category-toggles"></div>' +
       "</section>" +
       '<section class="map-spawns-section">' +
@@ -1472,6 +1875,7 @@
 
   MapSpawns.prototype.init = function () {
     this.layer = document.getElementById("map-spawns");
+    this.respawnLayer = document.getElementById("map-item-respawns");
     this.thresholdEl = document.getElementById("map-spawn-threshold");
     this.refEl = document.getElementById("map-spawn-ref");
     this.panel = document.getElementById("map-spawns-panel");
@@ -1480,11 +1884,18 @@
 
     if (!this.layer) return;
 
+    var self = this;
+
+    if (window.OverlayApp && typeof OverlayApp.onPickup === "function") {
+      OverlayApp.onPickup(function (data) {
+        self.onPickupEvent(data);
+      });
+    }
+
     this.buildPanel();
     this.syncChrome();
     this.syncCursorCapture();
 
-    var self = this;
     if (this.toggleBtn) {
       this.toggleBtn.addEventListener("click", function () {
         self.togglePanel();

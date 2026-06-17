@@ -677,19 +677,60 @@ body.map-debug-mode .status {
 .map-death-marker {
   position: absolute;
   transform: translate(-50%, -50%);
-  width: 14px;
-  height: 14px;
-  margin: 0;
-  border-radius: 50%;
-  border: 1px solid rgba(120, 120, 130, 0.75);
-  background: rgba(40, 40, 48, 0.72);
-  color: rgba(200, 200, 210, 0.9);
-  font-size: 10px;
-  line-height: 12px;
-  text-align: center;
-  font-weight: 700;
   pointer-events: none;
-  box-shadow: 0 0 0 1px rgba(0, 0, 0, 0.45);
+}
+
+.map-death-marker-sprite {
+  width: 28px;
+  height: 28px;
+}
+
+.map-death-marker-img {
+  display: block;
+  width: 100%;
+  height: 100%;
+  object-fit: contain;
+  filter: drop-shadow(0 0 3px rgba(0, 0, 0, 0.85));
+}
+
+.map-item-respawn-layer {
+  position: absolute;
+  inset: 0;
+  z-index: 2;
+  pointer-events: none;
+}
+
+.map-item-respawn {
+  position: absolute;
+  transform: translate(-50%, -50%);
+  width: 26px;
+  height: 26px;
+  pointer-events: none;
+}
+
+.map-item-respawn-ring {
+  position: absolute;
+  inset: 0;
+  border-radius: 50%;
+  border: 2px solid rgba(0, 0, 0, 0.55);
+  box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.08);
+}
+
+.map-item-respawn-count {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 9px;
+  font-weight: 800;
+  color: #f8fafc;
+  text-shadow: 0 1px 2px rgba(0, 0, 0, 0.9);
+}
+
+.map-entity-respawn-cooldown {
+  opacity: 0.18;
+  filter: grayscale(0.85);
 }
 
 .map-spawn {
@@ -769,7 +810,7 @@ body.map-debug-mode .status {
 .map-pickups {
   position: absolute;
   right: 8px;
-  top: 8px;
+  top: 36px;
   z-index: 8;
   display: flex;
   flex-direction: column;
@@ -779,6 +820,9 @@ body.map-debug-mode .status {
 }
 
 .map-pickup-line {
+  display: flex;
+  align-items: center;
+  gap: 5px;
   font-size: 11px;
   line-height: 1.2;
   color: #fef3c7;
@@ -786,6 +830,124 @@ body.map-debug-mode .status {
   padding: 3px 6px;
   border-radius: 4px;
   text-shadow: 0 1px 2px rgba(0, 0, 0, 0.6);
+  transition: opacity 0.65s ease;
+}
+
+.map-pickup-line.is-fading {
+  opacity: 0;
+}
+
+.map-pickup-icon {
+  width: 14px;
+  height: 14px;
+  object-fit: contain;
+  flex: 0 0 auto;
+}
+
+.map-pickup-text {
+  min-width: 0;
+}
+
+.map-pickup-log-btn {
+  position: absolute;
+  right: 8px;
+  top: 8px;
+  z-index: 9;
+  pointer-events: auto;
+  font-size: 10px;
+  line-height: 1;
+  padding: 4px 7px;
+  border-radius: 4px;
+  border: 1px solid rgba(251, 191, 36, 0.35);
+  background: rgba(12, 10, 9, 0.82);
+  color: #fde68a;
+  cursor: pointer;
+}
+
+.map-pickup-log-btn:hover {
+  background: rgba(28, 25, 23, 0.92);
+}
+
+body.map-pickup-log-open .map-pickup-log-btn {
+  display: none;
+}
+
+.map-pickup-log {
+  position: absolute;
+  right: 8px;
+  top: 8px;
+  bottom: 8px;
+  width: min(280px, 55%);
+  z-index: 12;
+  display: flex;
+  flex-direction: column;
+  background: rgba(12, 10, 9, 0.92);
+  border: 1px solid rgba(251, 191, 36, 0.25);
+  border-radius: 6px;
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.45);
+  pointer-events: auto;
+}
+
+.map-pickup-log.hidden {
+  display: none;
+}
+
+.map-pickup-log-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  padding: 8px 10px;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.08);
+}
+
+.map-pickup-log-head h3 {
+  margin: 0;
+  font-size: 12px;
+  font-weight: 700;
+  color: #fde68a;
+}
+
+.map-pickup-log-close {
+  border: none;
+  background: transparent;
+  color: #e7e5e4;
+  font-size: 18px;
+  line-height: 1;
+  cursor: pointer;
+  padding: 0 2px;
+}
+
+.map-pickup-log-list {
+  flex: 1;
+  overflow-y: auto;
+  padding: 6px 8px 8px;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.map-pickup-log-line {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 11px;
+  line-height: 1.25;
+  color: #fef3c7;
+  padding: 4px 6px;
+  border-radius: 4px;
+  background: rgba(255, 255, 255, 0.04);
+}
+
+.map-pickup-log-icon {
+  width: 16px;
+  height: 16px;
+  object-fit: contain;
+  flex: 0 0 auto;
+}
+
+.map-pickup-log-text {
+  min-width: 0;
 }
 
 .map-entity {
@@ -959,6 +1121,41 @@ body.map-body.map-spawns-mode {
 }
 
 .map-spawns-section .dbg-field.is-disabled {
+  opacity: 0.55;
+}
+
+.spawn-item-category-group {
+  margin: 8px 0 4px;
+}
+
+.spawn-item-category-group-head .spawn-item-category-parent {
+  margin: 4px 0;
+}
+
+.spawn-item-category-details {
+  margin: 2px 0 0 14px;
+}
+
+.spawn-item-category-details > summary {
+  cursor: pointer;
+  font-size: 11px;
+  color: #8b98b0;
+  margin: 2px 0 4px;
+  user-select: none;
+}
+
+.spawn-item-category-children {
+  margin-left: 12px;
+  padding-left: 8px;
+  border-left: 1px solid rgba(255, 255, 255, 0.08);
+}
+
+.spawn-item-category-child {
+  margin: 4px 0 !important;
+  font-size: 12px;
+}
+
+.spawn-item-category-child.is-disabled {
   opacity: 0.55;
 }
 
