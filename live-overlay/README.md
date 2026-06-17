@@ -25,9 +25,18 @@ https://cdn.jsdelivr.net/gh/alexeytihomirov/ql-stream-tools@main/live-overlay/ma
 | `transport` | no | `ws` (default) or `poll` for map overlay |
 | `smooth` | map only | `1` (default) — EMA smoothing between telemetry; `0` = snap each frame |
 | `smooth_ms` | map only | Smoothing time constant in ms (default `180`; try `250` if still jittery) |
+| `death_sec` | map only | Death marker lifetime on map in seconds (default `10`) |
 | `debug` | map only | `1` — calibration panel (world/pixel coords, click sampler, JSON snippet) |
 
 Map overlay uses WebSocket by default; HTTP poll is fallback only if WS is silent.
+
+### Map overlay settings (`map.html` → **Settings**)
+
+- Layer toggles per map (duel spawns, items, DM spawns, teleports) — persisted in `localStorage`
+- **Item categories** (when items layer is on): weapons, ammo (excluding `ammo_pack`), health, armor, powerups
+- Duel anchor (player / mouse), threshold square, rejected spawns — threshold and ref marker use the same smooth motion as player dots (`smooth` / `smooth_ms`)
+- Death markers: muted cross at victim position from WS `death` event (fade out; `death_sec` URL param)
+- Pickup feed (`#map-pickups`): player nick, item label, time from WS `pickup` events
 
 ### Map calibration debug (`map.html?debug=1`)
 

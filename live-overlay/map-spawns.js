@@ -2,7 +2,14 @@
   "use strict";
 
   var STORAGE_KEY = "ql-map-spawns-settings";
-  var SETTINGS_VERSION = 2;
+  var SETTINGS_VERSION = 3;
+  var DEFAULT_ITEM_CATEGORIES = {
+    weapons: true,
+    ammo: true,
+    health: true,
+    armor: true,
+    powerups: true,
+  };
   var DEFAULTS = {
     version: SETTINGS_VERSION,
     enabled: false,
@@ -12,6 +19,7 @@
     showThreshold: true,
     middleVal: null,
     layers: {},
+    itemCategories: Object.assign({}, DEFAULT_ITEM_CATEGORIES),
   };
 
   function qs(name) {
@@ -31,8 +39,15 @@
       /* ignore */
     }
     if (!s.layers || typeof s.layers !== "object") s.layers = {};
+    if (!s.itemCategories || typeof s.itemCategories !== "object") {
+      s.itemCategories = Object.assign({}, DEFAULT_ITEM_CATEGORIES);
+    } else {
+      s.itemCategories = Object.assign({}, DEFAULT_ITEM_CATEGORIES, s.itemCategories);
+    }
     if (Number(s.version) !== SETTINGS_VERSION) {
-      s.layers = {};
+      if (Number(s.version) < 3) {
+        s.itemCategories = Object.assign({}, DEFAULT_ITEM_CATEGORIES);
+      }
       s.version = SETTINGS_VERSION;
       try {
         localStorage.setItem(STORAGE_KEY, JSON.stringify(s));
@@ -66,6 +81,7 @@
           showThreshold: settings.showThreshold,
           middleVal: settings.middleVal,
           layers: settings.layers,
+          itemCategories: settings.itemCategories,
           version: SETTINGS_VERSION,
         }),
       );
@@ -248,7 +264,34 @@
 
   var HIDDEN_ENTITY_CLASSNAMES = {
     trigger_push: true,
+    ammo_pack: true,
   };
+
+  var POWERUP_CLASSNAMES = {
+    item_quad: true,
+    item_regen: true,
+    item_haste: true,
+    item_enviro: true,
+    item_invis: true,
+    item_invulnerability: true,
+  };
+
+  function entityItemCategory(classname) {
+    if (!classname) return null;
+    if (classname.indexOf("weapon_") === 0) return "weapons";
+    if (classname.indexOf("ammo_") === 0) return "ammo";
+    if (classname.indexOf("item_health") === 0) return "health";
+    if (classname.indexOf("item_armor") === 0) return "armor";
+    if (POWERUP_CLASSNAMES[classname]) return "powerups";
+    return null;
+  }
+
+  function entityPassesItemCategory(ent, settings) {
+    var cat = entityItemCategory(ent && ent.classname);
+    if (!cat) return true;
+    var cats = (settings && settings.itemCategories) || DEFAULT_ITEM_CATEGORIES;
+    return cats[cat] !== false;
+  }
 
   function isTeleportExit(ent) {
     return !!(ent && TELEPORT_EXIT_CLASSNAMES[ent.classname]);
@@ -342,9 +385,182 @@
     this.panel = null;
     this.toggleBtn = null;
     this.cursorCaptureEl = null;
+    this._anchorMotion = {
+      ref: null,
+      threshold: null,
+      loopId: 0,
+    };
     this._boundMove = this.onPointerMove.bind(this);
     this._boundLeave = this.onPointerLeave.bind(this);
   }
+
+  MapSpawns.prototype._smoothAlpha = function () {
+    if (window.OverlayApp && typeof OverlayApp.mapSmoothAlpha === "function") {
+      if (
+        typeof OverlayApp.mapSmoothEnabled === "function" &&
+        !OverlayApp.mapSmoothEnabled()
+      ) {
+        return 1;
+      }
+      return OverlayApp.mapSmoothAlpha();
+    }
+    return 0.12;
+  };
+
+  MapSpawns.prototype._lerpNum = function (a, b, t) {
+    if (window.OverlayApp && typeof OverlayApp.lerpNum === "function") {
+      return OverlayApp.lerpNum(a, b, t);
+    }
+    return a + (b - a) * t;
+  };
+
+  MapSpawns.prototype._stopAnchorMotionLoop = function () {
+    if (this._anchorMotion.loopId) {
+      cancelAnimationFrame(this._anchorMotion.loopId);
+      this._anchorMotion.loopId = 0;
+    }
+  };
+
+  MapSpawns.prototype._ensureAnchorMotionLoop = function () {
+    var self = this;
+    if (this._anchorMotion.loopId) return;
+
+    function frame() {
+      var motion = self._anchorMotion;
+      var alpha = self._smoothAlpha();
+      var active = false;
+
+      if (motion.ref && motion.ref.el) {
+        active = true;
+        motion.ref.display.x = self._lerpNum(
+          motion.ref.display.x,
+          motion.ref.target.x,
+          alpha,
+        );
+        motion.ref.display.y = self._lerpNum(
+          motion.ref.display.y,
+          motion.ref.target.y,
+          alpha,
+        );
+        motion.ref.el.style.left = motion.ref.display.x + "px";
+        motion.ref.el.style.top = motion.ref.display.y + "px";
+      }
+
+      if (motion.threshold && motion.threshold.el) {
+        active = true;
+        var th = motion.threshold;
+        th.display.x = self._lerpNum(th.display.x, th.target.x, alpha);
+        th.display.y = self._lerpNum(th.display.y, th.target.y, alpha);
+        th.display.size = self._lerpNum(th.display.size, th.target.size, alpha);
+        var half = th.display.size / 2;
+        th.el.style.left = th.display.x - half + "px";
+        th.el.style.top = th.display.y - half + "px";
+        th.el.style.width = th.display.size + "px";
+        th.el.style.height = th.display.size + "px";
+      }
+
+      if (active) {
+        motion.loopId = requestAnimationFrame(frame);
+      } else {
+        motion.loopId = 0;
+      }
+    }
+
+    this._anchorMotion.loopId = requestAnimationFrame(frame);
+  };
+
+  MapSpawns.prototype._setAnchorRefTarget = function (pos, instant) {
+    if (!this.refEl || !pos) {
+      if (this.refEl) this.refEl.style.display = "none";
+      this._anchorMotion.ref = null;
+      return;
+    }
+    this.refEl.style.display = "";
+    var motion = this._anchorMotion;
+    if (!motion.ref || motion.ref.el !== this.refEl) {
+      motion.ref = {
+        el: this.refEl,
+        display: { x: pos.x, y: pos.y },
+        target: { x: pos.x, y: pos.y },
+      };
+    }
+    motion.ref.target.x = pos.x;
+    motion.ref.target.y = pos.y;
+    if (instant) {
+      motion.ref.display.x = pos.x;
+      motion.ref.display.y = pos.y;
+      this.refEl.style.left = pos.x + "px";
+      this.refEl.style.top = pos.y + "px";
+    }
+    this._ensureAnchorMotionLoop();
+  };
+
+  MapSpawns.prototype._setThresholdTarget = function (pos, size, instant) {
+    var motion = this._anchorMotion;
+    if (!this.thresholdEl) return;
+    if (!pos || size == null || !this.settings.showThreshold) {
+      if (motion.threshold && motion.threshold.el) {
+        motion.threshold.el.style.display = "none";
+      }
+      motion.threshold = null;
+      return;
+    }
+    if (!motion.threshold || !motion.threshold.el) {
+      var box = document.createElement("div");
+      box.className = "map-spawn-threshold";
+      this.thresholdEl.innerHTML = "";
+      this.thresholdEl.appendChild(box);
+      motion.threshold = {
+        el: box,
+        display: { x: pos.x, y: pos.y, size: size },
+        target: { x: pos.x, y: pos.y, size: size },
+      };
+    }
+    motion.threshold.el.style.display = "";
+    motion.threshold.target.x = pos.x;
+    motion.threshold.target.y = pos.y;
+    motion.threshold.target.size = size;
+    if (instant) {
+      motion.threshold.display.x = pos.x;
+      motion.threshold.display.y = pos.y;
+      motion.threshold.display.size = size;
+      var half = size / 2;
+      motion.threshold.el.style.left = pos.x - half + "px";
+      motion.threshold.el.style.top = pos.y - half + "px";
+      motion.threshold.el.style.width = size + "px";
+      motion.threshold.el.style.height = size + "px";
+    }
+    this._ensureAnchorMotionLoop();
+  };
+
+  MapSpawns.prototype._clearAnchorMotion = function () {
+    this._stopAnchorMotionLoop();
+    this._anchorMotion.ref = null;
+    this._anchorMotion.threshold = null;
+    if (this.thresholdEl) this.thresholdEl.innerHTML = "";
+    if (this.refEl) this.refEl.style.display = "none";
+  };
+
+  MapSpawns.prototype.setItemCategoryEnabled = function (category, enabled) {
+    if (!this.settings.itemCategories) {
+      this.settings.itemCategories = Object.assign({}, DEFAULT_ITEM_CATEGORIES);
+    }
+    this.settings.itemCategories[category] = !!enabled;
+    saveSettings(this.settings);
+    this.render();
+    this.syncItemCategoryControls();
+  };
+
+  MapSpawns.prototype.syncItemCategoryControls = function () {
+    var host = document.getElementById("spawn-item-category-toggles");
+    if (!host) return;
+    var inputs = host.querySelectorAll("input[data-item-category]");
+    for (var i = 0; i < inputs.length; i++) {
+      var input = inputs[i];
+      var cat = input.getAttribute("data-item-category");
+      input.checked = this.settings.itemCategories[cat] !== false;
+    }
+  };
 
   MapSpawns.prototype.entitiesUrl = function (mapName) {
     if (!window.MapCoords) return "";
@@ -515,8 +731,7 @@
 
   MapSpawns.prototype.clearLayer = function () {
     if (this.layer) this.layer.innerHTML = "";
-    if (this.thresholdEl) this.thresholdEl.innerHTML = "";
-    if (this.refEl) this.refEl.style.display = "none";
+    this._clearAnchorMotion();
   };
 
   MapSpawns.prototype.entitiesForLayer = function (layer) {
@@ -526,6 +741,9 @@
     for (var i = 0; i < entities.length; i++) {
       var ent = entities[i];
       if (isHiddenEntity(ent)) continue;
+      if (layer && layer.id === "items" && !entityPassesItemCategory(ent, this.settings)) {
+        continue;
+      }
       if (!entityVisibleForGametypeFilter(ent, this.gametype, filterGametype)) continue;
       if (entityMatchesFilter(ent, layer.filter)) out.push(ent);
     }
@@ -790,24 +1008,19 @@
     if (!layerEl || !thresholdEl) return;
 
     var refPos = this.worldToDisplay(ref.x, ref.y);
-    if (refPos && this.refEl) {
-      this.refEl.style.display = "";
-      this.refEl.style.left = refPos.x + "px";
-      this.refEl.style.top = refPos.y + "px";
-    }
+    var instant = this._smoothAlpha() >= 0.999;
+    this._setAnchorRefTarget(refPos, instant);
 
-    if (this.settings.showThreshold && refPos && status.rejectMax != null) {
+    if (refPos && status.rejectMax != null) {
       var half = this.worldToDisplay(ref.x + status.rejectMax, ref.y);
       if (half) {
         var size = Math.max(4, (half.x - refPos.x) * 2);
-        var box = document.createElement("div");
-        box.className = "map-spawn-threshold";
-        box.style.left = refPos.x - size / 2 + "px";
-        box.style.top = refPos.y - size / 2 + "px";
-        box.style.width = size + "px";
-        box.style.height = size + "px";
-        thresholdEl.appendChild(box);
+        this._setThresholdTarget(refPos, size, instant);
+      } else {
+        this._setThresholdTarget(null, null, instant);
       }
+    } else {
+      this._setThresholdTarget(null, null, instant);
     }
 
     for (var i = 0; i < spawns.length; i++) {
@@ -845,10 +1058,9 @@
     if (!layerEl || !thresholdEl) return;
 
     layerEl.innerHTML = "";
-    thresholdEl.innerHTML = "";
-    if (this.refEl) this.refEl.style.display = "none";
 
     if (!this.mapDisplay || !this.mapDisplay.layers || !this.mapDisplay.layers.length) {
+      this._clearAnchorMotion();
       return;
     }
 
@@ -874,7 +1086,11 @@
       }
     }
 
-    if (!anyDuel && this.refEl) this.refEl.style.display = "none";
+    if (!anyDuel) {
+      this._clearAnchorMotion();
+    } else if (this.refEl) {
+      this.refEl.style.display = "";
+    }
   };
 
   MapSpawns.prototype.loadEntities = function (mapName) {
@@ -1112,17 +1328,53 @@
     }
   };
 
+  MapSpawns.prototype.rebuildItemCategoryControls = function () {
+    var host = document.getElementById("spawn-item-category-toggles");
+    if (!host) return;
+    host.innerHTML = "";
+    var rows = [
+      ["weapons", "Weapons"],
+      ["ammo", "Ammo (excl. ammo_pack)"],
+      ["health", "Health"],
+      ["armor", "Armor"],
+      ["powerups", "Powerups"],
+    ];
+    var self = this;
+    for (var i = 0; i < rows.length; i++) {
+      var key = rows[i][0];
+      var text = rows[i][1];
+      var label = document.createElement("label");
+      label.className = "dbg-toggle";
+      var input = document.createElement("input");
+      input.type = "checkbox";
+      input.setAttribute("data-item-category", key);
+      input.checked = self.settings.itemCategories[key] !== false;
+      input.addEventListener("change", function () {
+        var cat = this.getAttribute("data-item-category");
+        self.setItemCategoryEnabled(cat, this.checked);
+      });
+      label.appendChild(input);
+      label.appendChild(document.createTextNode(" " + text));
+      host.appendChild(label);
+    }
+  };
+
   MapSpawns.prototype.buildPanel = function () {
     var panel = this.panel;
     if (!panel) return;
     panel.innerHTML =
       '<header class="map-spawns-head">' +
       "<h2>Settings</h2>" +
-      '<p class="map-spawns-hint">Map entities · duel spawn pool (green/red) vs all DM spawns (static) · items filtered by gametype</p>' +
+      '<p class="map-spawns-hint">Map entities · duel spawn pool · per-category item filters · threshold follows anchor with smooth motion</p>' +
       "</header>" +
       '<section class="map-spawns-section">' +
       '<label class="dbg-toggle"><input type="checkbox" id="spawn-enabled" /> Show overlay</label>' +
       '<div id="spawn-layer-toggles"></div>' +
+      "</section>" +
+      '<section class="map-spawns-section">' +
+      "<h3>Item categories</h3>" +
+      '<p class="map-spawns-hint">When the items layer is on — toggle weapons, ammo (no ammo_pack), health, armor, powerups.</p>' +
+      '<div id="spawn-item-category-toggles"></div>' +
       "</section>" +
       '<section class="map-spawns-section">' +
       "<h3>Duel layer</h3>" +
@@ -1201,6 +1453,7 @@
     this.syncPlayerPicker();
     this.syncAnchorControls();
     this.rebuildLayerControls();
+    this.rebuildItemCategoryControls();
     this.updatePanelMeta();
   };
 

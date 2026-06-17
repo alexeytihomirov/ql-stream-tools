@@ -222,6 +222,28 @@
 
   var mapKillFeed = [];
   var mapPickupFeed = [];
+  var mapDeathMarkers = [];
+  var mapLastKnownPos = {};
+
+  function deathMarkerSec() {
+    return Math.max(2, Math.min(120, Number(qs("death_sec", "10")) || 10));
+  }
+
+  function fmtPickupTime(iso) {
+    if (!iso) return "";
+    try {
+      var d = new Date(iso);
+      if (isNaN(d.getTime())) return "";
+      return d.toLocaleTimeString([], {
+        hour: "2-digit",
+        minute: "2-digit",
+        second: "2-digit",
+        hour12: false,
+      });
+    } catch (_e) {
+      return "";
+    }
+  }
 
   var PICKUP_LABELS = {
     item_armor_body: "RA",
@@ -257,7 +279,9 @@
       var line = document.createElement("div");
       line.className = "map-pickup-line";
       var who = stripQuakeColors(row.nickname || row.steam_id64 || "?");
-      line.textContent = who + " · " + pickupLabel(row.item);
+      var when = fmtPickupTime(row.time);
+      line.textContent =
+        who + " · " + pickupLabel(row.item) + (when ? " · " + when : "");
       el.appendChild(line);
     }
   }
@@ -290,8 +314,106 @@
     }
   }
 
+  function rememberPlayerPositions(players) {
+    for (var i = 0; i < players.length; i++) {
+      var p = players[i];
+      var sid = normalizeSteamId64(p.steam_id64);
+      if (!sid || p.x == null || p.y == null) continue;
+      mapLastKnownPos[sid] = {
+        x: Number(p.x),
+        y: Number(p.y),
+        z: p.z != null ? Number(p.z) : null,
+        nickname: p.nickname,
+      };
+    }
+  }
+
+  function deathPositionFromEvent(data) {
+    if (data.x != null && data.y != null) {
+      return {
+        x: Number(data.x),
+        y: Number(data.y),
+        z: data.z != null ? Number(data.z) : null,
+      };
+    }
+    var sid = normalizeSteamId64(data.victim_steam_id64);
+    if (sid && mapLastKnownPos[sid]) {
+      var row = mapLastKnownPos[sid];
+      return { x: row.x, y: row.y, z: row.z };
+    }
+    return null;
+  }
+
+  function pruneDeathMarkers() {
+    var now = Date.now();
+    var layer = document.getElementById("map-deaths");
+    if (!layer) return;
+    var kept = [];
+    for (var i = 0; i < mapDeathMarkers.length; i++) {
+      var row = mapDeathMarkers[i];
+      if (row.expiresAt <= now) {
+        if (row.el && row.el.parentNode) row.el.parentNode.removeChild(row.el);
+        continue;
+      }
+      kept.push(row);
+    }
+    mapDeathMarkers = kept;
+    if (!mapDeathMarkers.length) layer.innerHTML = "";
+  }
+
+  function renderDeathMarkers() {
+    var layer = document.getElementById("map-deaths");
+    var wrap = document.getElementById("map-wrap");
+    var transform = mapMotion.renderTransform || cachedTransform;
+    if (!layer || !wrap || !transform) return;
+    pruneDeathMarkers();
+    var now = Date.now();
+    for (var i = 0; i < mapDeathMarkers.length; i++) {
+      var row = mapDeathMarkers[i];
+      if (!row.el) {
+        var marker = document.createElement("div");
+        marker.className = "map-death-marker";
+        marker.setAttribute("aria-hidden", "true");
+        marker.textContent = "✕";
+        marker.title = stripQuakeColors(
+          row.victim_name || row.victim_steam_id64 || "death",
+        );
+        layer.appendChild(marker);
+        row.el = marker;
+      }
+      var pos = worldToDisplayPos(transform, wrap, row.x, row.y);
+      if (!pos) continue;
+      var life = row.expiresAt - now;
+      var fadeStart = Math.min(3000, deathMarkerSec() * 1000 * 0.35);
+      var opacity =
+        life <= fadeStart ? Math.max(0.2, life / Math.max(1, fadeStart)) : 0.72;
+      row.el.style.left = pos.x + "px";
+      row.el.style.top = pos.y + "px";
+      row.el.style.opacity = String(opacity);
+    }
+  }
+
+  function addDeathMarker(data) {
+    var pos = deathPositionFromEvent(data);
+    if (!pos) return;
+    var layer = document.getElementById("map-deaths");
+    if (!layer) return;
+    var ttl = deathMarkerSec() * 1000;
+    mapDeathMarkers.push({
+      x: pos.x,
+      y: pos.y,
+      z: pos.z,
+      victim_name: data.victim_name,
+      victim_steam_id64: data.victim_steam_id64,
+      expiresAt: Date.now() + ttl,
+      el: null,
+    });
+    renderDeathMarkers();
+  }
+
   function handleDeathEvent(data) {
     pushKillFeed(data);
+    addDeathMarker(data);
     if (typeof console !== "undefined" && console.info) {
       console.info("[overlay] death", data);
     }
@@ -548,6 +670,8 @@
         if (pos) placePlayerElement(st.el, pos, d.yaw, dotSizeFromZ(d.z));
       }
 
+      renderDeathMarkers();
+
       mapMotion.loopId = requestAnimationFrame(frame);
     }
 
@@ -566,10 +690,14 @@
 
     if (payload.match_id && payload.match_id !== lastMapContext.match_id) {
       clearMapMotion();
+      mapDeathMarkers = [];
+      var deathLayer = document.getElementById("map-deaths");
+      if (deathLayer) deathLayer.innerHTML = "";
       lastMapContext.match_id = payload.match_id;
     }
 
     var players = normalizePlayersList(payload.players);
+    rememberPlayerPositions(players);
     var seen = {};
     for (var i = 0; i < players.length; i++) {
       var probe = players[i];
@@ -1080,6 +1208,9 @@
     },
     overlayPageUrl: overlayPageUrl,
     openOverlayWindow: openOverlayWindow,
+    mapSmoothEnabled: mapSmoothEnabled,
+    mapSmoothAlpha: mapSmoothAlpha,
+    lerpNum: lerpNum,
     _mapKey: mapKey,
     _resolveImageUrl: resolveImageUrl,
     useWebSocket: useWebSocket,
