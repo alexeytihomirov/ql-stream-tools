@@ -844,15 +844,20 @@
     var size = dotSize != null ? dotSize : 8;
     el.dot.style.width = size + "px";
     el.dot.style.height = size + "px";
+    var hasYaw = yaw != null && !isNaN(yaw);
     var fovDeg = fov != null && !isNaN(fov) ? Number(fov) : defaultMapFov();
-    if (yaw != null && !isNaN(yaw) && el.fov && el.fovPath) {
+    if (hasYaw && el.fov && el.fovPath) {
       el.fov.style.display = "";
       el.fov.style.transform = "rotate(" + -yaw + "deg)";
       el.fovPath.setAttribute("d", fovWedgePath(fovDeg, fovConeLengthPx()));
-      if (el.view) el.view.style.display = "none";
-    } else {
-      if (el.fov) el.fov.style.display = "none";
-      if (el.view) el.view.style.display = "none";
+    } else if (el.fov) {
+      el.fov.style.display = "none";
+    }
+    if (hasYaw && el.view) {
+      el.view.style.display = "";
+      el.view.style.transform = "rotate(" + -yaw + "deg)";
+    } else if (el.view) {
+      el.view.style.display = "none";
     }
   }
 
