@@ -206,6 +206,18 @@
     return true;
   }
 
+  function entityIsUniversalGametype(ent) {
+    var attrs = (ent && ent.attrs) || {};
+    return !attrs.gametype && !attrs.not_gametype;
+  }
+
+  function entityVisibleForGametypeFilter(ent, gametype, filterGametype) {
+    if (!filterGametype) return true;
+    var gt = normalizeGametype(gametype);
+    if (!gt) return entityIsUniversalGametype(ent);
+    return entityMatchesGametype(ent, gametype);
+  }
+
   function entityMatchesFilter(ent, filter) {
     if (!filter) return true;
     if (filter.classname && !wildcardMatch(filter.classname, ent.classname)) {
@@ -511,12 +523,10 @@
     var entities = (this.entityData && this.entityData.entities) || [];
     var out = [];
     var filterGametype = !!(layer && layer.gametype_filter);
-    var gtKnown = !!normalizeGametype(this.gametype);
     for (var i = 0; i < entities.length; i++) {
       var ent = entities[i];
       if (isHiddenEntity(ent)) continue;
-      if (filterGametype && !gtKnown) continue;
-      if (filterGametype && !entityMatchesGametype(ent, this.gametype)) continue;
+      if (!entityVisibleForGametypeFilter(ent, this.gametype, filterGametype)) continue;
       if (entityMatchesFilter(ent, layer.filter)) out.push(ent);
     }
     return out;
@@ -544,7 +554,7 @@
       } else if (!attrs.gametype && !attrs.not_gametype) {
         stats.universal++;
       }
-      if (!gt || entityMatchesGametype(ent, this.gametype)) {
+      if (entityVisibleForGametypeFilter(ent, this.gametype, true)) {
         stats.shown++;
       } else {
         stats.hidden++;
@@ -1259,6 +1269,7 @@
     autoMiddleVal: autoMiddleVal,
     normalizeGametype: normalizeGametype,
     entityMatchesGametype: entityMatchesGametype,
+    entityVisibleForGametypeFilter: entityVisibleForGametypeFilter,
     debugState: function () {
       return instance.debugState();
     },

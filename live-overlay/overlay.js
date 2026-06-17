@@ -372,6 +372,11 @@
   function playerShouldRenderOnMap(p) {
     if (!p) return false;
     if (p.connected === false || p.online === false) return false;
+    if (p.alive === false) return false;
+    var team = String(p.team || "")
+      .trim()
+      .toLowerCase();
+    if (team === "spectator" || team === "spec") return false;
     if (p.x == null || p.y == null) return false;
     return true;
   }
@@ -714,6 +719,9 @@
     if (data.gametype != null && data.gametype !== "") {
       lastMapContext.gametype = data.gametype;
     }
+    if (data.match_id) {
+      lastMapContext.match_id = data.match_id;
+    }
 
     var prepared = await MapCoords.prepareMapPayload(
       data.map_name,
@@ -876,6 +884,34 @@
               handleMapSnapshot(data).catch(function (err) {
                 setStatus(String(err.message || err), true);
               });
+            } else if (data.event === "match_status") {
+              if (data.status === "ended" || data.status === "aborted") {
+                handleMapSnapshot({
+                  event: data.event,
+                  match_id: data.match_id,
+                  map_name: lastMapContext.map_name,
+                  gametype: lastMapContext.gametype,
+                  players: [],
+                }).catch(function (err) {
+                  setStatus(String(err.message || err), true);
+                });
+              }
+            } else if (data.event === "match_update") {
+              var matchRow = data.match;
+              if (matchRow && matchRow.gametype) {
+                lastMapContext.gametype = matchRow.gametype;
+              }
+              var lastPayload = mapDebugState.lastPayload;
+              if (lastPayload && matchRow && matchRow.gametype) {
+                handleMapSnapshot(
+                  Object.assign({}, lastPayload, {
+                    gametype: matchRow.gametype,
+                    match_id: matchRow.match_id || lastPayload.match_id,
+                  }),
+                ).catch(function (err) {
+                  setStatus(String(err.message || err), true);
+                });
+              }
             } else if (data.event === "death") {
               handleDeathEvent(data);
             } else if (data.event === "pickup") {
