@@ -318,7 +318,7 @@
       window.MapCoords && typeof MapCoords.assetUrl === "function"
         ? MapCoords.assetUrl("maps/sprite-map.json")
         : "maps/sprite-map.json";
-    return fetch(url, { cache: "no-store" })
+    return fetch(url)
       .then(function (res) {
         if (!res.ok) throw new Error("sprite-map HTTP " + res.status);
         return res.json();
@@ -493,6 +493,7 @@
 
   function handlePickupEvent(data) {
     if (!data || typeof data !== "object") return;
+    if (String(data.action || "pickup").toLowerCase() === "drop") return;
     pushPickupFeed(data);
     notifyPickup(data);
     if (debugPickups() && typeof console !== "undefined" && console.info) {

@@ -90,6 +90,8 @@
     return WEAPON_RESPAWN_SEC_DEFAULT;
   }
   var PICKUP_MATCH_RADIUS = 128;
+  var _spriteImageCache = {};
+  var _jsonAssetCache = {};
 
   var DEFAULT_ITEM_CATEGORIES = {
     weapons: true,
@@ -541,6 +543,60 @@
     return null;
   }
 
+  function fetchJsonAsset(url) {
+    if (!url) return Promise.reject(new Error("empty url"));
+    if (_jsonAssetCache[url]) return _jsonAssetCache[url];
+    _jsonAssetCache[url] = fetch(url)
+      .then(function (res) {
+        if (!res.ok) throw new Error("HTTP " + res.status);
+        return res.json();
+      })
+      .catch(function (err) {
+        delete _jsonAssetCache[url];
+        throw err;
+      });
+    return _jsonAssetCache[url];
+  }
+
+  function loadCachedSpriteImage(url) {
+    if (!url) return Promise.resolve(null);
+    if (_spriteImageCache[url]) return _spriteImageCache[url];
+    _spriteImageCache[url] = new Promise(function (resolve) {
+      var img = new Image();
+      img.onload = function () {
+        resolve(img);
+      };
+      img.onerror = function () {
+        resolve(null);
+      };
+      img.src = url;
+    });
+    return _spriteImageCache[url];
+  }
+
+  function applySpriteToMarker(dot, spriteRel) {
+    if (!spriteRel || !window.MapCoords) return;
+    var url = MapCoords.assetUrl(spriteRel);
+    var existing = dot.querySelector("img.map-entity-sprite");
+    if (existing && existing.getAttribute("data-sprite-url") === url) {
+      return;
+    }
+    if (existing && existing.parentNode) {
+      existing.parentNode.removeChild(existing);
+    }
+    loadCachedSpriteImage(url).then(function (img) {
+      if (!img || !dot.parentNode) return;
+      var node = dot.querySelector("img.map-entity-sprite");
+      if (node && node.getAttribute("data-sprite-url") === url) return;
+      if (node && node.parentNode) node.parentNode.removeChild(node);
+      var el = img.cloneNode(false);
+      el.className = "map-entity-sprite";
+      el.setAttribute("data-sprite-url", url);
+      el.alt = dot.title || "";
+      dot.appendChild(el);
+    });
+  }
+
   function shortLabel(classname) {
     if (!classname) return "?";
     if (classname.indexOf("weapon_") === 0) {
@@ -578,6 +634,11 @@
     this.respawnLayer = null;
     this._itemRespawns = {};
     this._respawnLoopId = 0;
+    this._staticMarkers = {};
+    this._staticMarkersKey = "";
+    this._staticLayerDirty = true;
+    this._staticLayerEl = null;
+    this._dynamicLayerEl = null;
     this._anchorMotion = {
       ref: null,
       threshold: null,
@@ -605,6 +666,46 @@
       return OverlayApp.lerpNum(a, b, t);
     }
     return a + (b - a) * t;
+  };
+
+  MapSpawns.prototype._markStaticLayerDirty = function () {
+    this._staticLayerDirty = true;
+  };
+
+  MapSpawns.prototype._staticRenderKey = function () {
+    var mapLayers = (this.mapName && this.settings.layers[this.mapName]) || {};
+    return [
+      this.mapName || "",
+      this.gametype || "",
+      JSON.stringify(this.settings.itemCategories || {}),
+      JSON.stringify(mapLayers),
+    ].join("|");
+  };
+
+  MapSpawns.prototype._ensureRenderLayers = function () {
+    var root = this.layer;
+    if (!root) return;
+    if (!this._staticLayerEl) {
+      this._staticLayerEl = document.createElement("div");
+      this._staticLayerEl.className = "map-spawns-static";
+      root.appendChild(this._staticLayerEl);
+    }
+    if (!this._dynamicLayerEl) {
+      this._dynamicLayerEl = document.createElement("div");
+      this._dynamicLayerEl.className = "map-spawns-dynamic";
+      root.appendChild(this._dynamicLayerEl);
+    }
+  };
+
+  MapSpawns.prototype._clearStaticMarkers = function () {
+    for (var key in this._staticMarkers) {
+      if (!Object.prototype.hasOwnProperty.call(this._staticMarkers, key)) continue;
+      var row = this._staticMarkers[key];
+      if (row.el && row.el.parentNode) row.el.parentNode.removeChild(row.el);
+    }
+    this._staticMarkers = {};
+    if (this._staticLayerEl) this._staticLayerEl.innerHTML = "";
+    this._staticLayerDirty = true;
   };
 
   MapSpawns.prototype._stopRespawnLoop = function () {
@@ -761,6 +862,7 @@
     };
     this.render();
     this.renderRespawnOverlays();
+    this._markStaticLayerDirty();
     this._ensureRespawnLoop();
   };
 
@@ -962,6 +1064,7 @@
     }
     this.settings.itemCategories[category] = !!enabled;
     saveSettings(this.settings);
+    this._markStaticLayerDirty();
     this.render();
     this.syncItemCategoryControls();
   };
@@ -972,6 +1075,7 @@
     }
     this.settings.itemCategories[classname] = !!enabled;
     saveSettings(this.settings);
+    this._markStaticLayerDirty();
     this.render();
     this.syncItemCategoryControls();
   };
@@ -1017,11 +1121,7 @@
   MapSpawns.prototype.ensureSpriteMap = function () {
     var self = this;
     if (this.spriteMap) return Promise.resolve(this.spriteMap);
-    return fetch(this.spriteMapUrl(), { cache: "no-store" })
-      .then(function (res) {
-        if (!res.ok) throw new Error("HTTP " + res.status);
-        return res.json();
-      })
+    return fetchJsonAsset(this.spriteMapUrl())
       .then(function (data) {
         self.spriteMap = data;
         return data;
@@ -1035,11 +1135,7 @@
   MapSpawns.prototype.ensureDisplayConfig = function () {
     var self = this;
     if (this.displayConfig) return Promise.resolve(this.displayConfig);
-    return fetch(this.displayUrl(), { cache: "no-store" })
-      .then(function (res) {
-        if (!res.ok) throw new Error("HTTP " + res.status);
-        return res.json();
-      })
+    return fetchJsonAsset(this.displayUrl())
       .then(function (data) {
         self.displayConfig = data;
         return data;
@@ -1070,6 +1166,7 @@
     }
     this.settings.layers[this.mapName][layerId] = !!enabled;
     saveSettings(this.settings);
+    this._markStaticLayerDirty();
     this.render();
     this.syncLayerControls();
   };
@@ -1168,6 +1265,9 @@
 
   MapSpawns.prototype.clearLayer = function () {
     if (this.layer) this.layer.innerHTML = "";
+    this._staticLayerEl = null;
+    this._dynamicLayerEl = null;
+    this._clearStaticMarkers();
     this._clearAnchorMotion();
   };
 
@@ -1301,7 +1401,7 @@
   };
 
   MapSpawns.prototype.renderTeleportLayer = function (layer) {
-    var layerEl = this.layer;
+    var layerEl = this._dynamicLayerEl;
     if (!layerEl) return;
     var graph = this.teleportGraph();
     var mode = layer.id === "teleport_entrances" ? "entrance" : "exit";
@@ -1377,11 +1477,32 @@
   };
 
   MapSpawns.prototype.renderStaticLayer = function (layer, entities, styles) {
-    var layerEl = this.layer;
+    var layerEl = this._staticLayerEl;
     if (!layerEl) return;
     var spriteMap = this.spriteMap;
+    var seen = {};
+    var renderKey = this._staticRenderKey();
+    if (!this._staticLayerDirty && this._staticMarkersKey === renderKey) {
+      for (var sk in this._staticMarkers) {
+        if (!Object.prototype.hasOwnProperty.call(this._staticMarkers, sk)) continue;
+        var srow = this._staticMarkers[sk];
+        if (!srow.ent) continue;
+        var spos = this.worldToDisplay(srow.ent.x, srow.ent.y);
+        if (!spos || !srow.el) continue;
+        srow.el.style.left = spos.x + "px";
+        srow.el.style.top = spos.y + "px";
+        var cooldown = this._itemOnRespawnCooldown(srow.ent.id);
+        srow.el.classList.toggle("map-entity-respawn-cooldown", cooldown);
+      }
+      return;
+    }
+    this._clearStaticMarkers();
+    this._staticMarkersKey = renderKey;
+    this._staticLayerDirty = false;
+
     for (var i = 0; i < entities.length; i++) {
       var ent = entities[i];
+      seen[ent.id] = true;
       var style = resolveStyle(ent.classname, styles);
       var size = 16;
       var label = shortLabel(ent.classname);
@@ -1416,12 +1537,8 @@
         ", z " +
         Math.round(ent.z) +
         ")";
-      if (spriteRel && window.MapCoords) {
-        var img = document.createElement("img");
-        img.className = "map-entity-sprite";
-        img.src = MapCoords.assetUrl(spriteRel);
-        img.alt = ent.classname;
-        dot.appendChild(img);
+      if (spriteRel) {
+        applySpriteToMarker(dot, spriteRel);
       } else {
         var tag = document.createElement("span");
         tag.className = "map-entity-label";
@@ -1429,6 +1546,7 @@
         dot.appendChild(tag);
       }
       layerEl.appendChild(dot);
+      this._staticMarkers[ent.id] = { el: dot, ent: ent, spriteRel: spriteRel };
     }
   };
 
@@ -1443,7 +1561,7 @@
     });
     var middleVal = this.effectiveMiddleVal(layer, spawns.length);
     var status = classifySpawns(ref.x, ref.y, spawns, middleVal);
-    var layerEl = this.layer;
+    var layerEl = this._dynamicLayerEl;
     var thresholdEl = this.thresholdEl;
     if (!layerEl || !thresholdEl) return;
 
@@ -1497,9 +1615,11 @@
     var thresholdEl = this.thresholdEl;
     if (!layerEl || !thresholdEl) return;
 
-    layerEl.innerHTML = "";
+    this._ensureRenderLayers();
+    if (this._dynamicLayerEl) this._dynamicLayerEl.innerHTML = "";
 
     if (!this.mapDisplay || !this.mapDisplay.layers || !this.mapDisplay.layers.length) {
+      this._clearStaticMarkers();
       this._clearAnchorMotion();
       return;
     }
@@ -1560,6 +1680,7 @@
         .then(function (data) {
           self.mapName = key;
           self.entityData = data;
+          self._markStaticLayerDirty();
           self.updatePanelMeta();
           self.rebuildLayerControls();
           self.render();
@@ -1568,6 +1689,7 @@
         .catch(function () {
           self.mapName = key;
           self.entityData = null;
+          self._markStaticLayerDirty();
           self.updatePanelMeta();
           self.rebuildLayerControls();
           self.render();
