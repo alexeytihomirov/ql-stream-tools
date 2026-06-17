@@ -10,6 +10,7 @@
     "ammo_rockets": "maps/sprites/icona_rocket.png",
     "ammo_shells": "maps/sprites/icona_shotgun.png",
     "ammo_slugs": "maps/sprites/icona_railgun.png",
+    "item_armor_jacket": "maps/sprites/iconr_green.png",
     "item_armor_body": "maps/sprites/iconr_red.png",
     "item_armor_combat": "maps/sprites/iconr_yellow.png",
     "item_armor_shard": "maps/sprites/iconr_shard.png",

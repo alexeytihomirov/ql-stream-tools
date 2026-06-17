@@ -2,18 +2,19 @@
   "use strict";
 
   var STORAGE_KEY = "ql-map-spawns-settings";
-  var SETTINGS_VERSION = 5;
+  var SETTINGS_VERSION = 6;
 
-  var GREEN_CLASSNAMES = ["item_health_small"];
   var HEALTH_CLASSNAMES = [
+    "item_health_small",
     "item_health",
     "item_health_large",
     "item_health_mega",
   ];
-  var SHARD_CLASSNAMES = ["item_armor_shard"];
   var ARMOR_CLASSNAMES = [
+    "item_armor_jacket",
     "item_armor_combat",
     "item_armor_body",
+    "item_armor_shard",
   ];
   var POWERUP_CLASSNAME_LIST = [
     "item_quad",
@@ -29,6 +30,7 @@
     item_health: "25 HP",
     item_health_large: "50 HP",
     item_health_mega: "Mega",
+    item_armor_jacket: "Green (GA)",
     item_armor_shard: "Shard",
     item_armor_combat: "Yellow (YA)",
     item_armor_body: "Red (RA)",
@@ -41,12 +43,16 @@
   };
 
   // QL default respawn seconds (telemetry has no respawn_at yet).
+  // Weapons: Duel (and FFA/CA TBD) map spawns ~5s; TDM map weapons 30s (operator); pak00 items.c 15s.
+  // Overlay weapon rings are not wired yet — when added, prefer payload respawn_sec / server cvar.
+  var WEAPON_RESPAWN_SEC_DEFAULT = 5;
   var ITEM_RESPAWN_SEC = {
     item_health_small: 35,
     item_health: 35,
     item_health_large: 35,
     item_health_mega: 35,
-    item_armor_shard: 2,
+    item_armor_jacket: 25,
+    item_armor_shard: 25,
     item_armor_combat: 25,
     item_armor_body: 25,
     item_quad: 120,
@@ -56,20 +62,45 @@
     item_invis: 120,
     item_invulnerability: 120,
   };
+
+  // Operator-confirmed: Mega 35s default; Bloodrun (and similar) 120s.
+  var MEGA_RESPAWN_SEC_BY_MAP = {
+    bloodrun: 120,
+  };
+
+  function normalizeMapKey(name) {
+    return String(name || "")
+      .trim()
+      .toLowerCase()
+      .replace(/[^a-z0-9_]/g, "");
+  }
+
+  function megaRespawnSecForMap(mapName) {
+    var key = normalizeMapKey(mapName);
+    if (Object.prototype.hasOwnProperty.call(MEGA_RESPAWN_SEC_BY_MAP, key)) {
+      return MEGA_RESPAWN_SEC_BY_MAP[key];
+    }
+    return ITEM_RESPAWN_SEC.item_health_mega;
+  }
+
+  function weaponRespawnSecForGametype(gametype) {
+    var gt = normalizeGametype(gametype);
+    if (gt === "tdm") return 30;
+    return WEAPON_RESPAWN_SEC_DEFAULT;
+  }
   var PICKUP_MATCH_RADIUS = 128;
 
   var DEFAULT_ITEM_CATEGORIES = {
     weapons: true,
     ammo: true,
     health: true,
-    green: true,
-    shards: false,
     armor: true,
     powerups: true,
     item_health_small: true,
     item_health: true,
     item_health_large: true,
     item_health_mega: true,
+    item_armor_jacket: true,
     item_armor_shard: false,
     item_armor_combat: true,
     item_armor_body: true,
@@ -122,6 +153,8 @@
         s.itemCategories = migrateItemCategoriesV4(s.itemCategories);
       } else if (prevVersion < 5) {
         s.itemCategories = migrateItemCategoriesV5(s.itemCategories);
+      } else if (prevVersion < 6) {
+        s.itemCategories = migrateItemCategoriesV6(s.itemCategories);
       }
       s.version = SETTINGS_VERSION;
       try {
@@ -157,6 +190,9 @@
         next[ARMOR_CLASSNAMES[ai]] = false;
       }
     }
+    if (old.shards === false) {
+      next.item_armor_shard = false;
+    }
     if (old.powerups === false) {
       for (var pi = 0; pi < POWERUP_CLASSNAME_LIST.length; pi++) {
         next[POWERUP_CLASSNAME_LIST[pi]] = false;
@@ -174,6 +210,24 @@
     if (old.shards == null) {
       next.shards = old.armor !== false && old.item_armor_shard !== false;
     }
+    return next;
+  }
+
+  function migrateItemCategoriesV6(old) {
+    old = old || {};
+    var next = migrateItemCategoriesV5(old);
+    if (old.green === false) {
+      next.item_health_small = false;
+    } else if (old.green === true) {
+      next.item_health_small = old.item_health_small !== false;
+    }
+    if (old.shards === false) {
+      next.item_armor_shard = false;
+    } else if (old.shards === true) {
+      next.item_armor_shard = true;
+    }
+    delete next.green;
+    delete next.shards;
     return next;
   }
 
@@ -306,6 +360,14 @@
     ) {
       return "dm";
     }
+    if (
+      g === "tdm" ||
+      g === "team_deathmatch" ||
+      g === "teamdeathmatch" ||
+      g === "team_dm"
+    ) {
+      return "tdm";
+    }
     if (g === "tourney" || g === "tournament") {
       return "duel";
     }
@@ -393,8 +455,6 @@
     if (!classname) return null;
     if (classname.indexOf("weapon_") === 0) return "weapons";
     if (classname.indexOf("ammo_") === 0) return "ammo";
-    if (classname === "item_health_small") return "green";
-    if (classname === "item_armor_shard") return "shards";
     if (classname.indexOf("item_health") === 0) return "health";
     if (classname.indexOf("item_armor") === 0) return "armor";
     if (POWERUP_CLASSNAMES[classname]) return "powerups";
@@ -631,6 +691,9 @@
       }
     }
     var sec = ITEM_RESPAWN_SEC[item];
+    if (item === "item_health_mega") {
+      sec = megaRespawnSecForMap(this.mapName);
+    }
     if (sec == null) return 0;
     return sec * 1000;
   };
@@ -1749,9 +1812,7 @@
 
     this._appendItemCategoryToggle(host, "weapons", "Weapons");
     this._appendItemCategoryToggle(host, "ammo", "Ammo (excl. ammo_pack)");
-    this._appendItemClassnameGroup(host, "green", "Green", GREEN_CLASSNAMES);
     this._appendItemClassnameGroup(host, "health", "Health", HEALTH_CLASSNAMES);
-    this._appendItemClassnameGroup(host, "shards", "Shards", SHARD_CLASSNAMES);
     this._appendItemClassnameGroup(host, "armor", "Armor", ARMOR_CLASSNAMES);
     this._appendItemClassnameGroup(
       host,
@@ -1776,7 +1837,7 @@
       "</section>" +
       '<section class="map-spawns-section">' +
       "<h3>Item categories</h3>" +
-      '<p class="map-spawns-hint">When the items layer is on — toggle categories; expand Green, Health, Shards, Armor, or Powerups for per-type filters. Shards are off by default (no map respawn ring).</p>' +
+      '<p class="map-spawns-hint">When the items layer is on — toggle categories; expand Health, Armor, or Powerups for per-type filters. Shards off by default (25 s respawn per pak00; ring hidden).</p>' +
       '<div id="spawn-item-category-toggles"></div>' +
       "</section>" +
       '<section class="map-spawns-section">' +

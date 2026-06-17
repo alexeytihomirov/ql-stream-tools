@@ -33,7 +33,7 @@ Map overlay uses WebSocket by default; HTTP poll is fallback only if WS is silen
 ### Map overlay settings (`map.html` → **Settings**)
 
 - Layer toggles per map (duel spawns, items, DM spawns, teleports) — persisted in `localStorage`
-- **Item categories** (when items layer is on): weapons, ammo, green (5 HP), health (25/50/mega), shards (off by default), armor (YA/RA), powerups
+- **Item categories** (when items layer is on): weapons, ammo, health (5/25/50/mega), armor (GA/YA/RA/shards; shards off by default), powerups
 - Duel anchor (player / mouse), threshold square, rejected spawns — threshold and ref marker use the same smooth motion as player dots (`smooth` / `smooth_ms`)
 - Death markers: `medal_excellent` sprite at victim position from WS `death` event (fade out; `death_sec` URL param)
 - Item respawn: on WS `pickup`, nearest item sprite within 128 world units dims with radial fill + countdown (QL default respawn times; items layer must be on; shards hidden unless enabled in settings)

@@ -264,9 +264,11 @@
   }
 
   var PICKUP_LABELS = {
+    item_armor_jacket: "GA",
     item_armor_body: "RA",
     item_armor_combat: "YA",
     item_armor_shard: "Shard",
+    item_health_small: "5hp",
     item_health_mega: "Mega",
     item_health_large: "50hp",
     item_health: "25hp",
