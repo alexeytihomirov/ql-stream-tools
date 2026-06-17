@@ -63,9 +63,10 @@
     item_invulnerability: 120,
   };
 
-  // Operator-confirmed: Mega 35s default; Bloodrun (and similar) 120s.
+  // Operator-confirmed map-specific Mega Health (default 35s in ITEM_RESPAWN_SEC).
+  // Keys: normalizeMapKey(map_name) — lowercase, hyphens removed (pro-q3tourney4 -> proq3tourney4).
   var MEGA_RESPAWN_SEC_BY_MAP = {
-    bloodrun: 120,
+    proq3tourney4: 120,
   };
 
   function normalizeMapKey(name) {
