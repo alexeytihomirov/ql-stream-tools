@@ -1,0 +1,49 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>QL Stream Tools</title>
+    <link rel="stylesheet" href="dashboard.css" />
+  </head>
+  <body>
+    <div class="app-shell">
+      <header class="app-header">
+        <div>
+          <h1 class="app-title" data-i18n="pageTitle">QL Stream Tools</h1>
+          <p class="app-subtitle" data-i18n="subtitle">
+            Streamer dashboard — matches, tournament, overlays.
+          </p>
+        </div>
+        <div class="app-header-actions">
+          <div class="lang-switch" aria-label="Language">
+            <span data-i18n="langLabel">Language</span>
+            <button type="button" data-lang="en" class="active">EN</button>
+            <button type="button" data-lang="ru">RU</button>
+          </div>
+        </div>
+      </header>
+
+      <nav class="app-nav" aria-label="Main">
+        <a href="#/" data-route="home" data-i18n="navDashboard">Dashboard</a>
+        <a href="#/tournament" data-route="tournament" data-i18n="navTournament">Tournament</a>
+        <a href="#/match" data-route="match" data-i18n="navMatch">Match</a>
+        <a href="#/overlays" data-route="overlays" data-i18n="navOverlays">Overlays</a>
+        <a href="#/settings" data-route="settings" data-i18n="navSettings">Settings</a>
+      </nav>
+
+      <main id="app-main" class="app-main" aria-live="polite"></main>
+    </div>
+
+    <script src="i18n.js"></script>
+    <script src="app.js"></script>
+    <script src="views/home.js"></script>
+    <script src="views/tournament.js"></script>
+    <script src="views/match.js"></script>
+    <script src="views/overlays.js"></script>
+    <script src="views/settings.js"></script>
+    <script>
+      QLDashboard.init();
+    </script>
+  </body>
+</html>

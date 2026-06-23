@@ -1,14 +1,31 @@
 # ql-stream-tools
 
-OBS/browser overlays for casters.
+Streamer dashboard + OBS/browser overlays for casters.
 
 ## Packages
 
 | Path | Purpose |
 |------|---------|
+| `live-overlay/dashboard/` | **Streamer dashboard** — matches, tournament, match detail, overlay setup |
 | `stream-overlay/` | Tournament popup (logo, live match card) — **WebSocket** to ql-stats-hub + CDN meta |
-| `live-overlay/` | Scoreboard, map positions, match list — **WebSocket** (map) / HTTP poll fallback |
+| `live-overlay/` | OBS pages: scoreboard, map positions, match list |
 | `player-guide/` | Tournament regulations + network settings (HTML for players / stream link) |
+
+## Streamer dashboard
+
+Central tool (connection, tournaments from ql-public-data, live matches, overlay URLs):
+
+```
+# CDN
+https://cdn.jsdelivr.net/gh/owner/ql-stream-tools@main/live-overlay/dashboard/index.html?base=http://STATS_HOST:8090
+
+# Local (overlay-serve.cmd)
+http://127.0.0.1:8787/live-overlay/dashboard/index.html?base=http://STATS_HOST:8090
+```
+
+Hash routes: `#/` (dashboard), `#/tournament`, `#/match/{id}`, `#/overlays`, `#/settings`.
+
+Legacy `live-overlay/control/` and `viewer.html` redirect to `dashboard/`.
 
 ## Documentation (overlays)
 
@@ -51,5 +68,5 @@ Operator source: `docs/TOURNAMENT-REGULATIONS.md`. See `player-guide/README.md`.
 
 ## AI / project requirements
 
-- `docs/BUSINESS.md` (RU) — presentation layer rules, WebSocket policy
-- `docs/DEVELOPMENT.md` (EN) — overlay development conventions
+- `docs/BUSINESS.md` (RU) — dashboard + overlay rules, WebSocket policy
+- `docs/DEVELOPMENT.md` (EN) — layout, hash router, development conventions

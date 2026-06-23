@@ -1,0 +1,148 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Quake Live - регламент и сетевые настройки</title>
+  <link rel="stylesheet" href="guide.css">
+</head>
+<body>
+  <div class="wrap">
+    <header>
+      <h1>Регламент и технические правила</h1>
+      <p class="lead">
+        Quake Live tournament - правила честной игры и рекомендуемый сетевой профиль.
+      </p>
+    </header>
+
+    <nav class="toc" aria-label="Содержание">
+      <strong>Содержание</strong>
+      <ul>
+        <li><a href="#rules">Общий регламент</a></li>
+        <li><a href="#profile">Сетевой профиль</a></li>
+        <li><a href="#tune">Подстройка под сеть</a></li>
+      </ul>
+    </nav>
+
+    <section id="rules">
+      <h2>Общий регламент</h2>
+      <div class="panel panel-note">
+        <p>
+          Блок ниже - шаблон. Оператор турнира заполняет название, режим и контакты
+          перед событием (см. также <code>docs/TOURNAMENT-REGULATIONS.md</code> в репозитории).
+        </p>
+      </div>
+      <ul>
+        <li>Регистрация на турнир используя SteamID</li>
+        <li>Игра на серверах турнира от своего Steam аккаунта</li>
+        <li>Запрещены читы, инжекты и модификации, дающие преимущество вне движка.</li>
+        <li>Спорные ситуации решает администратор турнира.</li>
+      </ul>
+      <table>
+        <thead>
+          <tr>
+            <th>Поле</th>
+            <th>Значение</th>
+          </tr>
+        </thead>
+        <tbody>
+          <tr>
+            <td>Турнир</td>
+            <td><em>указать название</em></td>
+          </tr>
+          <tr>
+            <td>Режим</td>
+            <td><em>duel / TDM / …</em></td>
+          </tr>
+          <tr>
+            <td>Сервер</td>
+            <td><em>hostname, регион</em></td>
+          </tr>
+          <tr>
+            <td>Поддержка</td>
+            <td><em>Discord / контакт</em></td>
+          </tr>
+        </tbody>
+      </table>
+    </section>
+
+    <section id="profile">
+      <h2>Сетевой профиль</h2>
+      <p>Базовые значения при стабильной сети:</p>
+      <table>
+        <thead>
+          <tr>
+            <th>Параметр</th>
+            <th>Значение</th>
+          </tr>
+        </thead>
+        <tbody>
+          <tr>
+            <td><code>rate</code></td>
+            <td><code>25000</code></td>
+          </tr>
+          <tr>
+            <td><code>cl_maxpackets</code></td>
+            <td><code>125</code></td>
+          </tr>
+          <tr>
+            <td><code>cl_packetdup</code></td>
+            <td><code>0</code></td>
+          </tr>
+          <tr>
+            <td><code>cl_timeNudge</code></td>
+            <td><code>0</code></td>
+          </tr>
+          <tr>
+            <td><code>cl_autoTimeNudge</code></td>
+            <td><code>0</code></td>
+          </tr>
+        </tbody>
+      </table>
+    </section>
+
+    <section id="tune">
+      <h2>Подстройка под сеть</h2>
+      <table>
+        <thead>
+          <tr>
+            <th>Ситуация</th>
+            <th>Что сделать</th>
+          </tr>
+        </thead>
+        <tbody>
+          <tr>
+            <td>Всё стабильно</td>
+            <td>Базовый профиль выше</td>
+          </tr>
+          <tr>
+            <td>Потеря пакетов (<code>cg_lagometer 1</code>, зелёные spikes)</td>
+            <td><code>cl_packetdup 1</code>, при сильном loss - до <code>2-3</code></td>
+          </tr>
+          <tr>
+            <td>Ping до ~60 ms</td>
+            <td><code>cl_timeNudge 0</code>, <code>cl_autoTimeNudge 0</code></td>
+          </tr>
+          <tr>
+            <td>Ping 70-100+ ms</td>
+            <td>Опционально <code>cl_timeNudge -10</code> … <code>-20</code> (только отображение на экране)</td>
+          </tr>
+          <tr>
+            <td><code>cl_maxpackets</code></td>
+            <td><code>125</code> - стандарт; не снижать без явной причины</td>
+          </tr>
+        </tbody>
+      </table>
+      <p class="muted-note">
+        <code>cl_timeNudge</code> не меняет серверный lag compensation и факт попаданий.
+      </p>
+    </section>
+
+    <footer>
+      ql-stream-tools / player-guide -
+      <a href="https://github.com/alexeytihomirov/ql-stream-tools">репозиторий</a>.
+      Источник для правок: <code>docs/TOURNAMENT-REGULATIONS.md</code>.
+    </footer>
+  </div>
+</body>
+</html>

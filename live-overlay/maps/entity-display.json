@@ -27,7 +27,7 @@
     }
   },
   "maps": {
-    "bloodrun": {
+    "aerowalk": {
       "layers": [
         {
           "id": "duel_spawns",
@@ -37,8 +37,8 @@
             "classname": "info_player_deathmatch"
           },
           "gametype_filter": false,
-          "default": true,
-          "middle_val": 5
+          "default": false,
+          "middle_val": 4
         },
         {
           "id": "items",
@@ -52,7 +52,7 @@
             ]
           },
           "gametype_filter": true,
-          "default": false
+          "default": true
         },
         {
           "id": "all_dm_spawns",
@@ -80,7 +80,7 @@
         }
       ]
     },
-    "tortured": {
+    "battleforged": {
       "layers": [
         {
           "id": "duel_spawns",
@@ -89,7 +89,8 @@
           "filter": {
             "classname": "info_player_deathmatch"
           },
-          "default": true,
+          "gametype_filter": false,
+          "default": false,
           "middle_val": 4
         },
         {
@@ -104,7 +105,1120 @@
             ]
           },
           "gametype_filter": true,
+          "default": true
+        },
+        {
+          "id": "all_dm_spawns",
+          "label": "All deathmatch spawns",
+          "mode": "static",
+          "filter": {
+            "classname": [
+              "info_player_deathmatch"
+            ]
+          },
+          "gametype_filter": false,
           "default": false
+        },
+        {
+          "id": "teleport_exits",
+          "label": "Teleport exits",
+          "mode": "teleport",
+          "default": false
+        },
+        {
+          "id": "teleport_entrances",
+          "label": "Teleport entrances",
+          "mode": "teleport",
+          "default": false
+        }
+      ]
+    },
+    "bloodrun": {
+      "layers": [
+        {
+          "id": "duel_spawns",
+          "label": "Duel spawn pool",
+          "mode": "duel",
+          "filter": {
+            "classname": "info_player_deathmatch"
+          },
+          "gametype_filter": false,
+          "default": false,
+          "middle_val": 5
+        },
+        {
+          "id": "items",
+          "label": "Items, weapons, ammo",
+          "mode": "static",
+          "filter": {
+            "classname": [
+              "weapon_*",
+              "item_*",
+              "ammo_*"
+            ]
+          },
+          "gametype_filter": true,
+          "default": true
+        },
+        {
+          "id": "all_dm_spawns",
+          "label": "All deathmatch spawns",
+          "mode": "static",
+          "filter": {
+            "classname": [
+              "info_player_deathmatch"
+            ]
+          },
+          "gametype_filter": false,
+          "default": false
+        },
+        {
+          "id": "teleport_exits",
+          "label": "Teleport exits",
+          "mode": "teleport",
+          "default": false
+        },
+        {
+          "id": "teleport_entrances",
+          "label": "Teleport entrances",
+          "mode": "teleport",
+          "default": false
+        }
+      ]
+    },
+    "campgrounds": {
+      "layers": [
+        {
+          "id": "duel_spawns",
+          "label": "Duel spawn pool",
+          "mode": "duel",
+          "filter": {
+            "classname": "info_player_deathmatch"
+          },
+          "gametype_filter": false,
+          "default": false,
+          "middle_val": 13
+        },
+        {
+          "id": "items",
+          "label": "Items, weapons, ammo",
+          "mode": "static",
+          "filter": {
+            "classname": [
+              "weapon_*",
+              "item_*",
+              "ammo_*"
+            ]
+          },
+          "gametype_filter": true,
+          "default": true
+        },
+        {
+          "id": "all_dm_spawns",
+          "label": "All deathmatch spawns",
+          "mode": "static",
+          "filter": {
+            "classname": [
+              "info_player_deathmatch"
+            ]
+          },
+          "gametype_filter": false,
+          "default": false
+        },
+        {
+          "id": "teleport_exits",
+          "label": "Teleport exits",
+          "mode": "teleport",
+          "default": false
+        },
+        {
+          "id": "teleport_entrances",
+          "label": "Teleport entrances",
+          "mode": "teleport",
+          "default": false
+        }
+      ]
+    },
+    "cure": {
+      "layers": [
+        {
+          "id": "duel_spawns",
+          "label": "Duel spawn pool",
+          "mode": "duel",
+          "filter": {
+            "classname": "info_player_deathmatch"
+          },
+          "gametype_filter": false,
+          "default": false,
+          "middle_val": 6
+        },
+        {
+          "id": "items",
+          "label": "Items, weapons, ammo",
+          "mode": "static",
+          "filter": {
+            "classname": [
+              "weapon_*",
+              "item_*",
+              "ammo_*"
+            ]
+          },
+          "gametype_filter": true,
+          "default": true
+        },
+        {
+          "id": "all_dm_spawns",
+          "label": "All deathmatch spawns",
+          "mode": "static",
+          "filter": {
+            "classname": [
+              "info_player_deathmatch"
+            ]
+          },
+          "gametype_filter": false,
+          "default": false
+        },
+        {
+          "id": "teleport_exits",
+          "label": "Teleport exits",
+          "mode": "teleport",
+          "default": false
+        },
+        {
+          "id": "teleport_entrances",
+          "label": "Teleport entrances",
+          "mode": "teleport",
+          "default": false
+        }
+      ]
+    },
+    "deepinside": {
+      "layers": [
+        {
+          "id": "duel_spawns",
+          "label": "Duel spawn pool",
+          "mode": "duel",
+          "filter": {
+            "classname": "info_player_deathmatch"
+          },
+          "gametype_filter": false,
+          "default": false,
+          "middle_val": 13
+        },
+        {
+          "id": "items",
+          "label": "Items, weapons, ammo",
+          "mode": "static",
+          "filter": {
+            "classname": [
+              "weapon_*",
+              "item_*",
+              "ammo_*"
+            ]
+          },
+          "gametype_filter": true,
+          "default": true
+        },
+        {
+          "id": "all_dm_spawns",
+          "label": "All deathmatch spawns",
+          "mode": "static",
+          "filter": {
+            "classname": [
+              "info_player_deathmatch"
+            ]
+          },
+          "gametype_filter": false,
+          "default": false
+        },
+        {
+          "id": "teleport_exits",
+          "label": "Teleport exits",
+          "mode": "teleport",
+          "default": false
+        },
+        {
+          "id": "teleport_entrances",
+          "label": "Teleport entrances",
+          "mode": "teleport",
+          "default": false
+        }
+      ]
+    },
+    "dreadfulplace": {
+      "layers": [
+        {
+          "id": "duel_spawns",
+          "label": "Duel spawn pool",
+          "mode": "duel",
+          "filter": {
+            "classname": "info_player_deathmatch"
+          },
+          "gametype_filter": false,
+          "default": false,
+          "middle_val": 9
+        },
+        {
+          "id": "items",
+          "label": "Items, weapons, ammo",
+          "mode": "static",
+          "filter": {
+            "classname": [
+              "weapon_*",
+              "item_*",
+              "ammo_*"
+            ]
+          },
+          "gametype_filter": true,
+          "default": true
+        },
+        {
+          "id": "all_dm_spawns",
+          "label": "All deathmatch spawns",
+          "mode": "static",
+          "filter": {
+            "classname": [
+              "info_player_deathmatch"
+            ]
+          },
+          "gametype_filter": false,
+          "default": false
+        },
+        {
+          "id": "teleport_exits",
+          "label": "Teleport exits",
+          "mode": "teleport",
+          "default": false
+        },
+        {
+          "id": "teleport_entrances",
+          "label": "Teleport entrances",
+          "mode": "teleport",
+          "default": false
+        }
+      ]
+    },
+    "elder": {
+      "layers": [
+        {
+          "id": "duel_spawns",
+          "label": "Duel spawn pool",
+          "mode": "duel",
+          "filter": {
+            "classname": "info_player_deathmatch"
+          },
+          "gametype_filter": false,
+          "default": false,
+          "middle_val": 4
+        },
+        {
+          "id": "items",
+          "label": "Items, weapons, ammo",
+          "mode": "static",
+          "filter": {
+            "classname": [
+              "weapon_*",
+              "item_*",
+              "ammo_*"
+            ]
+          },
+          "gametype_filter": true,
+          "default": true
+        },
+        {
+          "id": "all_dm_spawns",
+          "label": "All deathmatch spawns",
+          "mode": "static",
+          "filter": {
+            "classname": [
+              "info_player_deathmatch"
+            ]
+          },
+          "gametype_filter": false,
+          "default": false
+        },
+        {
+          "id": "teleport_exits",
+          "label": "Teleport exits",
+          "mode": "teleport",
+          "default": false
+        },
+        {
+          "id": "teleport_entrances",
+          "label": "Teleport entrances",
+          "mode": "teleport",
+          "default": false
+        }
+      ]
+    },
+    "furiousheights": {
+      "layers": [
+        {
+          "id": "duel_spawns",
+          "label": "Duel spawn pool",
+          "mode": "duel",
+          "filter": {
+            "classname": "info_player_deathmatch"
+          },
+          "gametype_filter": false,
+          "default": false,
+          "middle_val": 8
+        },
+        {
+          "id": "items",
+          "label": "Items, weapons, ammo",
+          "mode": "static",
+          "filter": {
+            "classname": [
+              "weapon_*",
+              "item_*",
+              "ammo_*"
+            ]
+          },
+          "gametype_filter": true,
+          "default": true
+        },
+        {
+          "id": "all_dm_spawns",
+          "label": "All deathmatch spawns",
+          "mode": "static",
+          "filter": {
+            "classname": [
+              "info_player_deathmatch"
+            ]
+          },
+          "gametype_filter": false,
+          "default": false
+        },
+        {
+          "id": "teleport_exits",
+          "label": "Teleport exits",
+          "mode": "teleport",
+          "default": false
+        },
+        {
+          "id": "teleport_entrances",
+          "label": "Teleport entrances",
+          "mode": "teleport",
+          "default": false
+        }
+      ]
+    },
+    "grimdungeons": {
+      "layers": [
+        {
+          "id": "duel_spawns",
+          "label": "Duel spawn pool",
+          "mode": "duel",
+          "filter": {
+            "classname": "info_player_deathmatch"
+          },
+          "gametype_filter": false,
+          "default": false,
+          "middle_val": 9
+        },
+        {
+          "id": "items",
+          "label": "Items, weapons, ammo",
+          "mode": "static",
+          "filter": {
+            "classname": [
+              "weapon_*",
+              "item_*",
+              "ammo_*"
+            ]
+          },
+          "gametype_filter": true,
+          "default": true
+        },
+        {
+          "id": "all_dm_spawns",
+          "label": "All deathmatch spawns",
+          "mode": "static",
+          "filter": {
+            "classname": [
+              "info_player_deathmatch"
+            ]
+          },
+          "gametype_filter": false,
+          "default": false
+        },
+        {
+          "id": "teleport_exits",
+          "label": "Teleport exits",
+          "mode": "teleport",
+          "default": false
+        },
+        {
+          "id": "teleport_entrances",
+          "label": "Teleport entrances",
+          "mode": "teleport",
+          "default": false
+        }
+      ]
+    },
+    "hektik": {
+      "layers": [
+        {
+          "id": "duel_spawns",
+          "label": "Duel spawn pool",
+          "mode": "duel",
+          "filter": {
+            "classname": "info_player_deathmatch"
+          },
+          "gametype_filter": false,
+          "default": false,
+          "middle_val": 5
+        },
+        {
+          "id": "items",
+          "label": "Items, weapons, ammo",
+          "mode": "static",
+          "filter": {
+            "classname": [
+              "weapon_*",
+              "item_*",
+              "ammo_*"
+            ]
+          },
+          "gametype_filter": true,
+          "default": true
+        },
+        {
+          "id": "all_dm_spawns",
+          "label": "All deathmatch spawns",
+          "mode": "static",
+          "filter": {
+            "classname": [
+              "info_player_deathmatch"
+            ]
+          },
+          "gametype_filter": false,
+          "default": false
+        },
+        {
+          "id": "teleport_exits",
+          "label": "Teleport exits",
+          "mode": "teleport",
+          "default": false
+        },
+        {
+          "id": "teleport_entrances",
+          "label": "Teleport entrances",
+          "mode": "teleport",
+          "default": false
+        }
+      ]
+    },
+    "hiddenfortress": {
+      "layers": [
+        {
+          "id": "duel_spawns",
+          "label": "Duel spawn pool",
+          "mode": "duel",
+          "filter": {
+            "classname": "info_player_deathmatch"
+          },
+          "gametype_filter": false,
+          "default": false,
+          "middle_val": 9
+        },
+        {
+          "id": "items",
+          "label": "Items, weapons, ammo",
+          "mode": "static",
+          "filter": {
+            "classname": [
+              "weapon_*",
+              "item_*",
+              "ammo_*"
+            ]
+          },
+          "gametype_filter": true,
+          "default": true
+        },
+        {
+          "id": "all_dm_spawns",
+          "label": "All deathmatch spawns",
+          "mode": "static",
+          "filter": {
+            "classname": [
+              "info_player_deathmatch"
+            ]
+          },
+          "gametype_filter": false,
+          "default": false
+        },
+        {
+          "id": "teleport_exits",
+          "label": "Teleport exits",
+          "mode": "teleport",
+          "default": false
+        },
+        {
+          "id": "teleport_entrances",
+          "label": "Teleport entrances",
+          "mode": "teleport",
+          "default": false
+        }
+      ]
+    },
+    "intervention": {
+      "layers": [
+        {
+          "id": "duel_spawns",
+          "label": "Duel spawn pool",
+          "mode": "duel",
+          "filter": {
+            "classname": "info_player_deathmatch"
+          },
+          "gametype_filter": false,
+          "default": false,
+          "middle_val": 7
+        },
+        {
+          "id": "items",
+          "label": "Items, weapons, ammo",
+          "mode": "static",
+          "filter": {
+            "classname": [
+              "weapon_*",
+              "item_*",
+              "ammo_*"
+            ]
+          },
+          "gametype_filter": true,
+          "default": true
+        },
+        {
+          "id": "all_dm_spawns",
+          "label": "All deathmatch spawns",
+          "mode": "static",
+          "filter": {
+            "classname": [
+              "info_player_deathmatch"
+            ]
+          },
+          "gametype_filter": false,
+          "default": false
+        },
+        {
+          "id": "teleport_exits",
+          "label": "Teleport exits",
+          "mode": "teleport",
+          "default": false
+        },
+        {
+          "id": "teleport_entrances",
+          "label": "Teleport entrances",
+          "mode": "teleport",
+          "default": false
+        }
+      ]
+    },
+    "limbus": {
+      "layers": [
+        {
+          "id": "duel_spawns",
+          "label": "Duel spawn pool",
+          "mode": "duel",
+          "filter": {
+            "classname": "info_player_deathmatch"
+          },
+          "gametype_filter": false,
+          "default": false,
+          "middle_val": 9
+        },
+        {
+          "id": "items",
+          "label": "Items, weapons, ammo",
+          "mode": "static",
+          "filter": {
+            "classname": [
+              "weapon_*",
+              "item_*",
+              "ammo_*"
+            ]
+          },
+          "gametype_filter": true,
+          "default": true
+        },
+        {
+          "id": "all_dm_spawns",
+          "label": "All deathmatch spawns",
+          "mode": "static",
+          "filter": {
+            "classname": [
+              "info_player_deathmatch"
+            ]
+          },
+          "gametype_filter": false,
+          "default": false
+        },
+        {
+          "id": "teleport_exits",
+          "label": "Teleport exits",
+          "mode": "teleport",
+          "default": false
+        },
+        {
+          "id": "teleport_entrances",
+          "label": "Teleport entrances",
+          "mode": "teleport",
+          "default": false
+        }
+      ]
+    },
+    "lostworld": {
+      "layers": [
+        {
+          "id": "duel_spawns",
+          "label": "Duel spawn pool",
+          "mode": "duel",
+          "filter": {
+            "classname": "info_player_deathmatch"
+          },
+          "gametype_filter": false,
+          "default": false,
+          "middle_val": 9
+        },
+        {
+          "id": "items",
+          "label": "Items, weapons, ammo",
+          "mode": "static",
+          "filter": {
+            "classname": [
+              "weapon_*",
+              "item_*",
+              "ammo_*"
+            ]
+          },
+          "gametype_filter": true,
+          "default": true
+        },
+        {
+          "id": "all_dm_spawns",
+          "label": "All deathmatch spawns",
+          "mode": "static",
+          "filter": {
+            "classname": [
+              "info_player_deathmatch"
+            ]
+          },
+          "gametype_filter": false,
+          "default": false
+        },
+        {
+          "id": "teleport_exits",
+          "label": "Teleport exits",
+          "mode": "teleport",
+          "default": false
+        },
+        {
+          "id": "teleport_entrances",
+          "label": "Teleport entrances",
+          "mode": "teleport",
+          "default": false
+        }
+      ]
+    },
+    "phrantic": {
+      "layers": [
+        {
+          "id": "duel_spawns",
+          "label": "Duel spawn pool",
+          "mode": "duel",
+          "filter": {
+            "classname": "info_player_deathmatch"
+          },
+          "gametype_filter": false,
+          "default": false,
+          "middle_val": 5
+        },
+        {
+          "id": "items",
+          "label": "Items, weapons, ammo",
+          "mode": "static",
+          "filter": {
+            "classname": [
+              "weapon_*",
+              "item_*",
+              "ammo_*"
+            ]
+          },
+          "gametype_filter": true,
+          "default": true
+        },
+        {
+          "id": "all_dm_spawns",
+          "label": "All deathmatch spawns",
+          "mode": "static",
+          "filter": {
+            "classname": [
+              "info_player_deathmatch"
+            ]
+          },
+          "gametype_filter": false,
+          "default": false
+        },
+        {
+          "id": "teleport_exits",
+          "label": "Teleport exits",
+          "mode": "teleport",
+          "default": false
+        },
+        {
+          "id": "teleport_entrances",
+          "label": "Teleport entrances",
+          "mode": "teleport",
+          "default": false
+        }
+      ]
+    },
+    "purgatory": {
+      "layers": [
+        {
+          "id": "duel_spawns",
+          "label": "Duel spawn pool",
+          "mode": "duel",
+          "filter": {
+            "classname": "info_player_deathmatch"
+          },
+          "gametype_filter": false,
+          "default": false,
+          "middle_val": 9
+        },
+        {
+          "id": "items",
+          "label": "Items, weapons, ammo",
+          "mode": "static",
+          "filter": {
+            "classname": [
+              "weapon_*",
+              "item_*",
+              "ammo_*"
+            ]
+          },
+          "gametype_filter": true,
+          "default": true
+        },
+        {
+          "id": "all_dm_spawns",
+          "label": "All deathmatch spawns",
+          "mode": "static",
+          "filter": {
+            "classname": [
+              "info_player_deathmatch"
+            ]
+          },
+          "gametype_filter": false,
+          "default": false
+        },
+        {
+          "id": "teleport_exits",
+          "label": "Teleport exits",
+          "mode": "teleport",
+          "default": false
+        },
+        {
+          "id": "teleport_entrances",
+          "label": "Teleport entrances",
+          "mode": "teleport",
+          "default": false
+        }
+      ]
+    },
+    "realmofsteelrats": {
+      "layers": [
+        {
+          "id": "duel_spawns",
+          "label": "Duel spawn pool",
+          "mode": "duel",
+          "filter": {
+            "classname": "info_player_deathmatch"
+          },
+          "gametype_filter": false,
+          "default": false,
+          "middle_val": 8
+        },
+        {
+          "id": "items",
+          "label": "Items, weapons, ammo",
+          "mode": "static",
+          "filter": {
+            "classname": [
+              "weapon_*",
+              "item_*",
+              "ammo_*"
+            ]
+          },
+          "gametype_filter": true,
+          "default": true
+        },
+        {
+          "id": "all_dm_spawns",
+          "label": "All deathmatch spawns",
+          "mode": "static",
+          "filter": {
+            "classname": [
+              "info_player_deathmatch"
+            ]
+          },
+          "gametype_filter": false,
+          "default": false
+        },
+        {
+          "id": "teleport_exits",
+          "label": "Teleport exits",
+          "mode": "teleport",
+          "default": false
+        },
+        {
+          "id": "teleport_entrances",
+          "label": "Teleport entrances",
+          "mode": "teleport",
+          "default": false
+        }
+      ]
+    },
+    "retribution": {
+      "layers": [
+        {
+          "id": "duel_spawns",
+          "label": "Duel spawn pool",
+          "mode": "duel",
+          "filter": {
+            "classname": "info_player_deathmatch"
+          },
+          "gametype_filter": false,
+          "default": false,
+          "middle_val": 9
+        },
+        {
+          "id": "items",
+          "label": "Items, weapons, ammo",
+          "mode": "static",
+          "filter": {
+            "classname": [
+              "weapon_*",
+              "item_*",
+              "ammo_*"
+            ]
+          },
+          "gametype_filter": true,
+          "default": true
+        },
+        {
+          "id": "all_dm_spawns",
+          "label": "All deathmatch spawns",
+          "mode": "static",
+          "filter": {
+            "classname": [
+              "info_player_deathmatch"
+            ]
+          },
+          "gametype_filter": false,
+          "default": false
+        },
+        {
+          "id": "teleport_exits",
+          "label": "Teleport exits",
+          "mode": "teleport",
+          "default": false
+        },
+        {
+          "id": "teleport_entrances",
+          "label": "Teleport entrances",
+          "mode": "teleport",
+          "default": false
+        }
+      ]
+    },
+    "sinister": {
+      "layers": [
+        {
+          "id": "duel_spawns",
+          "label": "Duel spawn pool",
+          "mode": "duel",
+          "filter": {
+            "classname": "info_player_deathmatch"
+          },
+          "gametype_filter": false,
+          "default": false,
+          "middle_val": 5
+        },
+        {
+          "id": "items",
+          "label": "Items, weapons, ammo",
+          "mode": "static",
+          "filter": {
+            "classname": [
+              "weapon_*",
+              "item_*",
+              "ammo_*"
+            ]
+          },
+          "gametype_filter": true,
+          "default": true
+        },
+        {
+          "id": "all_dm_spawns",
+          "label": "All deathmatch spawns",
+          "mode": "static",
+          "filter": {
+            "classname": [
+              "info_player_deathmatch"
+            ]
+          },
+          "gametype_filter": false,
+          "default": false
+        },
+        {
+          "id": "teleport_exits",
+          "label": "Teleport exits",
+          "mode": "teleport",
+          "default": false
+        },
+        {
+          "id": "teleport_entrances",
+          "label": "Teleport entrances",
+          "mode": "teleport",
+          "default": false
+        }
+      ]
+    },
+    "terminus": {
+      "layers": [
+        {
+          "id": "duel_spawns",
+          "label": "Duel spawn pool",
+          "mode": "duel",
+          "filter": {
+            "classname": "info_player_deathmatch"
+          },
+          "gametype_filter": false,
+          "default": false,
+          "middle_val": 9
+        },
+        {
+          "id": "items",
+          "label": "Items, weapons, ammo",
+          "mode": "static",
+          "filter": {
+            "classname": [
+              "weapon_*",
+              "item_*",
+              "ammo_*"
+            ]
+          },
+          "gametype_filter": true,
+          "default": true
+        },
+        {
+          "id": "all_dm_spawns",
+          "label": "All deathmatch spawns",
+          "mode": "static",
+          "filter": {
+            "classname": [
+              "info_player_deathmatch"
+            ]
+          },
+          "gametype_filter": false,
+          "default": false
+        },
+        {
+          "id": "teleport_exits",
+          "label": "Teleport exits",
+          "mode": "teleport",
+          "default": false
+        },
+        {
+          "id": "teleport_entrances",
+          "label": "Teleport entrances",
+          "mode": "teleport",
+          "default": false
+        }
+      ]
+    },
+    "tornado": {
+      "layers": [
+        {
+          "id": "duel_spawns",
+          "label": "Duel spawn pool",
+          "mode": "duel",
+          "filter": {
+            "classname": "info_player_deathmatch"
+          },
+          "gametype_filter": false,
+          "default": false,
+          "middle_val": 8
+        },
+        {
+          "id": "items",
+          "label": "Items, weapons, ammo",
+          "mode": "static",
+          "filter": {
+            "classname": [
+              "weapon_*",
+              "item_*",
+              "ammo_*"
+            ]
+          },
+          "gametype_filter": true,
+          "default": true
+        },
+        {
+          "id": "all_dm_spawns",
+          "label": "All deathmatch spawns",
+          "mode": "static",
+          "filter": {
+            "classname": [
+              "info_player_deathmatch"
+            ]
+          },
+          "gametype_filter": false,
+          "default": false
+        },
+        {
+          "id": "teleport_exits",
+          "label": "Teleport exits",
+          "mode": "teleport",
+          "default": false
+        },
+        {
+          "id": "teleport_entrances",
+          "label": "Teleport entrances",
+          "mode": "teleport",
+          "default": false
+        }
+      ]
+    },
+    "toxicity": {
+      "layers": [
+        {
+          "id": "duel_spawns",
+          "label": "Duel spawn pool",
+          "mode": "duel",
+          "filter": {
+            "classname": "info_player_deathmatch"
+          },
+          "gametype_filter": false,
+          "default": false,
+          "middle_val": 4
+        },
+        {
+          "id": "items",
+          "label": "Items, weapons, ammo",
+          "mode": "static",
+          "filter": {
+            "classname": [
+              "weapon_*",
+              "item_*",
+              "ammo_*"
+            ]
+          },
+          "gametype_filter": true,
+          "default": true
         },
         {
           "id": "all_dm_spawns",

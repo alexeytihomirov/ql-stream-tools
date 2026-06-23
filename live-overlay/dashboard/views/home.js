@@ -1,0 +1,174 @@
+(function () {
+  "use strict";
+
+  var clockTimer = null;
+
+  function mount(root) {
+    root.innerHTML =
+      '<section class="control-section">' +
+      '<div class="control-section-head">' +
+      "<h2>" +
+      QLDashboard.t("sectionMatches") +
+      "</h2>" +
+      '<button type="button" id="home-all-matches" class="control-btn control-btn-sm">' +
+      QLDashboard.t("openMatchesOperator") +
+      "</button>" +
+      "</div>" +
+      '<p id="home-status" class="control-status" role="status"></p>' +
+      '<table class="matches-table"><thead><tr>' +
+      "<th>" +
+      QLDashboard.t("colScore") +
+      "</th><th>" +
+      QLDashboard.t("colMap") +
+      "</th><th>" +
+      QLDashboard.t("colStatus") +
+      "</th><th>" +
+      QLDashboard.t("colServer") +
+      "</th><th>" +
+      QLDashboard.t("colActions") +
+      "</th></tr></thead>" +
+      '<tbody id="home-matches-body"></tbody></table>' +
+      "</section>";
+
+    QLDashboard.setStatusHandler(function (text, kind) {
+      var el = document.getElementById("home-status");
+      if (!el) return;
+      el.textContent = text || "";
+      el.classList.remove("error", "ok");
+      if (kind) el.classList.add(kind);
+    });
+
+    document.getElementById("home-all-matches").addEventListener("click", function () {
+      QLDashboard.openWindow(
+        QLDashboard.liveOverlayUrl("matches", undefined, {
+          mode: "operator",
+          layout: "cards",
+        }),
+        "ql-matches-operator",
+      );
+    });
+
+    renderMatches();
+    startClock();
+  }
+
+  function unmount() {
+    stopClock();
+    QLDashboard.setStatusHandler(null);
+  }
+
+  function startClock() {
+    stopClock();
+    clockTimer = setInterval(function () {
+      if (document.getElementById("home-matches-body")) renderMatches();
+    }, 1000);
+  }
+
+  function stopClock() {
+    if (clockTimer) {
+      clearInterval(clockTimer);
+      clockTimer = null;
+    }
+  }
+
+  function renderMatches() {
+    var body = document.getElementById("home-matches-body");
+    if (!body) return;
+    var matches = QLDashboard.matches;
+    body.innerHTML = "";
+
+    if (!matches.length) {
+      var tr = document.createElement("tr");
+      var td = document.createElement("td");
+      td.colSpan = 5;
+      td.textContent = QLDashboard.t("matchesEmpty");
+      td.className = "control-field-hint";
+      tr.appendChild(td);
+      body.appendChild(tr);
+      return;
+    }
+
+    for (var i = 0; i < matches.length; i++) {
+      var row = matches[i];
+      var mid = row.match_id || "";
+      var connect = QLDashboard.connectForMatch(mid);
+      var tr2 = document.createElement("tr");
+
+      var scoreCell = document.createElement("td");
+      scoreCell.innerHTML =
+        "<strong>" +
+        QLDashboard.escapeHtml(row.score_summary || mid) +
+        "</strong>" +
+        (connect
+          ? '<div class="match-id">/connect ' + QLDashboard.escapeHtml(connect) + "</div>"
+          : "") +
+        '<div class="match-id">' +
+        QLDashboard.escapeHtml(mid) +
+        "</div>";
+
+      var mapCell = document.createElement("td");
+      mapCell.textContent = [row.map_name, row.gametype].filter(Boolean).join(" · ") || "—";
+
+      var statusCell = document.createElement("td");
+      var badge = document.createElement("span");
+      badge.className = "badge " + QLDashboard.statusBadgeClass(row);
+      badge.textContent = QLDashboard.matchPhaseLabel(row);
+      statusCell.appendChild(badge);
+      var elapsed = QLDashboard.computeMatchElapsedSec(row);
+      if (elapsed != null) {
+        var clock = document.createElement("span");
+        clock.className = "match-clock";
+        clock.textContent = QLDashboard.formatClockSec(elapsed);
+        statusCell.appendChild(clock);
+      }
+
+      var serverCell = document.createElement("td");
+      serverCell.textContent = row.server_name || "—";
+
+      var actionsCell = document.createElement("td");
+      var actions = document.createElement("div");
+      actions.className = "match-actions";
+      actions.appendChild(
+        QLDashboard.makeActionBtn(QLDashboard.t("openMatch"), function () {
+          QLDashboard.navigate("#/match/" + encodeURIComponent(mid));
+        }),
+      );
+      actions.appendChild(
+        QLDashboard.makeActionBtn(QLDashboard.t("openMap"), function () {
+          QLDashboard.openWindow(QLDashboard.liveOverlayUrl("map", mid), "ql-map-" + mid);
+        }),
+      );
+      actions.appendChild(
+        QLDashboard.makeActionBtn(QLDashboard.t("copyUrl"), function () {
+          QLDashboard.copyText(QLDashboard.liveOverlayUrl("scoreboard", mid)).then(function (ok) {
+            if (ok) {
+              var st = document.getElementById("home-status");
+              if (st) {
+                st.textContent = QLDashboard.t("copied");
+                st.classList.add("ok");
+              }
+            }
+          });
+        }),
+      );
+      actionsCell.appendChild(actions);
+
+      tr2.appendChild(scoreCell);
+      tr2.appendChild(mapCell);
+      tr2.appendChild(statusCell);
+      tr2.appendChild(serverCell);
+      tr2.appendChild(actionsCell);
+      body.appendChild(tr2);
+    }
+  }
+
+  QLDashboard.registerView("home", {
+    mount: mount,
+    unmount: unmount,
+    onMatchesUpdated: renderMatches,
+    onLangChanged: function () {
+      var root = document.getElementById("app-main");
+      if (root) mount(root);
+    },
+  });
+})();

@@ -108,10 +108,12 @@ PNG + map_transforms.json: ql-stream-tools/live-overlay (jsDelivr или лок�
         <p>Отдельные HTML-страницы. Обязательный query-параметр <code>base</code> — корень ql-stats-hub.</p>
 
         <h3>URL (jsDelivr)</h3>
-        <pre class="panel url"><code>https://cdn.jsdelivr.net/gh/alexeytihomirov/ql-stream-tools@main/live-overlay/viewer.html?base=http://STATS_HOST:8090
-https://cdn.jsdelivr.net/gh/alexeytihomirov/ql-stream-tools@main/live-overlay/matches.html?base=http://STATS_HOST:8090
+        <pre class="panel url"><code>https://cdn.jsdelivr.net/gh/alexeytihomirov/ql-stream-tools@main/live-overlay/control/index.html?base=http://STATS_HOST:8090
+https://cdn.jsdelivr.net/gh/alexeytihomirov/ql-stream-tools@main/live-overlay/match.html?base=http://STATS_HOST:8090&amp;match=MATCH_ID
+https://cdn.jsdelivr.net/gh/alexeytihomirov/ql-stream-tools@main/live-overlay/matches.html?base=http://STATS_HOST:8090&amp;mode=operator
 https://cdn.jsdelivr.net/gh/alexeytihomirov/ql-stream-tools@main/live-overlay/scoreboard.html?base=http://STATS_HOST:8090&amp;match=MATCH_ID
 https://cdn.jsdelivr.net/gh/alexeytihomirov/ql-stream-tools@main/live-overlay/map.html?base=http://STATS_HOST:8090&amp;match=MATCH_ID</code></pre>
+        <p><code>viewer.html</code> перенаправляет на <code>control/</code>.</p>
 
         <h3>Query-параметры</h3>
         <table>
@@ -120,7 +122,11 @@ https://cdn.jsdelivr.net/gh/alexeytihomirov/ql-stream-tools@main/live-overlay/ma
           </thead>
           <tbody>
             <tr><td><code>base</code></td><td>все</td><td><strong>Обязателен.</strong> <code>http://host:8090</code></td></tr>
-            <tr><td><code>match</code></td><td>map, scoreboard</td><td>ID матча; без него — первый live</td></tr>
+            <tr><td><code>match</code></td><td>map, scoreboard, match</td><td>ID матча; без него — первый live</td></tr>
+            <tr><td><code>mode</code></td><td>matches</td><td><code>overlay</code> (OBS) или <code>operator</code></td></tr>
+            <tr><td><code>layout</code></td><td>matches</td><td><code>cards</code> или <code>compact</code></td></tr>
+            <tr><td><code>status</code></td><td>matches</td><td><code>all</code>, <code>live</code>, <code>ended</code></td></tr>
+            <tr><td><code>bg</code></td><td>overlays</td><td><code>transparent</code>, <code>chroma</code>, <code>checkerboard</code>, <code>#hex</code></td></tr>
             <tr><td><code>assets</code></td><td>map</td><td>Корень PNG + map_transforms (если не jsDelivr)</td></tr>
             <tr><td><code>transport</code></td><td>map</td><td><code>ws</code> (default) или <code>poll</code></td></tr>
             <tr><td><code>poll</code></td><td>все</td><td>HTTP fallback, ms (scoreboard 500, map 100)</td></tr>

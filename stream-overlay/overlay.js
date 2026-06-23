@@ -89,6 +89,69 @@
     };
   }
 
+  function readControlSettings() {
+    try {
+      const raw = localStorage.getItem("ql-control-settings");
+      if (raw) return JSON.parse(raw);
+    } catch (_e) {
+      /* ignore */
+    }
+    return null;
+  }
+
+  function bootstrapConfigFromContext() {
+    const params = new URLSearchParams(window.location.search);
+    const patch = {};
+    const base = params.get("base");
+    if (base) patch.statsHubBase = base.replace(/\/+$/, "");
+    const slug = params.get("tournament") || params.get("slug");
+    if (slug) patch.tournamentSlug = slug.toLowerCase();
+    const publicBase = params.get("publicDataBase") || params.get("public");
+    if (publicBase) patch.publicDataBase = publicBase.replace(/\/+$/, "");
+
+    const ctrl = readControlSettings();
+    if (ctrl) {
+      if (!patch.statsHubBase && ctrl.statsHubBase) {
+        patch.statsHubBase = String(ctrl.statsHubBase).replace(/\/+$/, "");
+      }
+      if (!patch.tournamentSlug && ctrl.tournamentSlug) {
+        patch.tournamentSlug = String(ctrl.tournamentSlug).toLowerCase();
+      }
+      if (!patch.publicDataBase && ctrl.publicDataBase) {
+        patch.publicDataBase = String(ctrl.publicDataBase).replace(/\/+$/, "");
+      }
+    }
+    return Object.keys(patch).length ? patch : null;
+  }
+
+  function isPlaceholderStatsHub(url) {
+    const u = String(url || "").toLowerCase();
+    return !u || u.includes("stats.example.com");
+  }
+
+  function mergeStoredConfig(stored, contextPatch) {
+    let base = stored;
+    if (!base && contextPatch) {
+      base = normalizeConfig(
+        Object.assign(
+          {
+            publicDataBase: DEFAULT_PUBLIC_DATA_BASE,
+            tournamentSlug: "",
+            pollIntervalMs: 30000,
+          },
+          contextPatch,
+        ),
+      );
+    } else if (base && contextPatch) {
+      const merged = Object.assign({}, base, contextPatch);
+      if (isPlaceholderStatsHub(merged.statsHubBase) && contextPatch.statsHubBase) {
+        merged.statsHubBase = contextPatch.statsHubBase;
+      }
+      base = normalizeConfig(merged);
+    }
+    return base;
+  }
+
   function loadConfigFromStorage() {
     const stored = localStorage.getItem(STORAGE_KEY);
     if (!stored) return null;
@@ -598,17 +661,49 @@
     loadLogoCatalog(els.setupForm.publicDataBase.value);
   }
 
+  function applyObsBackground() {
+    const params = new URLSearchParams(window.location.search);
+    const mode = String(params.get("bg") || "transparent").toLowerCase();
+    const body = document.body;
+    const root = document.getElementById("overlay-root");
+    if (!body) return;
+    if (mode === "chroma" || mode === "green") {
+      body.style.background = "#00ff00";
+      if (root) root.style.background = "#00ff00";
+      return;
+    }
+    if (mode === "checkerboard" || mode === "checker") {
+      body.classList.add("obs-bg-checkerboard");
+      body.style.background = "";
+      if (root) root.style.background = "";
+      return;
+    }
+    if (mode.startsWith("#")) {
+      body.style.background = mode;
+      if (root) root.style.background = mode;
+      return;
+    }
+    body.style.background = "transparent";
+    if (root) root.style.background = "transparent";
+  }
+
   function init() {
+    applyObsBackground();
     els.setupForm.addEventListener("submit", onSetupSubmit);
     els.setupForm.publicDataBase.addEventListener("change", onPublicDataBaseChange);
     els.setupForm.publicDataBase.addEventListener("blur", onPublicDataBaseChange);
     els.editSettings.addEventListener("click", () => showSetupPanel(config));
 
     try {
-      const stored = loadConfigFromStorage();
+      let stored = loadConfigFromStorage();
+      const contextPatch = bootstrapConfigFromContext();
+      stored = mergeStoredConfig(stored, contextPatch);
       if (!stored) {
-        showSetupPanel(null);
+        showSetupPanel(contextPatch);
         return;
+      }
+      if (contextPatch) {
+        saveConfigToStorage(stored);
       }
       applyConfig(stored);
     } catch (err) {

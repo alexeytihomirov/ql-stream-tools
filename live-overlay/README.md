@@ -4,6 +4,31 @@ Scoreboard, map positions, and match list — **presentation layer** for ql-stat
 
 **Full documentation:** [`../stream-overlay/docs.html`](../stream-overlay/docs.html) (map calibration, smooth, hub, troubleshooting).
 
+## Operator control panel
+
+Central **streamer dashboard** (connection, tournaments from ql-public-data, live matches, overlay URLs):
+
+```
+# CDN
+https://cdn.jsdelivr.net/gh/owner/ql-stream-tools@main/live-overlay/dashboard/index.html?base=http://STATS_HOST:8090
+
+# Local (overlay-serve.cmd)
+http://127.0.0.1:8787/live-overlay/dashboard/index.html?base=http://STATS_HOST:8090
+```
+
+Hash routes: `#/` · `#/tournament` · `#/match/{id}` · `#/overlays` · `#/settings`.
+
+Legacy `control/` and `viewer.html` redirect to `dashboard/`. Operator pages: `match.html`, `matches.html?mode=operator`.
+
+| Param | Pages | Description |
+|-------|-------|-------------|
+| `mode` | matches | `overlay` (OBS, default) or `operator` (toolbar + actions) |
+| `layout` | matches | `cards` (default) or `compact` (ticker) |
+| `status` | matches | `all`, `live`, `ended` (client filter + WS cache) |
+| `bg` | overlays | `transparent`, `chroma`, `checkerboard`, or `#hex` |
+
+Settings: `localStorage` key `ql-control-settings`.
+
 ## OBS setup
 
 Use jsDelivr (recommended) or serve `live-overlay/` over HTTP. Opening `file://` HTML works for stats-hub API (`?base=…`) but map assets load from jsDelivr automatically; override with `?assets=http://127.0.0.1:8787/live-overlay/` when testing local PNG/transform edits.
@@ -19,7 +44,7 @@ https://cdn.jsdelivr.net/gh/alexeytihomirov/ql-stream-tools@main/live-overlay/ma
 | Param | Required | Description |
 |-------|----------|-------------|
 | `base` | **yes** | ql-stats-hub root URL (`http://host:8090`) |
-| `assets` | no | Overlay static root (transforms + map PNGs); auto CDN when opened via `file://` |
+| `assets` | no | CDN / page dir | Map PNGs, transforms, sprites. Auto CDN when origin matches stats-hub `base`. |
 | `match` | map/scoreboard | Match id; omit to auto-pick first live match |
 | `poll` | no | HTTP fallback interval (ms); scoreboard default 500 |
 | `transport` | no | `ws` (default) or `poll` for map overlay |
@@ -43,12 +68,15 @@ Map overlay uses WebSocket by default; HTTP poll is fallback only if WS is silen
 
 ### Map calibration debug (`map.html?debug=1`)
 
-Workflow: **grid → scale → offset**
+Workflow: **contour trace → grid → scale → offset**
 
-1. Enable grid (128/256/512 world units) and walk on server — match grid to map features
-2. **Scale** — slider «world width» or mouse wheel on map
-3. **Offset** — drag map layer (center X/Y = world position at image center)
-4. Copy JSON → `maps/map_transforms.json`
+1. **Contour trace** — enable *Record movement*, walk along all walls hugging geometry; export `{map}-contour.png` (transparent) and overlay on your map PNG in an editor to check alignment
+2. Enable grid (128/256/512 world units) and match grid to map features
+3. **Scale** — slider «world width» or mouse wheel on map
+4. **Offset** — drag map layer (center X/Y = world position at image center)
+5. Copy JSON → `maps/map_transforms.json`
+
+Trail points persist in `sessionStorage` per map until **Clear trail**. Teleports break the line (same as heatmap). *Hide map image* shows a checkerboard so only the cyan trace is visible while tuning scale/offset.
 
 ```
 http://127.0.0.1:8787/map.html?base=http://STATS_HOST:8090&debug=1
@@ -71,6 +99,30 @@ Place PNG in `live-overlay/maps/`. Regenerate placeholders:
 python scripts/gen_map_placeholders.py
 ```
 
-Tune bounds in-game: compare telemetry `x`/`y` with dot position on the image.
+Regenerate transforms for all map PNGs (ql-spawns `mapOrigin`/`mapEnd` when available; else BSP entity bounds + median padding from `pak00/maps/`):
+
+```bash
+python scripts/gen_map_transforms.py
+node scripts/test_map_transforms_sanity.js
+```
+
+Extract item/weapon/spawn entities from `pak00/maps/*.bsp` for overlay maps listed in `map_transforms.json`, then generate layer configs (`items` layer on by default):
+
+```bash
+python scripts/batch_extract_map_entities.py --only-maps live-overlay/maps/map_transforms.json
+python scripts/gen_entity_display.py
+```
+
+Generate overview PNG from BSP (floor textures + wall outline) when no ql-spawns art exists:
+
+```bash
+python scripts/gen_map_overview.py phrantic
+python scripts/gen_map_transforms.py
+python scripts/gen_entity_display.py
+```
+
+Without `maps/entities/{map}.json` and a matching entry in `entity-display.json`, the overlay shows no static items (panel meta: «no entity dump»).
+
+Tune bounds in-game: compare telemetry `x`/`y` with dot position on the image (`?debug=1`). Maps without ql-spawns HTML may need manual calibration.
 
 Hub **Statistics** tab generates ready-made URLs when stats-hub is deployed.

@@ -6,9 +6,36 @@
     <title>QL Live — Matches</title>
     <link rel="stylesheet" href="overlay.css" />
   </head>
-  <body class="overlay-body">
+  <body class="overlay-body matches-body">
+    <div id="matches-operator" class="matches-operator hidden">
+      <div class="matches-operator-row">
+        <label class="matches-operator-field">
+          <span id="lbl-filter-status">Status</span>
+          <select id="matches-filter-status">
+            <option value="all">All</option>
+            <option value="live">Live</option>
+            <option value="ended">Ended</option>
+          </select>
+        </label>
+        <label class="matches-operator-field">
+          <span id="lbl-filter-gametype">Gametype</span>
+          <select id="matches-filter-gametype">
+            <option value="">Any</option>
+          </select>
+        </label>
+        <label class="matches-operator-field">
+          <span id="lbl-layout">Layout</span>
+          <select id="matches-layout">
+            <option value="cards">Cards</option>
+            <option value="compact">Compact</option>
+          </select>
+        </label>
+        <a href="control/index.html" id="matches-link-control" class="overlay-btn overlay-btn-sm">Control</a>
+      </div>
+    </div>
     <div id="match-list" class="match-list"></div>
     <div id="status" class="status"></div>
+    <script src="operator-i18n.js"></script>
     <script src="overlay.js"></script>
     <script>
       OverlayApp.initMatchList();

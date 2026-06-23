@@ -6,17 +6,103 @@
   var DEFAULT_CDN_ASSETS =
     "https://cdn.jsdelivr.net/gh/alexeytihomirov/ql-stream-tools@main/live-overlay/";
 
-  function overlayAssetsRoot() {
+  function trimSlash(url) {
+    return String(url || "").replace(/\/+$/, "");
+  }
+
+  function withTrailingSlash(url) {
+    var t = trimSlash(url);
+    return t ? t + "/" : "";
+  }
+
+  function statsHubOriginFromQuery() {
     var params = new URLSearchParams(window.location.search);
-    var explicit = (params.get("assets") || "").trim();
-    if (explicit) {
-      return explicit.endsWith("/") ? explicit : explicit + "/";
+    var base = (params.get("base") || "").trim();
+    if (!base) return "";
+    try {
+      return new URL(base).origin;
+    } catch (_e) {
+      return "";
     }
-    // file:// cannot fetch sibling files (map_transforms.json, PNGs) — use CDN or ?assets=
+  }
+
+  function urlOrigin(value) {
+    try {
+      return new URL(value).origin;
+    } catch (_e2) {
+      return "";
+    }
+  }
+
+  function sanitizeAssetsRoot(raw, hubOrigin) {
+    if (!raw) return "";
+    var root = withTrailingSlash(raw);
+    var origin = urlOrigin(root);
+    if (!origin) return "";
+    if (hubOrigin && origin === hubOrigin) return "";
+    return root;
+  }
+
+  function assetsFromControlSettings() {
+    try {
+      var raw = localStorage.getItem("ql-control-settings");
+      if (!raw) return "";
+      var parsed = JSON.parse(raw);
+      if (parsed && parsed.assetsBase) {
+        return sanitizeAssetsRoot(parsed.assetsBase, statsHubOriginFromQuery());
+      }
+    } catch (_e3) {
+      /* ignore */
+    }
+    return "";
+  }
+
+  function pageOverlayAssetsRoot() {
+    if (window.location.protocol === "file:") {
+      return "";
+    }
+    var path = window.location.pathname || "";
+    if (path.indexOf("/live-overlay/") >= 0) {
+      return new URL("./", window.location.href).href;
+    }
+    if (window.location.port === "8787") {
+      return window.location.origin + "/live-overlay/";
+    }
+    return "";
+  }
+
+  function overlayAssetsRoot() {
+    var hubOrigin = statsHubOriginFromQuery();
+    var params = new URLSearchParams(window.location.search);
+    var pageRoot = pageOverlayAssetsRoot();
+
+    if (pageRoot) {
+      var explicitOnPage = sanitizeAssetsRoot(params.get("assets"), hubOrigin);
+      if (explicitOnPage && explicitOnPage !== pageRoot) {
+        return explicitOnPage;
+      }
+      return pageRoot;
+    }
+
+    var explicit = sanitizeAssetsRoot(params.get("assets"), hubOrigin);
+    if (explicit) {
+      return explicit;
+    }
+
+    var fromControl = assetsFromControlSettings();
+    if (fromControl) {
+      return fromControl;
+    }
+
     if (window.location.protocol === "file:") {
       return DEFAULT_CDN_ASSETS;
     }
-    return new URL("./", window.location.href).href;
+
+    if (hubOrigin && window.location.origin === hubOrigin) {
+      return DEFAULT_CDN_ASSETS;
+    }
+
+    return DEFAULT_CDN_ASSETS;
   }
 
   function assetUrl(relative) {
@@ -240,5 +326,9 @@
     prepareMapPayload: prepareMapPayload,
     resolveImageUrl: resolveImageUrl,
     assetUrl: assetUrl,
+    overlayAssetsRoot: overlayAssetsRoot,
+    defaultCdnAssets: function () {
+      return DEFAULT_CDN_ASSETS;
+    },
   };
 })(window);

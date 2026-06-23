@@ -3,7 +3,7 @@
 
   var STORAGE_KEY = "ql-map-spawns-settings";
   var EXPORT_FILENAME = "ql-map-overlay-settings.json";
-  var SETTINGS_VERSION = 13;
+  var SETTINGS_VERSION = 14;
   var MAP_BASE_PX = 512;
   var MAP_ZOOM_MIN = 50;
   var MAP_ZOOM_MAX = 150;
@@ -249,6 +249,7 @@
     enabled: true,
     showFovWedge: false,
     showDirectionArrow: true,
+    playerMarkerStyle: "pin",
     showInactive: false,
     showThreshold: false,
     showKillfeed: false,
@@ -335,6 +336,7 @@
     itemCategories: Object.assign({}, DEFAULT_ITEM_CATEGORIES),
     showFovWedge: true,
     showDirectionArrow: true,
+    playerMarkerStyle: "pin",
     showPlayerHealthArmor: true,
     playerMarkerMinPx: 8,
     playerMarkerMaxPx: 14,
@@ -472,10 +474,10 @@
     var gt = normalizeGametype(gametype);
     var attrs = ent.attrs || {};
     if (attrs.gametype) {
-      return normalizeGametype(attrs.gametype) === gt;
+      return gametypeListMatches(attrs.gametype, gt);
     }
     if (attrs.not_gametype) {
-      return normalizeGametype(attrs.not_gametype) !== gt;
+      return !gametypeListMatches(attrs.not_gametype, gt);
     }
     if (gt === "duel" || gt === "tdm" || gt === "teamdeathmatch") {
       return false;
@@ -486,11 +488,31 @@
   function mergeTheme(theme) {
     var base = JSON.parse(JSON.stringify(DEFAULT_THEME));
     if (!theme || typeof theme !== "object") return base;
+    var hubOrigin = "";
+    try {
+      var qBase = new URLSearchParams(window.location.search).get("base") || "";
+      if (qBase) hubOrigin = new URL(qBase).origin;
+    } catch (_eHub) {
+      /* ignore */
+    }
+    function cleanSpriteUrl(url) {
+      if (!url || typeof url !== "string") return url;
+      if (!hubOrigin || url.indexOf("http") !== 0) return url;
+      try {
+        if (new URL(url).origin === hubOrigin) return "";
+      } catch (_eUrl) {
+        return url;
+      }
+      return url;
+    }
     if (theme.spawns && typeof theme.spawns === "object") {
       Object.assign(base.spawns, theme.spawns);
+      base.spawns.activeSpriteUrl = cleanSpriteUrl(base.spawns.activeSpriteUrl);
+      base.spawns.inactiveSpriteUrl = cleanSpriteUrl(base.spawns.inactiveSpriteUrl);
     }
     if (theme.players && typeof theme.players === "object") {
       Object.assign(base.players, theme.players);
+      base.players.arrowSpriteUrl = cleanSpriteUrl(base.players.arrowSpriteUrl);
     }
     if (theme.respawn && typeof theme.respawn === "object") {
       Object.assign(base.respawn, theme.respawn);
@@ -541,6 +563,7 @@
       itemCategories: Object.assign({}, DEFAULT_ITEM_CATEGORIES, settings.itemCategories || {}),
       showFovWedge: settings.showFovWedge !== false,
       showDirectionArrow: settings.showDirectionArrow !== false,
+      playerMarkerStyle: normalizePlayerMarkerStyle(settings.playerMarkerStyle),
       showPlayerHealthArmor: settings.showPlayerHealthArmor !== false,
       playerMarkerMinPx: clampPlayerMarkerMinPx(settings.playerMarkerMinPx),
       playerMarkerMaxPx: clampPlayerMarkerMaxPx(
@@ -726,6 +749,9 @@
       if (prevVersion < 13) {
         normalizePlayerMarkerSettings(s);
       }
+      if (prevVersion < 14) {
+        s.playerMarkerStyle = "arrow";
+      }
       s.version = SETTINGS_VERSION;
       try {
         localStorage.setItem(STORAGE_KEY, JSON.stringify(settingsPayload(s)));
@@ -827,6 +853,7 @@
     settings.enabled = PRESET_MINIMAL.enabled;
     settings.showFovWedge = PRESET_MINIMAL.showFovWedge;
     settings.showDirectionArrow = PRESET_MINIMAL.showDirectionArrow;
+    settings.playerMarkerStyle = PRESET_MINIMAL.playerMarkerStyle;
     settings.showInactive = PRESET_MINIMAL.showInactive;
     settings.showThreshold = PRESET_MINIMAL.showThreshold;
     settings.showKillfeed = PRESET_MINIMAL.showKillfeed;
@@ -1017,22 +1044,68 @@
     return null;
   }
 
+  function gametypeTokens(value) {
+    var raw = String(value || "").trim().toLowerCase();
+    if (!raw) return [];
+    var parts = raw.split(/[\s,]+/);
+    var out = [];
+    for (var i = 0; i < parts.length; i++) {
+      var token = normalizeGametype(parts[i]);
+      if (token && out.indexOf(token) < 0) out.push(token);
+    }
+    return out;
+  }
+
+  function gametypeListMatches(value, gt) {
+    var tokens = gametypeTokens(value);
+    if (!tokens.length) return false;
+    var normalized = normalizeGametype(gt);
+    if (!normalized) return false;
+    return tokens.indexOf(normalized) >= 0;
+  }
+
+  function truthyMapAttr(value) {
+    return value === "1" || value === 1 || value === true;
+  }
+
+  function legacySpawnFlagsBlockGametype(attrs, gt) {
+    if (!attrs || !gt) return false;
+    var g = normalizeGametype(gt);
+    if (!g) return false;
+    if (truthyMapAttr(attrs.notsingle) && g === "duel") return true;
+    if (truthyMapAttr(attrs.notfree) && (g === "dm" || g === "duel")) return true;
+    if (
+      truthyMapAttr(attrs.notteam) &&
+      (g === "tdm" || g === "ctf" || g === "ca" || g === "dom")
+    ) {
+      return true;
+    }
+    return false;
+  }
+
   function entityMatchesGametype(ent, gametype) {
     var gt = normalizeGametype(gametype);
     if (!gt) return true;
     var attrs = ent.attrs || {};
-    if (attrs.gametype && normalizeGametype(attrs.gametype) !== gt) {
+    if (attrs.gametype && !gametypeListMatches(attrs.gametype, gt)) {
       return false;
     }
-    if (attrs.not_gametype && normalizeGametype(attrs.not_gametype) === gt) {
+    if (attrs.not_gametype && gametypeListMatches(attrs.not_gametype, gt)) {
       return false;
     }
+    if (legacySpawnFlagsBlockGametype(attrs, gt)) return false;
     return true;
   }
 
   function entityIsUniversalGametype(ent) {
     var attrs = (ent && ent.attrs) || {};
-    return !attrs.gametype && !attrs.not_gametype;
+    return (
+      !attrs.gametype &&
+      !attrs.not_gametype &&
+      !truthyMapAttr(attrs.notsingle) &&
+      !truthyMapAttr(attrs.notfree) &&
+      !truthyMapAttr(attrs.notteam)
+    );
   }
 
   function entityVisibleForGametypeFilter(ent, gametype, filterGametype) {
@@ -1108,6 +1181,10 @@
     return Math.max(PLAYER_LABEL_FONT_MIN, Math.min(PLAYER_LABEL_FONT_MAX, Math.round(n)));
   }
 
+  function normalizePlayerMarkerStyle(value) {
+    return value === "arrow" ? "arrow" : "pin";
+  }
+
   function normalizePlayerMarkerSettings(settings) {
     settings.playerMarkerMinPx = clampPlayerMarkerMinPx(settings.playerMarkerMinPx);
     settings.playerMarkerMaxPx = clampPlayerMarkerMaxPx(
@@ -1118,6 +1195,7 @@
     if (settings.showPlayerHealthArmor == null) {
       settings.showPlayerHealthArmor = DEFAULTS.showPlayerHealthArmor;
     }
+    settings.playerMarkerStyle = normalizePlayerMarkerStyle(settings.playerMarkerStyle);
     return settings;
   }
 
@@ -3546,6 +3624,7 @@
   MapSpawns.prototype.syncPlayerControls = function () {
     var fovWedge = document.getElementById("spawn-show-fov-wedge");
     var directionArrow = document.getElementById("spawn-show-direction-arrow");
+    var markerStyle = document.getElementById("spawn-player-marker-style");
     var showStats = document.getElementById("spawn-show-player-stats");
     var markerMin = document.getElementById("spawn-marker-min");
     var markerMinVal = document.getElementById("spawn-marker-min-value");
@@ -3557,6 +3636,9 @@
     var mapZoomValue = document.getElementById("spawn-map-zoom-value");
     if (fovWedge) fovWedge.checked = this.settings.showFovWedge !== false;
     if (directionArrow) directionArrow.checked = this.settings.showDirectionArrow !== false;
+    if (markerStyle) {
+      markerStyle.value = normalizePlayerMarkerStyle(this.settings.playerMarkerStyle);
+    }
     if (showStats) showStats.checked = this.settings.showPlayerHealthArmor !== false;
     if (markerMin) markerMin.value = String(clampPlayerMarkerMinPx(this.settings.playerMarkerMinPx));
     if (markerMinVal) {
@@ -3630,7 +3712,12 @@
       '<section class="map-spawns-section">' +
       "<h3>Player markers</h3>" +
       '<label class="dbg-toggle"><input type="checkbox" id="spawn-show-fov-wedge" /> Show FOV wedge</label>' +
-      '<label class="dbg-toggle"><input type="checkbox" id="spawn-show-direction-arrow" /> Show direction arrow</label>' +
+      '<label class="dbg-toggle"><input type="checkbox" id="spawn-show-direction-arrow" /> Show direction</label>' +
+      '<label class="dbg-field">Direction style ' +
+      '<select id="spawn-player-marker-style">' +
+      '<option value="pin">Pin (circle + bump)</option>' +
+      '<option value="arrow">Arrow line</option>' +
+      "</select></label>" +
       '<label class="dbg-toggle"><input type="checkbox" id="spawn-show-player-stats" /> Show HP / armor above nickname</label>' +
       '<label class="dbg-field">Marker size (low height) <span id="spawn-marker-min-value" class="map-spawns-zoom-value">8px</span>' +
       '<input type="range" id="spawn-marker-min" min="' +
@@ -3776,6 +3863,16 @@
       directionArrow.addEventListener("change", function () {
         markCustom(self.settings);
         self.settings.showDirectionArrow = directionArrow.checked;
+        saveSettings(self.settings);
+        refreshPlayerMarkers();
+      });
+    }
+    var markerStyleSelect = document.getElementById("spawn-player-marker-style");
+    if (markerStyleSelect) {
+      markerStyleSelect.value = normalizePlayerMarkerStyle(self.settings.playerMarkerStyle);
+      markerStyleSelect.addEventListener("change", function () {
+        markCustom(self.settings);
+        self.settings.playerMarkerStyle = normalizePlayerMarkerStyle(markerStyleSelect.value);
         saveSettings(self.settings);
         refreshPlayerMarkers();
       });
@@ -4234,6 +4331,7 @@
       return {
         showFovWedge: s.showFovWedge !== false,
         showDirectionArrow: s.showDirectionArrow !== false,
+        playerMarkerStyle: normalizePlayerMarkerStyle(s.playerMarkerStyle),
         showPlayerHealthArmor: s.showPlayerHealthArmor !== false,
         playerMarkerMinPx: clampPlayerMarkerMinPx(s.playerMarkerMinPx),
         playerMarkerMaxPx: clampPlayerMarkerMaxPx(
@@ -4331,6 +4429,8 @@
       mergeHeatmap: mergeHeatmap,
       mergeItemPickupDisplay: mergeItemPickupDisplay,
       ammoPackVisibleForGametype: ammoPackVisibleForGametype,
+      entityMatchesGametype: entityMatchesGametype,
+      gametypeListMatches: gametypeListMatches,
       clampHeatmapDuration: clampHeatmapDuration,
       PRESET_MINIMAL: PRESET_MINIMAL,
       PRESET_TEAM: PRESET_TEAM,

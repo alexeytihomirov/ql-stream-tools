@@ -3,6 +3,7 @@ from __future__ import annotations
 
 import json
 import re
+import struct
 import zipfile
 from pathlib import Path
 
@@ -62,6 +63,35 @@ def _brace_block(text: str, start: int = 0) -> tuple[str, int] | None:
     return None
 
 
+def read_entity_lump_from_bsp(bsp_path: Path) -> str | None:
+    data = bsp_path.read_bytes()
+    if len(data) < 8 or data[:4] != b"IBSP":
+        return None
+    lumps = [struct.unpack_from("<ii", data, 8 + i * 8) for i in range(17)]
+    loc, length = lumps[0]
+    if loc < 0 or length <= 0 or loc + length > len(data):
+        return None
+    return data[loc : loc + length].decode("latin-1", errors="replace")
+
+
+def parse_bsp_entity_blocks(text: str) -> list[tuple[int, dict[str, str], str]]:
+    """Parse IBSP entity lump ({ key value } blocks without // entity markers)."""
+    out: list[tuple[int, dict[str, str], str]] = []
+    pos = 0
+    ent_id = 0
+    while pos < len(text):
+        block = _brace_block(text, pos)
+        if not block:
+            break
+        inner, next_pos = block
+        pairs = dict(_PAIR.findall(inner))
+        if pairs:
+            ent_id += 1
+            out.append((ent_id, pairs, inner))
+        pos = next_pos
+    return out
+
+
 def parse_entity_blocks(text: str) -> list[tuple[int, dict[str, str], str]]:
     markers = list(_ENTITY_MARKER.finditer(text))
     if not markers:
@@ -100,7 +130,30 @@ def brush_centroid(chunk: str) -> tuple[float, float, float] | None:
 
 
 def _entity_attrs(pairs: dict[str, str]) -> dict[str, str]:
-    return {k: v for k, v in pairs.items() if k not in {"classname", "origin"}}
+    attrs = {k: v for k, v in pairs.items() if k not in {"classname", "origin"}}
+    return _enrich_gametype_attrs(attrs)
+
+
+def _enrich_gametype_attrs(attrs: dict[str, str]) -> dict[str, str]:
+    """Derive overlay not_gametype tokens from Q3 notsingle/notfree/notteam spawn keys."""
+    if not attrs:
+        return attrs
+    blocked: list[str] = []
+    if attrs.get("notsingle") == "1":
+        blocked.append("duel")
+    if attrs.get("notfree") == "1":
+        blocked.extend(["ffa", "dm", "duel"])
+    if attrs.get("notteam") == "1":
+        blocked.extend(["tdm", "ctf", "ca"])
+    if not blocked:
+        return attrs
+    out = dict(attrs)
+    tokens = out.get("not_gametype", "").split()
+    for token in blocked:
+        if token not in tokens:
+            tokens.append(token)
+    out["not_gametype"] = " ".join(tokens)
+    return out
 
 
 def entity_row(ent_id: int, pairs: dict[str, str], *, x: float, y: float, z: float) -> dict:
@@ -127,6 +180,18 @@ def entity_row_from_pairs(ent_id: int, pairs: dict[str, str]) -> dict | None:
     except ValueError:
         return None
     return entity_row(ent_id, pairs, x=x, y=y, z=z)
+
+
+def entities_from_bsp_file(bsp_path: Path) -> list[dict]:
+    text = read_entity_lump_from_bsp(bsp_path)
+    if text is None:
+        return []
+    rows: list[dict] = []
+    for ent_id, pairs, _chunk in parse_bsp_entity_blocks(text):
+        row = entity_row_from_pairs(ent_id, pairs)
+        if row:
+            rows.append(row)
+    return rows
 
 
 def entities_from_map_text(text: str) -> list[dict]:
@@ -191,20 +256,26 @@ def discover_map_files(
     packs: Path | None = None,
     extra_pk3_dirs: list[Path] | None = None,
 ) -> dict[str, Path]:
-    """Return map_name -> .map file path (newest path wins on duplicate names)."""
+    """Return map_name -> .map or .bsp file path (.map wins over .bsp)."""
     found: dict[str, Path] = {}
 
-    def add(path: Path) -> None:
-        if not path.is_file() or path.suffix.lower() != ".map":
+    def add(path: Path, *, prefer: bool = False) -> None:
+        if not path.is_file():
+            return
+        suffix = path.suffix.lower()
+        if suffix not in {".map", ".bsp"}:
             return
         key = map_name_from_path(path)
-        found[key] = path
+        if prefer or key not in found or found[key].suffix.lower() == ".bsp":
+            found[key] = path
 
     if pak00:
         maps_dir = pak00 / "maps"
         if maps_dir.is_dir():
-            for path in sorted(maps_dir.glob("*.map")):
+            for path in sorted(maps_dir.glob("*.bsp")):
                 add(path)
+            for path in sorted(maps_dir.glob("*.map")):
+                add(path, prefer=True)
 
     if packs:
         for pack_dir in sorted(packs.iterdir()):

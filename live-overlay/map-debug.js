@@ -31,6 +31,21 @@
   var clickMarker = null;
   var dragState = null;
 
+  var CONTOUR_COLOR = "#22d3ee";
+  var CONTOUR_MIN_DIST_SQ = 10 * 10;
+  var CONTOUR_MIN_STEP_MS = 60;
+  var CONTOUR_TP_JUMP_SQ = 512 * 512;
+
+  var contourState = {
+    mapKey: null,
+    points: [],
+    recording: false,
+    playerId: null,
+    lineWidth: 2,
+    hideMap: false,
+    showTrail: true,
+  };
+
   var editFields = [
     { id: "dbg-span-x", label: "Scale — world width (units)", min: 400, max: 16000, step: 16 },
     { id: "dbg-span-y", label: "Scale — world height (units)", min: 400, max: 16000, step: 16 },
@@ -156,6 +171,360 @@
       );
     }
     layoutCalibGizmo();
+    renderContourTrail(activeTransform(lastPayload.transform));
+  }
+
+  function contourStorageKey(mapName) {
+    return "ql-map-contour-" + String(mapName || "_default").trim().toLowerCase();
+  }
+
+  function loadContourFromSession(mapName) {
+    try {
+      var raw = sessionStorage.getItem(contourStorageKey(mapName));
+      if (!raw) return [];
+      var data = JSON.parse(raw);
+      return Array.isArray(data.points) ? data.points : [];
+    } catch (_err) {
+      return [];
+    }
+  }
+
+  function saveContourToSession() {
+    if (!contourState.mapKey) return;
+    try {
+      sessionStorage.setItem(
+        contourStorageKey(contourState.mapKey),
+        JSON.stringify({ points: contourState.points })
+      );
+    } catch (_err) {
+      /* quota / private mode */
+    }
+  }
+
+  function clearContourSession(mapName) {
+    try {
+      sessionStorage.removeItem(contourStorageKey(mapName));
+    } catch (_err) {
+      /* ignore */
+    }
+  }
+
+  function contourDistSq(ax, ay, bx, by) {
+    var dx = Number(ax) - Number(bx);
+    var dy = Number(ay) - Number(by);
+    return dx * dx + dy * dy;
+  }
+
+  function contourTeleportJump(fromX, fromY, toX, toY) {
+    if (window.MapSpawns && typeof MapSpawns.isHeatmapTeleportJump === "function") {
+      return MapSpawns.isHeatmapTeleportJump(fromX, fromY, toX, toY);
+    }
+    return contourDistSq(fromX, fromY, toX, toY) >= CONTOUR_TP_JUMP_SQ;
+  }
+
+  function contourRecordingEnabled() {
+    var el = document.getElementById("dbg-contour-record");
+    return !!(el && el.checked);
+  }
+
+  function contourTrailVisible() {
+    var el = document.getElementById("dbg-contour-show");
+    return !el || el.checked;
+  }
+
+  function playerMotionId(p, index) {
+    if (p.steam_id64) return String(p.steam_id64);
+    if (p.id != null) return String(p.id);
+    if (p.nickname) return String(p.nickname);
+    return "p" + index;
+  }
+
+  function contourPlayerOptions(payload) {
+    var rows = [];
+    var players = (payload && payload.players) || [];
+    for (var i = 0; i < players.length; i++) {
+      var p = players[i];
+      if (p.x == null || p.y == null) continue;
+      var id = playerMotionId(p, i);
+      rows.push({
+        id: id,
+        label: p.nickname || p.steam_id64 || id,
+      });
+    }
+    return rows;
+  }
+
+  function syncContourPlayerSelect(payload) {
+    var sel = document.getElementById("dbg-contour-player");
+    if (!sel) return;
+    var options = contourPlayerOptions(payload);
+    var prev = contourState.playerId || sel.value;
+    sel.innerHTML = "";
+    for (var i = 0; i < options.length; i++) {
+      var opt = document.createElement("option");
+      opt.value = options[i].id;
+      opt.textContent = options[i].label;
+      sel.appendChild(opt);
+    }
+    if (!options.length) {
+      var empty = document.createElement("option");
+      empty.value = "";
+      empty.textContent = "— no players —";
+      sel.appendChild(empty);
+      contourState.playerId = null;
+      return;
+    }
+    var pick = prev;
+    var found = false;
+    for (var j = 0; j < options.length; j++) {
+      if (options[j].id === pick) {
+        found = true;
+        break;
+      }
+    }
+    if (!found) pick = options[0].id;
+    sel.value = pick;
+    contourState.playerId = pick;
+  }
+
+  function findContourPlayer(payload) {
+    var players = (payload && payload.players) || [];
+    var want = contourState.playerId;
+    for (var i = 0; i < players.length; i++) {
+      var p = players[i];
+      if (playerMotionId(p, i) === want) return p;
+    }
+    for (var j = 0; j < players.length; j++) {
+      var q = players[j];
+      if (q.x != null && q.y != null) return q;
+    }
+    return null;
+  }
+
+  function updateContourMeta() {
+    var meta = document.getElementById("dbg-contour-meta");
+    if (!meta) return;
+    var n = contourState.points.length;
+    meta.textContent =
+      n +
+      " point" +
+      (n === 1 ? "" : "s") +
+      (contourRecordingEnabled() ? " · recording" : "");
+  }
+
+  function applyContourHideMap() {
+    var wrap = document.getElementById("map-wrap");
+    if (!wrap) return;
+    wrap.classList.toggle("map-contour-hide-image", !!contourState.hideMap);
+  }
+
+  function ensureContourMap(payload) {
+    var mapKey = (payload && payload.map_name) || "_default";
+    if (contourState.mapKey === mapKey) return;
+    contourState.mapKey = mapKey;
+    contourState.points = loadContourFromSession(mapKey);
+    updateContourMeta();
+  }
+
+  function recordContourSample(payload, transform) {
+    if (!calibrationDebugEnabled() || !contourRecordingEnabled()) return;
+    ensureContourMap(payload);
+    var p = findContourPlayer(payload);
+    if (!p || p.x == null || p.y == null) return;
+    var x = Number(p.x);
+    var y = Number(p.y);
+    var now = Date.now();
+    var trail = contourState.points;
+    var last = trail.length ? trail[trail.length - 1] : null;
+    var dx = last ? x - last.x : CONTOUR_MIN_DIST_SQ + 1;
+    var dy = last ? y - last.y : 0;
+    if (
+      !last ||
+      dx * dx + dy * dy >= CONTOUR_MIN_DIST_SQ ||
+      now - last.t >= CONTOUR_MIN_STEP_MS
+    ) {
+      trail.push({
+        x: x,
+        y: y,
+        t: now,
+        breakBefore: !!last && contourTeleportJump(last.x, last.y, x, y),
+      });
+      saveContourToSession();
+      updateContourMeta();
+    }
+    renderContourTrail(transform);
+  }
+
+  function worldToDisplayPos(transform, wrap, x, y) {
+    if (!transform || !wrap || !window.MapCoords) return null;
+    var pixel = MapCoords.worldToPixel(transform, x, y);
+    var rect = MapCoords.imageDisplayRect(wrap, transform.image_width, transform.image_height);
+    return MapCoords.pixelToDisplay(rect, pixel);
+  }
+
+  function drawContourOnContext(ctx, transform, wrap, lineWidth, forExport) {
+    var trail = contourState.points;
+    if (!trail.length || !transform) return;
+    ctx.lineCap = "round";
+    ctx.lineJoin = "round";
+    ctx.strokeStyle = CONTOUR_COLOR;
+    ctx.fillStyle = CONTOUR_COLOR;
+
+    if (forExport) {
+      ctx.lineWidth = lineWidth;
+      for (var i = 0; i < trail.length - 1; i++) {
+        var a = trail[i];
+        var b = trail[i + 1];
+        if (b.breakBefore) continue;
+        var pxA = MapCoords.worldToPixel(transform, a.x, a.y);
+        var pxB = MapCoords.worldToPixel(transform, b.x, b.y);
+        ctx.beginPath();
+        ctx.moveTo(pxA.x, pxA.y);
+        ctx.lineTo(pxB.x, pxB.y);
+        ctx.stroke();
+      }
+      if (trail.length === 1) {
+        var pt = MapCoords.worldToPixel(transform, trail[0].x, trail[0].y);
+        ctx.beginPath();
+        ctx.arc(pt.x, pt.y, lineWidth, 0, Math.PI * 2);
+        ctx.fill();
+      }
+      return;
+    }
+
+    if (!wrap) return;
+    var dispWidth = num("dbg-contour-width", contourState.lineWidth);
+    ctx.lineWidth = Math.max(1, dispWidth);
+    for (var j = 0; j < trail.length - 1; j++) {
+      var c = trail[j];
+      var d = trail[j + 1];
+      if (d.breakBefore) continue;
+      var posA = worldToDisplayPos(transform, wrap, c.x, c.y);
+      var posB = worldToDisplayPos(transform, wrap, d.x, d.y);
+      if (!posA || !posB) continue;
+      ctx.beginPath();
+      ctx.moveTo(posA.x, posA.y);
+      ctx.lineTo(posB.x, posB.y);
+      ctx.stroke();
+    }
+    if (trail.length === 1) {
+      var solo = worldToDisplayPos(transform, wrap, trail[0].x, trail[0].y);
+      if (solo) {
+        ctx.beginPath();
+        ctx.arc(solo.x, solo.y, ctx.lineWidth, 0, Math.PI * 2);
+        ctx.fill();
+      }
+    }
+  }
+
+  function renderContourTrail(transform) {
+    var canvas = document.getElementById("map-contour-trail");
+    var wrap = document.getElementById("map-wrap");
+    if (!canvas || !wrap || !window.MapCoords) return;
+
+    var visible = contourTrailVisible() && contourState.points.length > 0;
+    if (!visible || !transform) {
+      canvas.classList.add("hidden");
+      return;
+    }
+    canvas.classList.remove("hidden");
+
+    var w = wrap.clientWidth;
+    var h = wrap.clientHeight;
+    if (w <= 0 || h <= 0) return;
+    if (canvas.width !== w || canvas.height !== h) {
+      canvas.width = w;
+      canvas.height = h;
+    }
+    var ctx = canvas.getContext("2d");
+    if (!ctx) return;
+    ctx.clearRect(0, 0, w, h);
+    var lw = num("dbg-contour-width", contourState.lineWidth);
+    drawContourOnContext(ctx, transform, wrap, lw, false);
+  }
+
+  function clearContourTrail() {
+    contourState.points = [];
+    if (contourState.mapKey) clearContourSession(contourState.mapKey);
+    updateContourMeta();
+    renderContourTrail(lastPayload ? activeTransform(lastPayload.transform) : null);
+  }
+
+  function exportContourPng() {
+    if (!lastPayload || !lastPayload.transform || !window.MapCoords) return;
+    if (!contourState.points.length) return;
+    var transform = activeTransform(lastPayload.transform);
+    var iw = transform.image_width || 512;
+    var ih = transform.image_height || 512;
+    var off = document.createElement("canvas");
+    off.width = iw;
+    off.height = ih;
+    var ctx = off.getContext("2d");
+    if (!ctx) return;
+    var lw = num("dbg-contour-width", contourState.lineWidth);
+    drawContourOnContext(ctx, transform, null, lw, true);
+    var mapKey = (lastPayload.map_name || "map").trim().toLowerCase() || "map";
+    off.toBlob(function (blob) {
+      if (!blob) return;
+      var url = URL.createObjectURL(blob);
+      var a = document.createElement("a");
+      a.href = url;
+      a.download = mapKey + "-contour.png";
+      document.body.appendChild(a);
+      a.click();
+      document.body.removeChild(a);
+      URL.revokeObjectURL(url);
+    }, "image/png");
+  }
+
+  function initContourTrailUi() {
+    var record = document.getElementById("dbg-contour-record");
+    var show = document.getElementById("dbg-contour-show");
+    var hideMap = document.getElementById("dbg-contour-hide-map");
+    var clearBtn = document.getElementById("dbg-contour-clear");
+    var exportBtn = document.getElementById("dbg-contour-export");
+    var playerSel = document.getElementById("dbg-contour-player");
+    var widthInput = document.getElementById("dbg-contour-width");
+
+    if (record) {
+      record.checked = contourState.recording;
+      record.addEventListener("change", function (ev) {
+        contourState.recording = !!ev.target.checked;
+        updateContourMeta();
+      });
+    }
+    if (show) {
+      show.checked = contourState.showTrail;
+      show.addEventListener("change", function (ev) {
+        contourState.showTrail = !!ev.target.checked;
+        renderContourTrail(lastPayload ? activeTransform(lastPayload.transform) : null);
+      });
+    }
+    if (hideMap) {
+      hideMap.checked = contourState.hideMap;
+      hideMap.addEventListener("change", function (ev) {
+        contourState.hideMap = !!ev.target.checked;
+        applyContourHideMap();
+      });
+    }
+    if (playerSel) {
+      playerSel.addEventListener("change", function () {
+        contourState.playerId = playerSel.value || null;
+      });
+    }
+    if (widthInput) {
+      widthInput.addEventListener("input", function () {
+        contourState.lineWidth = num("dbg-contour-width", 2);
+        renderContourTrail(lastPayload ? activeTransform(lastPayload.transform) : null);
+      });
+    }
+    if (clearBtn) {
+      clearBtn.addEventListener("click", clearContourTrail);
+    }
+    if (exportBtn) {
+      exportBtn.addEventListener("click", exportContourPng);
+    }
+    applyContourHideMap();
   }
 
   function onEditChange(fromSlider, fieldId) {
@@ -453,11 +822,17 @@
       syncEditorsFromTransform(base);
     }
     var transform = activeTransform(base);
+    if (calibrationDebugEnabled()) {
+      ensureContourMap(payload);
+      syncContourPlayerSelect(payload);
+      recordContourSample(payload, transform);
+    }
     renderMeta(payload, transform);
     renderPlayers(payload, transform);
     renderSnippet(payload.map_name, transform);
     renderGrid(transform);
     layoutCalibGizmo();
+    renderContourTrail(transform);
     renderEntityOverlay();
   }
 
@@ -600,10 +975,18 @@
     if (window.ResizeObserver) {
       var ro = new ResizeObserver(function () {
         layoutCalibGizmo();
+        if (lastPayload && lastPayload.transform) {
+          renderContourTrail(activeTransform(lastPayload.transform));
+        }
       });
       ro.observe(wrap);
     }
-    window.addEventListener("resize", layoutCalibGizmo);
+    window.addEventListener("resize", function () {
+      layoutCalibGizmo();
+      if (lastPayload && lastPayload.transform) {
+        renderContourTrail(activeTransform(lastPayload.transform));
+      }
+    });
   }
 
   function buildPanel() {
@@ -657,6 +1040,19 @@
           '<button type="button" class="overlay-btn dbg-preset" data-grid="512">grid 512</button>' +
           '<button type="button" class="overlay-btn" id="dbg-fit-players">Fit players</button>' +
           "</div></section>" +
+          '<section class="map-debug-section"><h3>Contour trace</h3>' +
+          '<p class="map-debug-hint">Walk along walls — line records your path for PNG export and manual overlay on the map image.</p>' +
+          '<label class="dbg-toggle"><input type="checkbox" id="dbg-contour-record" /> Record movement</label>' +
+          '<label class="dbg-toggle"><input type="checkbox" id="dbg-contour-show" checked /> Show trail on map</label>' +
+          '<label class="dbg-toggle"><input type="checkbox" id="dbg-contour-hide-map" /> Hide map image (checkerboard)</label>' +
+          '<div class="dbg-bound-row"><span class="dbg-bound-label">Player</span>' +
+          '<select id="dbg-contour-player" class="dbg-select"></select></div>' +
+          controlRowHtml({ id: "dbg-contour-width", label: "Line width (px on export)", min: 1, max: 12, step: 1 }) +
+          '<div id="dbg-contour-meta" class="dbg-meta">0 points</div>' +
+          '<div class="dbg-slider-presets">' +
+          '<button type="button" class="overlay-btn" id="dbg-contour-export">Export PNG</button>' +
+          '<button type="button" class="overlay-btn" id="dbg-contour-clear">Clear trail</button>' +
+          "</div></section>" +
           '<section class="map-debug-section"><h3>Click sampler</h3><div id="dbg-click" class="dbg-click">Click map (outside drag layer)</div></section>'
       );
     }
@@ -675,8 +1071,10 @@
     panel.innerHTML = html.join("");
 
     setInput("dbg-grid-cell", 256);
+    setInput("dbg-contour-width", contourState.lineWidth);
 
     if (showCalib) {
+      initContourTrailUi();
       document.getElementById("dbg-lock-edits").addEventListener("change", function (ev) {
         boundsDirty = !!ev.target.checked;
         if (!boundsDirty && lastPayload) refreshFromPayload(lastPayload);

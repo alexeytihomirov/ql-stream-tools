@@ -9,6 +9,26 @@
       "image_width": 512,
       "image_height": 512
     },
+    "aerowalk": {
+      "image_url": "maps/aerowalk.png",
+      "world_min_x": -890,
+      "world_max_x": 1274,
+      "world_min_y": -846,
+      "world_max_y": 776,
+      "image_width": 1118,
+      "image_height": 839,
+      "world_z_span": 424
+    },
+    "battleforged": {
+      "image_url": "maps/battleforged.png",
+      "world_min_x": -1305,
+      "world_max_x": 1287,
+      "world_min_y": -1369,
+      "world_max_y": 1041,
+      "image_width": 947,
+      "image_height": 882,
+      "world_z_span": 400
+    },
     "bloodrun": {
       "image_url": "maps/bloodrun.png",
       "world_min_x": -1142,
@@ -16,17 +36,208 @@
       "world_min_y": -1676,
       "world_max_y": 1120,
       "world_z_span": 280,
-      "image_width": 512,
-      "image_height": 512
+      "image_width": 820,
+      "image_height": 821
     },
-    "aerowalk": {
-      "image_url": "maps/aerowalk.png",
-      "world_min_x": -2000,
-      "world_max_x": 2000,
-      "world_min_y": -2000,
-      "world_max_y": 2000,
-      "image_width": 512,
-      "image_height": 512
+    "campgrounds": {
+      "image_url": "maps/campgrounds.png",
+      "world_min_x": -1796,
+      "world_max_x": 1044,
+      "world_min_y": -1572,
+      "world_max_y": 1268,
+      "image_width": 838,
+      "image_height": 837,
+      "world_z_span": 514
+    },
+    "cure": {
+      "image_url": "maps/cure.png",
+      "world_min_x": -745,
+      "world_max_x": 2039,
+      "world_min_y": -1398,
+      "world_max_y": 1400,
+      "image_width": 1024,
+      "image_height": 1024,
+      "world_z_span": 512
+    },
+    "deepinside": {
+      "image_url": "maps/deepinside.png",
+      "world_min_x": -1712,
+      "world_max_x": 1956,
+      "world_min_y": -1920,
+      "world_max_y": 1748,
+      "image_width": 900,
+      "image_height": 900,
+      "world_z_span": 720
+    },
+    "dreadfulplace": {
+      "image_url": "maps/dreadfulplace.png",
+      "world_min_x": -2192,
+      "world_max_x": 2192,
+      "world_min_y": -2106,
+      "world_max_y": 2278,
+      "image_width": 900,
+      "image_height": 900,
+      "world_z_span": 452
+    },
+    "elder": {
+      "image_url": "maps/elder.png",
+      "world_min_x": -2432,
+      "world_max_x": 804,
+      "world_min_y": -1892,
+      "world_max_y": 1344,
+      "image_width": 1024,
+      "image_height": 1024,
+      "world_z_span": 960
+    },
+    "furiousheights": {
+      "image_url": "maps/furiousheights.png",
+      "world_min_x": -2300,
+      "world_max_x": 692,
+      "world_min_y": -590,
+      "world_max_y": 1650,
+      "image_width": 965,
+      "image_height": 724,
+      "world_z_span": 448
+    },
+    "grimdungeons": {
+      "image_url": "maps/grimdungeons.png",
+      "world_min_x": -1892,
+      "world_max_x": 1452,
+      "world_min_y": -2402,
+      "world_max_y": 942,
+      "image_width": 900,
+      "image_height": 900,
+      "world_z_span": 620
+    },
+    "hektik": {
+      "image_url": "maps/hektik.png",
+      "world_min_x": -1405,
+      "world_max_x": 1052,
+      "world_min_y": -912,
+      "world_max_y": 1477,
+      "image_width": 831,
+      "image_height": 831,
+      "world_z_span": 416
+    },
+    "hiddenfortress": {
+      "image_url": "maps/hiddenfortress.png",
+      "world_min_x": -2272,
+      "world_max_x": 644,
+      "world_min_y": -2256,
+      "world_max_y": 660,
+      "image_width": 900,
+      "image_height": 900,
+      "world_z_span": 462
+    },
+    "intervention": {
+      "image_url": "maps/intervention.png",
+      "world_min_x": -1448,
+      "world_max_x": 2020,
+      "world_min_y": -1216,
+      "world_max_y": 2252,
+      "image_width": 900,
+      "image_height": 900,
+      "world_z_span": 368
+    },
+    "limbus": {
+      "image_url": "maps/limbus.png",
+      "world_min_x": -552,
+      "world_max_x": 3112,
+      "world_min_y": -1650,
+      "world_max_y": 2014,
+      "image_width": 900,
+      "image_height": 900,
+      "world_z_span": 720
+    },
+    "lostworld": {
+      "image_url": "maps/lostworld.png",
+      "world_min_x": -1088,
+      "world_max_x": 1774,
+      "world_min_y": -767,
+      "world_max_y": 1601,
+      "image_width": 911,
+      "image_height": 754,
+      "world_z_span": 448
+    },
+    "phrantic": {
+      "image_url": "maps/phrantic.png",
+      "world_min_x": -872,
+      "world_max_x": 1708,
+      "world_min_y": -1168,
+      "world_max_y": 1027,
+      "image_width": 1024,
+      "image_height": 871,
+      "world_z_span": 472
+    },
+    "purgatory": {
+      "image_url": "maps/purgatory.png",
+      "world_min_x": -1280,
+      "world_max_x": 1828,
+      "world_min_y": -868,
+      "world_max_y": 2240,
+      "image_width": 900,
+      "image_height": 900,
+      "world_z_span": 1181
+    },
+    "realmofsteelrats": {
+      "image_url": "maps/realmofsteelrats.png",
+      "world_min_x": -1000,
+      "world_max_x": 2660,
+      "world_min_y": -2104,
+      "world_max_y": 1556,
+      "image_width": 900,
+      "image_height": 900,
+      "world_z_span": 320
+    },
+    "retribution": {
+      "image_url": "maps/retribution.png",
+      "world_min_x": -584,
+      "world_max_x": 2716,
+      "world_min_y": -2667,
+      "world_max_y": 626,
+      "image_width": 902,
+      "image_height": 900,
+      "world_z_span": 880
+    },
+    "sinister": {
+      "image_url": "maps/sinister.png",
+      "world_min_x": -805,
+      "world_max_x": 1709,
+      "world_min_y": -832,
+      "world_max_y": 1663,
+      "image_width": 1024,
+      "image_height": 1024,
+      "world_z_span": 576
+    },
+    "terminus": {
+      "image_url": "maps/terminus.png",
+      "world_min_x": -2632,
+      "world_max_x": 748,
+      "world_min_y": -1008,
+      "world_max_y": 2372,
+      "image_width": 900,
+      "image_height": 900,
+      "world_z_span": 952
+    },
+    "tornado": {
+      "image_url": "maps/tornado.png",
+      "world_min_x": -1632,
+      "world_max_x": 1716,
+      "world_min_y": -1697,
+      "world_max_y": 1644,
+      "image_width": 902,
+      "image_height": 900,
+      "world_z_span": 376
+    },
+    "toxicity": {
+      "image_url": "maps/toxicity.png",
+      "world_min_x": -1678,
+      "world_max_x": 364,
+      "world_min_y": 566,
+      "world_max_y": 2634,
+      "image_width": 800,
+      "image_height": 800,
+      "world_z_span": 208
     }
   }
 }

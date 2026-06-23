@@ -1,0 +1,56 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>QL Live — Match</title>
+    <link rel="stylesheet" href="overlay.css" />
+  </head>
+  <body class="overlay-body match-page-body">
+    <div class="match-page">
+      <nav class="match-page-nav">
+        <a href="dashboard/index.html" id="match-link-control" class="overlay-btn overlay-btn-sm">Dashboard</a>
+        <a href="matches.html?mode=operator" id="match-link-matches" class="overlay-btn overlay-btn-sm">All matches</a>
+      </nav>
+      <header id="match-page-header" class="match-page-header">
+        <p class="match-page-tournament" id="match-tournament"></p>
+        <h1 id="match-page-title" class="match-page-title">—</h1>
+        <p id="match-page-meta" class="match-page-meta"></p>
+        <p id="match-page-connect" class="match-page-connect hidden"></p>
+        <div class="match-page-status-row">
+          <span id="match-page-status" class="match-status-badge"></span>
+          <span id="match-page-clock" class="match-clock hidden"></span>
+        </div>
+      </header>
+      <section class="match-page-section">
+        <h2 id="match-players-heading">Players</h2>
+        <table class="match-page-table">
+          <thead>
+            <tr>
+              <th>Player</th>
+              <th>Score</th>
+              <th>K</th>
+              <th>D</th>
+            </tr>
+          </thead>
+          <tbody id="match-players-body"></tbody>
+        </table>
+      </section>
+      <section class="match-page-section">
+        <h2 id="match-archive-heading">Archive (live)</h2>
+        <div id="match-archive-accuracy" class="match-archive-accuracy"></div>
+        <ul id="match-archive-events" class="match-archive-events"></ul>
+      </section>
+      <section class="match-page-section">
+        <h2 id="match-actions-heading">Actions</h2>
+        <div id="match-page-actions" class="match-page-actions"></div>
+      </section>
+    </div>
+    <div id="status" class="status match-page-status"></div>
+    <script src="operator-i18n.js"></script>
+    <script src="overlay.js"></script>
+    <script>
+      OverlayApp.initMatchPage();
+    </script>
+  </body>
+</html>
