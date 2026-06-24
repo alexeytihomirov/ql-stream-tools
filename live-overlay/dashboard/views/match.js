@@ -128,21 +128,21 @@
         mergeWsPickup(msg);
         scheduleArchiveRefresh(200);
         syncScrubToLive();
-        refreshAnalyticsPanel();
+        refreshAnalyticsOnLiveData();
         return;
       }
       if (event === "death") {
         mergeWsDeath(msg);
         scheduleArchiveRefresh(200);
         syncScrubToLive();
-        refreshAnalyticsPanel();
+        refreshAnalyticsOnLiveData();
         return;
       }
       if (event === "accuracy_update") {
         mergeWsAccuracy(msg);
         scheduleArchiveRefresh(200);
         syncScrubToLive();
-        refreshAnalyticsPanel();
+        refreshAnalyticsOnLiveData();
         return;
       }
       if (event === "session_event") {
@@ -319,6 +319,20 @@
     }
   }
 
+  function updateTimelineScrubberBounds() {
+    var scrub = document.getElementById("match-timeline-scrub");
+    if (!scrub || !lastArchive) return;
+    var maxMs = A().computeTimelineMaxMs(lastArchive, lastLiveData);
+    if (maxMs == null) return;
+    scrub.max = String(maxMs);
+    if (scrubAtLive) {
+      scrubGameTimeMs = maxMs;
+      scrub.value = String(maxMs);
+      var label = document.getElementById("match-timeline-label");
+      if (label) label.textContent = A().formatGameTime(maxMs);
+    }
+  }
+
   function refreshAnalyticsPanels() {
     var panels = document.getElementById("match-analytics-panels");
     if (!panels || !lastArchive) return;
@@ -331,6 +345,14 @@
         liveData: lastLiveData,
       },
     );
+  }
+
+  function refreshAnalyticsOnLiveData() {
+    if (!lastArchive) return;
+    if (scrubAtLive) {
+      updateTimelineScrubberBounds();
+    }
+    refreshAnalyticsPanels();
   }
 
   function refreshAnalyticsPanel() {
@@ -493,7 +515,7 @@
     if (!archive || activeMatchId !== matchId) return;
     lastArchive = A().normalizeArchivePickupTimes(archive);
     syncScrubToLive();
-    refreshAnalyticsPanel();
+    refreshAnalyticsOnLiveData();
   }
 
   async function loadServer(matchId) {

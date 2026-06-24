@@ -2360,6 +2360,37 @@
     ensurePickupToastLoop();
   }
 
+  function pickupLogRowFromEvent(ev) {
+    if (!ev || ev.event !== "pickup") return null;
+    if (String(ev.action || "pickup").toLowerCase() === "drop") return null;
+    return {
+      item: ev.item,
+      player: ev.nickname || ev.player || ev.steam_id64 || "?",
+      time: ev.time || null,
+      loggedAt: ev.t || 0,
+    };
+  }
+
+  function rebuildPickupLogUpTo(targetT) {
+    mapPickupLog = [];
+    if (!replayState) {
+      renderPickupLog();
+      return;
+    }
+    var events = replayState.events;
+    for (var i = 0; i < events.length; i++) {
+      var ev = events[i];
+      if (ev.event !== "pickup") continue;
+      if ((ev.t || 0) > targetT) break;
+      var row = pickupLogRowFromEvent(ev);
+      if (row) mapPickupLog.unshift(row);
+    }
+    if (mapPickupLog.length > PICKUP_LOG_MAX) {
+      mapPickupLog.length = PICKUP_LOG_MAX;
+    }
+    renderPickupLog();
+  }
+
   function renderPickupLog() {
     var list = document.getElementById("map-pickup-log-list");
     if (!list) return;
@@ -4295,6 +4326,7 @@
       }
       replayState.lastAppliedIndex = replayLastEventIndexAtOrBefore(targetT);
       await reapplyReplayPickupsUpTo(targetT, { silent: true });
+      rebuildPickupLogUpTo(targetT);
       applyReplayFramePositions();
       ensureMotionLoop();
       updateReplayBarUi();
