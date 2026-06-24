@@ -2,7 +2,11 @@
   "use strict";
 
   var pollTimer = null;
+  var clockTimer = null;
   var activeMatchId = null;
+  var lastLiveData = null;
+  var lastArchive = null;
+  var scrubGameTimeMs = null;
 
   function stopPoll() {
     if (pollTimer) {
@@ -10,6 +14,20 @@
       pollTimer = null;
     }
     activeMatchId = null;
+  }
+
+  function stopClock() {
+    if (clockTimer) {
+      clearInterval(clockTimer);
+      clockTimer = null;
+    }
+  }
+
+  function startClock() {
+    stopClock();
+    clockTimer = setInterval(function () {
+      if (lastLiveData) updateMatchHeader(lastLiveData);
+    }, 1000);
   }
 
   function formatGameTime(ms) {
@@ -117,7 +135,179 @@
           accuracy_pct: 45.8,
         },
       ],
+      accuracy_timeline: [
+        {
+          nickname: "Cypher",
+          weapon: "RL",
+          hits: 8,
+          shots: 20,
+          accuracy_pct: 40.0,
+          game_time_ms: 60000,
+        },
+        {
+          nickname: "Cypher",
+          weapon: "RL",
+          hits: 18,
+          shots: 42,
+          accuracy_pct: 42.9,
+          game_time_ms: 180000,
+        },
+        {
+          nickname: "rapha",
+          weapon: "RL",
+          hits: 6,
+          shots: 18,
+          accuracy_pct: 33.3,
+          game_time_ms: 60000,
+        },
+        {
+          nickname: "rapha",
+          weapon: "RL",
+          hits: 14,
+          shots: 36,
+          accuracy_pct: 38.9,
+          game_time_ms: 180000,
+        },
+      ],
+      timeline_max_ms: 180000,
     };
+  }
+
+  function filterRowsByGameTime(rows, maxMs) {
+    if (maxMs == null) return rows || [];
+    return (rows || []).filter(function (row) {
+      var gt = row.game_time_ms;
+      if (gt == null || gt === "") return true;
+      return Number(gt) <= maxMs;
+    });
+  }
+
+  function accuracyAtScrub(timeline, summary, scrubMs) {
+    if (scrubMs == null || !timeline || !timeline.length) {
+      return summary || [];
+    }
+    var best = {};
+    timeline.forEach(function (row) {
+      var gt = Number(row.game_time_ms);
+      if (isNaN(gt) || gt > scrubMs) return;
+      var key = String(row.steam_id64 || row.nickname || "") + "\0" + (row.weapon || "");
+      if (!best[key] || gt >= Number(best[key].game_time_ms || 0)) {
+        best[key] = row;
+      }
+    });
+    var out = Object.keys(best).map(function (k) {
+      return best[k];
+    });
+    if (out.length) return out;
+    return summary || [];
+  }
+
+  function computeTimelineMaxMs(archive, liveData) {
+    var maxMs = Number(archive && archive.timeline_max_ms) || 0;
+    function bump(rows) {
+      (rows || []).forEach(function (row) {
+        var gt = Number(row.game_time_ms);
+        if (!isNaN(gt) && gt > maxMs) maxMs = gt;
+      });
+    }
+    if (archive) {
+      bump(archive.deaths);
+      bump(archive.pickups);
+      bump(archive.accuracy_timeline);
+    }
+    if (liveData) {
+      var elapsed = QLDashboard.computeMatchElapsedSec(liveData);
+      if (elapsed != null) maxMs = Math.max(maxMs, elapsed * 1000);
+    }
+    return maxMs > 0 ? maxMs : null;
+  }
+
+  function renderMatchClockHtml(liveData) {
+    if (!liveData) return "";
+    if (liveData.phase === "warmup" || liveData.warmup) {
+      return (
+        '<span class="match-page-clock match-page-clock-warmup">' +
+        QLDashboard.escapeHtml(QLDashboard.t("phaseWarmup")) +
+        "</span>"
+      );
+    }
+    if (liveData.phase === "ended" || String(liveData.status || "").toLowerCase() === "ended") {
+      return "";
+    }
+    var elapsed = QLDashboard.computeMatchElapsedSec(liveData);
+    if (elapsed == null) return "";
+    var label = QLDashboard.formatClockSec(elapsed);
+    if (liveData.timelimit_sec) {
+      label += " / " + QLDashboard.formatClockSec(liveData.timelimit_sec);
+    }
+    return '<span class="match-page-clock">' + QLDashboard.escapeHtml(label) + "</span>";
+  }
+
+  function updateMatchHeader(liveData) {
+    var clockEl = document.getElementById("match-clock");
+    if (!clockEl) return;
+    clockEl.innerHTML = renderMatchClockHtml(liveData);
+  }
+
+  function renderTimelineScrubber(archive, liveData) {
+    var maxMs = computeTimelineMaxMs(archive, liveData);
+    if (!maxMs) return "";
+    var currentMs = scrubGameTimeMs != null ? scrubGameTimeMs : maxMs;
+    var html =
+      '<div class="match-timeline-panel">' +
+      '<div class="match-timeline-head">' +
+      "<h3>" +
+      QLDashboard.escapeHtml(QLDashboard.t("matchSectionTimeline")) +
+      "</h3>" +
+      '<span id="match-timeline-label" class="match-timeline-label">' +
+      QLDashboard.escapeHtml(formatGameTime(currentMs)) +
+      "</span>" +
+      "</div>" +
+      '<input type="range" id="match-timeline-scrub" class="match-timeline-scrub" min="0" max="' +
+      maxMs +
+      '" step="1000" value="' +
+      currentMs +
+      '" />' +
+      '<div class="match-timeline-actions">' +
+      '<button type="button" id="match-timeline-live" class="control-btn control-btn-sm">' +
+      QLDashboard.escapeHtml(QLDashboard.t("matchTimelineLive")) +
+      "</button>" +
+      "</div></div>";
+    return html;
+  }
+
+  function bindTimelineScrubber(archive, liveData) {
+    var scrub = document.getElementById("match-timeline-scrub");
+    if (!scrub) return;
+    var maxMs = computeTimelineMaxMs(archive, liveData);
+    scrub.addEventListener("input", function () {
+      scrubGameTimeMs = Number(scrub.value);
+      var label = document.getElementById("match-timeline-label");
+      if (label) label.textContent = formatGameTime(scrubGameTimeMs);
+      refreshAnalyticsPanel();
+    });
+    var liveBtn = document.getElementById("match-timeline-live");
+    if (liveBtn) {
+      liveBtn.addEventListener("click", function () {
+        scrubGameTimeMs = maxMs;
+        scrub.value = String(maxMs);
+        var label = document.getElementById("match-timeline-label");
+        if (label) label.textContent = formatGameTime(maxMs);
+        refreshAnalyticsPanel();
+      });
+    }
+  }
+
+  function refreshAnalyticsPanel() {
+    var analyticsWrap = document.getElementById("match-analytics-wrap");
+    if (!analyticsWrap || !lastArchive) return;
+    analyticsWrap.innerHTML = renderAnalytics(
+      lastArchive,
+      lastLiveData && lastLiveData.players,
+      QLDashboard.debugMode(),
+      scrubGameTimeMs,
+    );
+    bindTimelineScrubber(lastArchive, lastLiveData);
   }
 
   function enrichAccuracyNicknames(archive, livePlayers) {
@@ -305,10 +495,19 @@
     return html;
   }
 
-  function renderAnalytics(archive, livePlayers, debug) {
-    var deaths = archive.deaths || [];
-    var pickups = archive.pickups || [];
-    var accuracy = enrichAccuracyNicknames(archive, livePlayers);
+  function renderAnalytics(archive, livePlayers, debug, scrubMs) {
+    var deaths = filterRowsByGameTime(archive.deaths || [], scrubMs);
+    var pickups = filterRowsByGameTime(archive.pickups || [], scrubMs);
+    var summary = enrichAccuracyNicknames(archive, livePlayers);
+    var maxMs = computeTimelineMaxMs(archive, lastLiveData);
+    var atEnd = scrubMs == null || (maxMs != null && Number(scrubMs) >= maxMs);
+    var accuracy = atEnd
+      ? summary
+      : accuracyAtScrub(archive.accuracy_timeline, summary, scrubMs);
+    accuracy = enrichAccuracyNicknames(
+      { accuracy_summary: accuracy, players: archive.players },
+      livePlayers,
+    );
     var emptyNote =
       !debug && !deaths.length && !pickups.length && !accuracy.length
         ? '<p class="match-analytics-empty">' +
@@ -338,6 +537,8 @@
     if (accuracyNote) {
       html += accuracyNote;
     }
+
+    html += renderTimelineScrubber(archive, lastLiveData);
 
     html += '<div class="match-analytics-grid">';
     html +=
@@ -451,6 +652,10 @@
 
   function mount(root, route) {
     stopPoll();
+    stopClock();
+    scrubGameTimeMs = null;
+    lastLiveData = null;
+    lastArchive = null;
     var matchId = route.param;
     if (!matchId) {
       root.innerHTML =
@@ -471,6 +676,7 @@
     activeMatchId = matchId;
     renderShell(root, matchId);
     loadMatch(matchId);
+    startClock();
     pollTimer = setInterval(function () {
       if (activeMatchId) loadMatch(activeMatchId);
     }, 3000);
@@ -478,6 +684,7 @@
 
   function unmount() {
     stopPoll();
+    stopClock();
   }
 
   function renderShell(root, matchId) {
@@ -493,6 +700,7 @@
       '<header class="match-page-header">' +
       '<h1 id="match-title" class="match-page-title">—</h1>' +
       '<p id="match-meta" class="match-page-meta"></p>' +
+      '<p id="match-clock" class="match-page-clock-row"></p>' +
       '<p><span id="match-badge" class="badge"></span></p>' +
       "</header>" +
       '<h2 class="match-section-title">' +
@@ -554,6 +762,8 @@
         badge.className = "badge " + QLDashboard.statusBadgeClass(liveData);
         badge.textContent = QLDashboard.matchPhaseLabel(liveData);
       }
+      lastLiveData = liveData;
+      updateMatchHeader(liveData);
       if (statusEl) {
         statusEl.textContent = "";
         statusEl.classList.remove("error");
@@ -596,7 +806,11 @@
     if (debug) {
       archive = mockArchiveSummary(matchId);
     } else if (!archive) {
-      archive = { deaths: [], pickups: [], accuracy_summary: [], players: [] };
+      archive = { deaths: [], pickups: [], accuracy_summary: [], accuracy_timeline: [], players: [] };
+    }
+    lastArchive = archive;
+    if (scrubGameTimeMs == null) {
+      scrubGameTimeMs = computeTimelineMaxMs(archive, liveData);
     }
 
     var analyticsWrap = document.getElementById("match-analytics-wrap");
@@ -605,7 +819,9 @@
         archive,
         liveData && liveData.players,
         debug,
+        scrubGameTimeMs,
       );
+      bindTimelineScrubber(archive, liveData);
     }
 
     var replaysWrap = document.getElementById("match-replays-wrap");

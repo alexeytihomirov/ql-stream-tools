@@ -1768,6 +1768,19 @@
     return heatmapDistSq(fromX, fromY, toX, toY) >= 512 * 512;
   }
 
+  function replayPositionTeleport(pp, npp) {
+    if (!pp || !npp) return false;
+    if (pp.x == null || pp.y == null || npp.x == null || npp.y == null) {
+      return false;
+    }
+    return heatmapTeleportJump(
+      Number(pp.x),
+      Number(pp.y),
+      Number(npp.x),
+      Number(npp.y),
+    );
+  }
+
   function heatmapDistSq(ax, ay, bx, by) {
     var dx = Number(ax) - Number(bx);
     var dy = Number(ay) - Number(by);
@@ -2378,7 +2391,13 @@
 
   function handlePickupEvent(data) {
     if (!data || typeof data !== "object") return;
-    if (replayState && !isValidReplaySteamId64(data.steam_id64)) return;
+    if (
+      replayState &&
+      data.steam_id64 &&
+      !isValidReplaySteamId64(data.steam_id64)
+    ) {
+      return;
+    }
     recordClientPickup(data);
     if (String(data.action || "pickup").toLowerCase() === "drop") return;
     pushPickupFeed(data);
@@ -2556,20 +2575,32 @@
     var layer = document.getElementById("map-deaths");
     if (!layer) return;
     var ttl = deathMarkerSec() * 1000;
+    var expiresAt;
+    if (replayState && data.t != null && isFinite(Number(data.t))) {
+      expiresAt = Number(data.t) + ttl;
+    } else {
+      expiresAt = overlayNowMs() + ttl;
+    }
     mapDeathMarkers.push({
       x: pos.x,
       y: pos.y,
       z: pos.z,
       victim_name: data.victim_name,
       victim_steam_id64: data.victim_steam_id64,
-      expiresAt: overlayNowMs() + ttl,
+      expiresAt: expiresAt,
       el: null,
     });
     renderDeathMarkers();
   }
 
   function handleDeathEvent(data) {
-    if (replayState && !isValidReplaySteamId64(data.victim_steam_id64)) return;
+    if (
+      replayState &&
+      data.victim_steam_id64 &&
+      !isValidReplaySteamId64(data.victim_steam_id64)
+    ) {
+      return;
+    }
     recordClientDeath(data);
     pushKillFeed(data);
     addDeathMarker(data);
@@ -3084,7 +3115,9 @@
       }
 
       renderDeathMarkers();
-      renderHeatmap(mapMotion.currentPlayers, mapMotion.currentGametype);
+      if (!replayState) {
+        renderHeatmap(mapMotion.currentPlayers, mapMotion.currentGametype);
+      }
 
       mapMotion.loopId = requestAnimationFrame(frame);
     }
@@ -3118,7 +3151,9 @@
     mapMotion.currentGametype =
       payload.gametype != null ? payload.gametype : lastMapContext.gametype;
     rememberPlayerPositions(players);
-    recordHeatmapPositions(players, mapMotion.currentGametype);
+    if (!replayState) {
+      recordHeatmapPositions(players, mapMotion.currentGametype);
+    }
     var seen = {};
     for (var i = 0; i < players.length; i++) {
       var probe = players[i];
@@ -3382,6 +3417,11 @@
       var npp = nextById[id];
       if (!npp) {
         out.push(clonePlayerPoseForReplay(pp));
+        continue;
+      }
+      if (replayPositionTeleport(pp, npp)) {
+        out.push(clonePlayerPoseForReplay(npp));
+        delete nextById[id];
         continue;
       }
       out.push(
@@ -3831,6 +3871,7 @@
         y: ev.y,
         z: ev.z,
         time: ev.time,
+        t: ev.t,
       };
     }
     if (ev.event === "pickup") {
@@ -3865,11 +3906,37 @@
     renderPickupFeed();
   }
 
+  async function ensureReplayMapFromPositions(payload) {
+    if (!payload) return;
+    if (payload.map_name) lastMapContext.map_name = payload.map_name;
+    if (payload.gametype != null && payload.gametype !== "") {
+      lastMapContext.gametype = payload.gametype;
+    }
+    if (payload.match_id) lastMapContext.match_id = payload.match_id;
+    var mapName = payload.map_name || lastMapContext.map_name || "";
+    var needBootstrap =
+      !cachedTransform ||
+      (mapName && mapName !== lastMapContext._overlay_map);
+    if (!needBootstrap) return;
+    await handleMapSnapshot(
+      Object.assign({}, payload, {
+        map_name: mapName,
+        gametype:
+          payload.gametype != null ? payload.gametype : lastMapContext.gametype,
+      }),
+      { instant: true },
+    );
+  }
+
   async function applyReplayEvent(ev) {
     if (!ev || !ev.event || ev.event === "match_status") return false;
     var payload = replayPayloadFromEvent(ev);
     if (!payload) return false;
     if (payload.event === "positions") {
+      if (replayState) {
+        await ensureReplayMapFromPositions(payload);
+        return true;
+      }
       await handleMapSnapshot(payload);
       return true;
     }
@@ -3924,6 +3991,18 @@
     }
   }
 
+  async function reapplyReplayPickupsUpTo(targetT) {
+    if (!replayState) return;
+    var events = replayState.events;
+    for (var i = 0; i < events.length; i++) {
+      var ev = events[i];
+      if (ev.event !== "pickup") continue;
+      if ((ev.t || 0) > targetT) break;
+      var payload = replayPayloadFromEvent(ev);
+      if (payload) handlePickupEvent(payload);
+    }
+  }
+
   async function seekReplay(cursorMs) {
     if (!replayState) return;
     stopReplayPlayback();
@@ -3945,6 +4024,7 @@
       replayState.lastAppliedIndex = i;
     }
     applyReplayFramePositions();
+    await reapplyReplayPickupsUpTo(targetT);
     ensureMotionLoop();
     updateReplayBarUi();
   }

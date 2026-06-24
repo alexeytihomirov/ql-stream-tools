@@ -505,6 +505,67 @@ a.control-btn {
   color: var(--muted);
 }
 
+.match-page-clock-row {
+  margin: 8px 0 0;
+  min-height: 1.4em;
+}
+
+.match-page-clock {
+  display: inline-block;
+  font-size: 18px;
+  font-weight: 700;
+  font-variant-numeric: tabular-nums;
+  color: var(--text);
+  letter-spacing: 0.02em;
+}
+
+.match-page-clock-warmup {
+  font-size: 14px;
+  font-weight: 600;
+  color: #facc15;
+}
+
+.match-timeline-panel {
+  margin-bottom: 12px;
+  padding: 12px;
+  border-radius: 8px;
+  background: var(--surface);
+  border: 1px solid var(--border);
+}
+
+.match-timeline-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  margin-bottom: 8px;
+}
+
+.match-timeline-head h3 {
+  margin: 0;
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--accent);
+}
+
+.match-timeline-label {
+  font-size: 13px;
+  font-weight: 700;
+  font-variant-numeric: tabular-nums;
+  color: var(--text);
+}
+
+.match-timeline-scrub {
+  width: 100%;
+  margin: 0 0 8px;
+  accent-color: var(--accent);
+}
+
+.match-timeline-actions {
+  display: flex;
+  justify-content: flex-end;
+}
+
 .match-section-title {
   margin: 16px 0 8px;
   font-size: 14px;
