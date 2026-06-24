@@ -370,7 +370,6 @@
       var r = rows[i];
       var rid = r.recording_id || "";
       var detailUrl = "#/results/" + encodeURIComponent(rid);
-      var listUrl = "#/results?server=" + encodeURIComponent(matchId);
       html +=
         "<tr><td>" +
         QLDashboard.escapeHtml(r.map_name || "—") +
@@ -382,10 +381,6 @@
         QLDashboard.escapeHtml(detailUrl) +
         '">' +
         QLDashboard.escapeHtml(QLDashboard.t("resultsOpenDetail")) +
-        '</a> <a class="control-btn control-btn-sm" href="' +
-        QLDashboard.escapeHtml(listUrl) +
-        '">' +
-        QLDashboard.escapeHtml(QLDashboard.t("resultsViewAll")) +
         "</a></td></tr>";
     }
     html += "</tbody></table>";
@@ -434,7 +429,6 @@
   function renderShell(root, matchId) {
     var urlFull = QLDashboard.liveOverlayUrl("match", matchId);
     var urlMap = QLDashboard.liveOverlayUrl("map", matchId);
-    var resultsUrl = "#/results?server=" + encodeURIComponent(matchId);
 
     root.innerHTML =
       '<section class="control-section">' +
@@ -461,11 +455,6 @@
       QLDashboard.escapeHtml(urlMap) +
       '" target="_blank" rel="noopener noreferrer">' +
       QLDashboard.escapeHtml(QLDashboard.t("matchOpenMap")) +
-      "</a>" +
-      '<a class="control-btn" href="' +
-      QLDashboard.escapeHtml(resultsUrl) +
-      '">' +
-      QLDashboard.escapeHtml(QLDashboard.t("resultsViewAll")) +
       "</a>" +
       "</div></section>" +
       '<section class="control-section" id="server-analytics-section">' +

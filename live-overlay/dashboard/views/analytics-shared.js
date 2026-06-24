@@ -94,21 +94,8 @@
       .concat(archive.accuracy_summary || []);
   }
 
-  function computeTimelineMinMs(archive) {
-    var minMs = Number(archive && archive.timeline_min_ms);
-    if (!isNaN(minMs) && minMs >= 0) return minMs;
-    var min = null;
-    combatEventRows(archive).forEach(function (row) {
-      var gt = Number(row.game_time_ms);
-      if (isNaN(gt) || gt < 0) return;
-      if (min == null || gt < min) min = gt;
-    });
-    (archive && archive.pickups || []).forEach(function (row) {
-      var gt = Number(row.game_time_ms);
-      if (isNaN(gt) || gt < 0) return;
-      if (min == null || gt < min) min = gt;
-    });
-    return min != null ? min : 0;
+  function computeTimelineMinMs(_archive) {
+    return 0;
   }
 
   function computeTimelineMaxMs(archive, liveData) {
@@ -373,8 +360,13 @@
       { accuracy_summary: accuracy, players: archive.players },
       livePlayers,
     );
+    var scrubbing = scrubMs != null;
     var emptyNote =
-      !debug && !deaths.length && !pickups.length && !accuracy.length
+      !debug &&
+      !scrubbing &&
+      !deaths.length &&
+      !pickups.length &&
+      !accuracy.length
         ? '<p class="match-analytics-empty">' +
           QLDashboard.escapeHtml(QLDashboard.t("matchAnalyticsEmpty")) +
           "<br />" +
