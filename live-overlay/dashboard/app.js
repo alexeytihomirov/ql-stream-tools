@@ -491,7 +491,7 @@
       await loadTournaments();
       await loadTournamentMeta();
       var route = parseRoute();
-      var onHome = route.view === "home" || (route.view === "match" && !route.param);
+      var onHome = route.view === "home" || (route.view === "server" && !route.param);
       await refreshMatches({ probeHealth: true, notify: onHome });
     } catch (err) {
       setStatus(t("errorFetchTournaments") + ": " + (err.message || err), "error");
@@ -503,7 +503,7 @@
     stopPolling();
     var route = parseRoute();
     var viewName = route.view;
-    if (viewName === "match" && !route.param) viewName = "home";
+    if (viewName === "server" && !route.param) viewName = "home";
 
     if (viewName === "home") {
       pollTimer = setInterval(function () {
@@ -512,6 +512,13 @@
           probeHealth: pollHealthTick % HEALTH_PROBE_EVERY === 1,
           notify: true,
         });
+      }, MATCH_POLL_MS);
+      return;
+    }
+
+    if (viewName === "server" || viewName === "results") {
+      pollTimer = setInterval(function () {
+        refreshMatches({ probeHealth: false, notify: false });
       }, MATCH_POLL_MS);
       return;
     }
@@ -539,6 +546,7 @@
     var parts = hash.split("/").filter(Boolean);
     var view = parts[0] || "home";
     if (view === "dashboard") view = "home";
+    if (view === "match") view = "server";
     var param = null;
     if (parts.length > 1) {
       param = parts
@@ -552,7 +560,7 @@
         })
         .join("/");
     }
-    return { view: view, param: param };
+    return { view: view, param: param, rawView: parts[0] || "home" };
   }
 
   function navigate(path) {
@@ -560,6 +568,22 @@
     else if (path.charAt(0) !== "#") path = "#/" + path.replace(/^\//, "");
     if (location.hash !== path) location.hash = path;
     else renderRoute();
+  }
+
+  function legacyMatchRedirect(route) {
+    if (route.rawView === "match" && route.param) {
+      var target = "#/server/" + route.param
+        .split("/")
+        .map(function (seg) {
+          return encodeURIComponent(seg);
+        })
+        .join("/");
+      if (location.hash !== target) {
+        location.replace(target);
+        return true;
+      }
+    }
+    return false;
   }
 
   function registerView(name, view) {
@@ -570,13 +594,14 @@
     document.querySelectorAll("[data-route]").forEach(function (link) {
       var r = link.getAttribute("data-route");
       var active = r === route.view || (route.view === "home" && r === "home");
-      if (r === "match" && route.view === "match") active = true;
+      if (r === "server" && (route.view === "server" || route.rawView === "match")) active = true;
       link.classList.toggle("active", active);
     });
   }
 
   function renderRoute() {
     var route = parseRoute();
+    if (legacyMatchRedirect(route)) return;
     if (currentView && currentView.unmount) currentView.unmount();
     currentView = null;
 
@@ -585,7 +610,7 @@
     mount.innerHTML = "";
 
     var viewName = route.view;
-    if (viewName === "match" && !route.param) viewName = "home";
+    if (viewName === "server" && !route.param) viewName = "home";
 
     var view = views[viewName] || views.home;
     if (!view) return;
@@ -620,10 +645,10 @@
         ev.preventDefault();
         var r = link.getAttribute("data-route");
         if (r === "home") navigate("#/");
-        else if (r === "match") {
+        else if (r === "server") {
           var mid = settings.defaultMatchId || (matches[0] && matches[0].match_id);
-          if (mid) navigate("#/match/" + encodeURIComponent(mid));
-          else navigate("#/match");
+          if (mid) navigate("#/server/" + encodeURIComponent(mid));
+          else navigate("#/server");
         } else navigate("#/" + r);
       });
     });

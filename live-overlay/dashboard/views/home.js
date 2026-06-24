@@ -129,8 +129,8 @@
       var actions = document.createElement("div");
       actions.className = "match-actions";
       actions.appendChild(
-        QLDashboard.makeActionBtn(QLDashboard.t("openMatch"), function () {
-          QLDashboard.navigate("#/match/" + encodeURIComponent(mid));
+        QLDashboard.makeActionBtn(QLDashboard.t("openServer"), function () {
+          QLDashboard.navigate("#/server/" + encodeURIComponent(mid));
         }),
       );
       actions.appendChild(
