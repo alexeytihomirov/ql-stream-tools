@@ -69,6 +69,241 @@
     return v === "1" || v === "true" || v === "on";
   }
 
+  function recordingIdParam() {
+    return qs("recording") || qs("replay_id") || "";
+  }
+
+  function replaySegmentParam() {
+    if (!qs("segment")) return null;
+    var n = Number(qs("segment"));
+    return isFinite(n) ? Math.max(0, Math.floor(n)) : null;
+  }
+
+  var REPLAY_SEGMENT_GAP_MS = 10 * 60 * 1000;
+  var REPLAY_SEGMENT_MIN_MS = 30 * 1000;
+  var REPLAY_RESERVED_PLAYER_NAMES = {
+    victim: true,
+    picker: true,
+    killer: true,
+    world: true,
+    spec: true,
+    spectator: true,
+  };
+
+  function isValidReplaySteamId64(value) {
+    var id = normalizeSteamId64(value);
+    if (!id) return false;
+    if (id.length < 16 || id.length > 20) return false;
+    return id.indexOf("7656119") === 0;
+  }
+
+  function isReservedReplayPlayerName(name) {
+    var key = stripQuakeColors(name).toLowerCase();
+    return !!REPLAY_RESERVED_PLAYER_NAMES[key];
+  }
+
+  function isReplayMapPlayer(p) {
+    if (!p) return false;
+    return isValidReplaySteamId64(p.steam_id64);
+  }
+
+  function filterReplayPlayers(players) {
+    var list = normalizePlayersList(players);
+    var out = [];
+    for (var i = 0; i < list.length; i++) {
+      if (isReplayMapPlayer(list[i])) out.push(list[i]);
+    }
+    return out;
+  }
+
+  function sanitizeReplayEvents(events) {
+    return (events || []).map(function (ev) {
+      if (ev.event !== "positions" || !ev.players) return ev;
+      return Object.assign({}, ev, { players: filterReplayPlayers(ev.players) });
+    });
+  }
+
+  function buildReplaySegments(events) {
+    var segments = [];
+    var current = null;
+    var lastPosT = null;
+    for (var i = 0; i < events.length; i++) {
+      var ev = events[i];
+      var t = ev.t || 0;
+      if (ev.event === "match_status" && ev.status === "ended") {
+        if (current) {
+          current.endT = t;
+          segments.push(current);
+          current = null;
+        }
+        lastPosT = null;
+        continue;
+      }
+      if (ev.event !== "positions") continue;
+      if (lastPosT != null && t - lastPosT >= REPLAY_SEGMENT_GAP_MS) {
+        if (current) {
+          current.endT = lastPosT;
+          segments.push(current);
+        }
+        current = { startT: t, endT: t };
+      } else if (!current) {
+        current = { startT: t, endT: t };
+      } else {
+        current.endT = t;
+      }
+      lastPosT = t;
+    }
+    if (current) segments.push(current);
+    var out = [];
+    for (var si = 0; si < segments.length; si++) {
+      var seg = segments[si];
+      var durationMs = Math.max(0, (seg.endT || seg.startT) - seg.startT);
+      if (durationMs < REPLAY_SEGMENT_MIN_MS) continue;
+      out.push({
+        index: out.length,
+        startT: seg.startT,
+        endT: seg.endT,
+        durationMs: durationMs,
+        label:
+          "Game " +
+          (out.length + 1) +
+          " · " +
+          fmtReplayClock(durationMs),
+      });
+    }
+    return out;
+  }
+
+  function sliceReplayEvents(events, segment) {
+    if (!segment) return events;
+    return events.filter(function (ev) {
+      var t = ev.t || 0;
+      return t >= segment.startT && t <= segment.endT;
+    });
+  }
+
+  function formatRecordingOptionLabel(row) {
+    var parts = [];
+    if (row.map_name) parts.push(row.map_name);
+    if (row.duration_ms != null) parts.push(fmtReplayClock(row.duration_ms));
+    if (row.started_at) {
+      try {
+        parts.push(new Date(Number(row.started_at)).toLocaleString());
+      } catch (_e0) {
+        parts.push(String(row.started_at));
+      }
+    }
+    if (!parts.length) parts.push(row.recording_id || row.match_id || "?");
+    return parts.join(" · ");
+  }
+
+  function populateReplaySelect(rows, selectedId) {
+    var wrap = document.getElementById("map-replay-select-wrap");
+    var sel = document.getElementById("map-replay-select");
+    if (!sel) return;
+    sel.innerHTML = "";
+    if (!rows.length) {
+      if (wrap) wrap.classList.add("hidden");
+      return;
+    }
+    if (wrap) wrap.classList.toggle("hidden", rows.length <= 1);
+    for (var i = 0; i < rows.length; i++) {
+      var row = rows[i];
+      var opt = document.createElement("option");
+      opt.value = row.recording_id || row.match_id || "";
+      opt.textContent = formatRecordingOptionLabel(row);
+      if (opt.value === selectedId) opt.selected = true;
+      sel.appendChild(opt);
+    }
+  }
+
+  function populateSegmentSelect(segments, selectedIndex) {
+    var wrap = document.getElementById("map-replay-segment-wrap");
+    var sel = document.getElementById("map-replay-segment-select");
+    if (!sel) return;
+    sel.innerHTML = "";
+    if (!segments.length || segments.length <= 1) {
+      if (wrap) wrap.classList.add("hidden");
+      return;
+    }
+    if (wrap) wrap.classList.remove("hidden");
+    for (var i = 0; i < segments.length; i++) {
+      var seg = segments[i];
+      var opt = document.createElement("option");
+      opt.value = String(seg.index);
+      opt.textContent = seg.label;
+      if (seg.index === selectedIndex) opt.selected = true;
+      sel.appendChild(opt);
+    }
+  }
+
+  function updateReplayUrlParams(params) {
+    try {
+      var url = new URL(window.location.href);
+      Object.keys(params).forEach(function (k) {
+        if (params[k] == null || params[k] === "") url.searchParams.delete(k);
+        else url.searchParams.set(k, String(params[k]));
+      });
+      window.history.replaceState(null, "", url.pathname + url.search);
+    } catch (_e1) {
+      /* ignore */
+    }
+  }
+
+  var replayCatalogRows = [];
+  var replaySelectBound = false;
+
+  function bindReplaySelectHandlers() {
+    if (replaySelectBound) return;
+    replaySelectBound = true;
+    var sel = document.getElementById("map-replay-select");
+    var segSel = document.getElementById("map-replay-segment-select");
+    if (sel) {
+      sel.addEventListener("change", function () {
+        var rid = sel.value;
+        updateReplayUrlParams({ recording: rid, segment: null });
+        setStatus("Loading replay…");
+        loadServerReplay(rid, null).catch(function (err) {
+          setStatus(String(err.message || err), true);
+        });
+      });
+    }
+    if (segSel) {
+      segSel.addEventListener("change", function () {
+        var rid = sel && sel.value ? sel.value : recordingIdParam() || matchId();
+        var seg = Number(segSel.value) || 0;
+        updateReplayUrlParams({ recording: rid, segment: seg });
+        loadServerReplay(rid, seg).catch(function (err) {
+          setStatus(String(err.message || err), true);
+        });
+      });
+    }
+  }
+
+  async function fetchReplayCatalog(forMatchId) {
+    var path = "/api/replays";
+    if (forMatchId) path += "?match_id=" + encodeURIComponent(forMatchId);
+    return fetchJson(path);
+  }
+
+  async function loadServerReplay(recordingId, segmentIndex) {
+    var data = await fetchJson("/api/replays/" + encodeURIComponent(recordingId));
+    var events = sanitizeReplayEvents(data.events || []);
+    var segments = buildReplaySegments(events);
+    var segIdx = segmentIndex;
+    if (segIdx == null) segIdx = segments.length > 1 ? segments.length - 1 : 0;
+    populateSegmentSelect(segments, segIdx);
+    var segment = segments.length ? segments[segIdx] : null;
+    if (segment) {
+      events = sliceReplayEvents(events, segment);
+      data.meta = Object.assign({}, data.meta || {});
+      data.meta.started_at = segment.startT;
+      data.meta.duration_ms = segment.durationMs;
+    }
+    data.events = events;
+    await activateReplayData(data);
+  }
+
   function replaySpeedDefault() {
     var n = Number(qs("speed", "1"));
     if (!isFinite(n) || n <= 0) return 1;
@@ -2101,6 +2336,7 @@
 
   function handlePickupEvent(data) {
     if (!data || typeof data !== "object") return;
+    if (replayState && !isValidReplaySteamId64(data.steam_id64)) return;
     recordClientPickup(data);
     if (String(data.action || "pickup").toLowerCase() === "drop") return;
     pushPickupFeed(data);
@@ -2291,6 +2527,7 @@
   }
 
   function handleDeathEvent(data) {
+    if (replayState && !isValidReplaySteamId64(data.victim_steam_id64)) return;
     recordClientDeath(data);
     pushKillFeed(data);
     addDeathMarker(data);
@@ -2468,6 +2705,7 @@
 
   function playerShouldRenderOnMap(p) {
     if (!p) return false;
+    if (replayState && !isReplayMapPlayer(p)) return false;
     if (p.connected === false || p.online === false) return false;
     if (p.alive === false) return false;
     var team = String(p.team || "")
@@ -3422,6 +3660,7 @@
     events.sort(function (a, b) {
       return (a.t || 0) - (b.t || 0);
     });
+    events = sanitizeReplayEvents(events);
     if (!events.length) {
       throw new Error("Replay has no events");
     }
@@ -3534,7 +3773,7 @@
         match_id: ev.match_id,
         map_name: ev.map_name,
         gametype: ev.gametype,
-        players: ev.players || [],
+        players: filterReplayPlayers(ev.players || []),
       };
     }
     if (ev.event === "death") {
@@ -3772,6 +4011,7 @@
     document.body.classList.add("map-replay-mode");
     showReplayMediaBar("replay");
     bindReplayBar();
+    bindReplaySelectHandlers();
 
     if (replaySourceFileOnly()) {
       setStatus("Load a replay file (.json or .jsonl)");
@@ -3780,23 +4020,30 @@
 
     setStatus("Loading replay…");
 
-    var id = matchId();
-    if (!id) {
-      try {
-        var rows = await fetchJson("/api/replays");
-        if (rows.length) id = rows[0].match_id;
-      } catch (_e) {
-        /* list unavailable */
-      }
+    var mid = matchId();
+    replayCatalogRows = [];
+    try {
+      replayCatalogRows = await fetchReplayCatalog(mid);
+    } catch (_eList) {
+      /* list unavailable */
     }
-    if (!id) {
+
+    var wantRecording = recordingIdParam();
+    if (!wantRecording && replayCatalogRows.length) {
+      wantRecording =
+        replayCatalogRows[0].recording_id || replayCatalogRows[0].match_id || "";
+    }
+    if (!wantRecording) wantRecording = mid;
+
+    populateReplaySelect(replayCatalogRows, wantRecording);
+
+    if (!wantRecording) {
       setStatus("Pick a server replay (?match=ID) or Load file", true);
       return;
     }
 
     try {
-      var data = await fetchJson("/api/replays/" + encodeURIComponent(id));
-      await activateReplayData(data);
+      await loadServerReplay(wantRecording, replaySegmentParam());
     } catch (err) {
       setStatus("Server replay not found — use Load file", true);
     }

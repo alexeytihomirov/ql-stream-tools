@@ -358,6 +358,65 @@
     return html;
   }
 
+  function formatReplayDuration(ms) {
+    if (ms == null || isNaN(ms)) return "—";
+    var sec = Math.max(0, Math.floor(Number(ms) / 1000));
+    var m = Math.floor(sec / 60);
+    var s = sec % 60;
+    return m + ":" + (s < 10 ? "0" : "") + s;
+  }
+
+  function formatReplayWhen(ms) {
+    if (ms == null || ms === "") return "—";
+    try {
+      return new Date(Number(ms)).toLocaleString();
+    } catch (_e) {
+      return String(ms);
+    }
+  }
+
+  function renderReplaySection(rows, matchId) {
+    if (!rows || !rows.length) {
+      return (
+        '<p class="match-analytics-empty">' +
+        QLDashboard.escapeHtml(QLDashboard.t("matchReplaysEmpty")) +
+        "</p>"
+      );
+    }
+    var html =
+      '<table class="data-table"><thead><tr><th>' +
+      QLDashboard.escapeHtml(QLDashboard.t("matchReplayColMap")) +
+      "</th><th>" +
+      QLDashboard.escapeHtml(QLDashboard.t("matchReplayColDuration")) +
+      "</th><th>" +
+      QLDashboard.escapeHtml(QLDashboard.t("matchReplayColWhen")) +
+      "</th><th>" +
+      QLDashboard.escapeHtml(QLDashboard.t("matchReplayColAction")) +
+      "</th></tr></thead><tbody>";
+    for (var i = 0; i < rows.length; i++) {
+      var r = rows[i];
+      var recId = r.recording_id || r.match_id || "";
+      var url = QLDashboard.liveOverlayUrl("map", matchId, {
+        replay: "1",
+        recording: recId,
+      });
+      html +=
+        "<tr><td>" +
+        QLDashboard.escapeHtml(r.map_name || "—") +
+        "</td><td>" +
+        QLDashboard.escapeHtml(formatReplayDuration(r.duration_ms)) +
+        "</td><td>" +
+        QLDashboard.escapeHtml(formatReplayWhen(r.started_at)) +
+        '</td><td><a class="control-btn" href="' +
+        QLDashboard.escapeHtml(url) +
+        '" target="_blank" rel="noopener noreferrer">' +
+        QLDashboard.escapeHtml(QLDashboard.t("matchOpenReplay")) +
+        "</a></td></tr>";
+    }
+    html += "</tbody></table>";
+    return html;
+  }
+
   function mount(root, route) {
     stopPoll();
     var matchId = route.param;
@@ -424,6 +483,13 @@
       '" target="_blank" rel="noopener noreferrer">' +
       QLDashboard.escapeHtml(QLDashboard.t("matchOpenReplay")) +
       "</a>" +
+      "</div></section>" +
+      '<section class="control-section" id="match-replays-section">' +
+      '<h2 class="match-section-title">' +
+      QLDashboard.escapeHtml(QLDashboard.t("matchSectionReplays")) +
+      "</h2>" +
+      '<div id="match-replays-wrap">' +
+      QLDashboard.escapeHtml(QLDashboard.t("matchLoading")) +
       "</div></section>" +
       '<section class="control-section" id="match-analytics-section">' +
       '<div id="match-analytics-wrap"></div>' +
@@ -508,6 +574,31 @@
         liveData && liveData.players,
         debug,
       );
+    }
+
+    var replaysWrap = document.getElementById("match-replays-wrap");
+    var replayBtn = document.getElementById("match-btn-replay");
+    if (!debug && replaysWrap) {
+      try {
+        var replays = await QLDashboard.fetchStatsJson(
+          "/api/replays?match_id=" + encodeURIComponent(matchId),
+        );
+        replaysWrap.innerHTML = renderReplaySection(replays, matchId);
+        if (replayBtn && replays.length) {
+          var latest = replays[0];
+          replayBtn.href = QLDashboard.liveOverlayUrl("map", matchId, {
+            replay: "1",
+            recording: latest.recording_id || latest.match_id,
+          });
+        }
+      } catch (_replayErr) {
+        replaysWrap.innerHTML =
+          '<p class="match-analytics-empty">' +
+          QLDashboard.escapeHtml(QLDashboard.t("matchReplaysEmpty")) +
+          "</p>";
+      }
+    } else if (replaysWrap && debug) {
+      replaysWrap.innerHTML = renderReplaySection([], matchId);
     }
   }
 

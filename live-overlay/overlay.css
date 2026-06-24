@@ -864,6 +864,27 @@ body.map-debug-mode .status {
 }
 
 .map-record-controls,
+.map-replay-select-wrap {
+  flex: 1 1 180px;
+  min-width: 160px;
+  max-width: 360px;
+}
+
+.map-replay-select-wrap.hidden {
+  display: none;
+}
+
+.map-replay-select {
+  width: 100%;
+  max-width: 360px;
+  padding: 5px 8px;
+  border-radius: 6px;
+  border: 1px solid rgba(148, 163, 184, 0.35);
+  background: rgba(15, 23, 42, 0.92);
+  color: var(--text);
+  font-size: 12px;
+}
+
 .map-replay-playback {
   display: flex;
   flex-wrap: wrap;
