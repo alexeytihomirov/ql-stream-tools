@@ -43,6 +43,23 @@
     return liveData.phase === "playing" || liveData.phase == null;
   }
 
+  function shouldShowLiveAnalytics(liveData, archive) {
+    if (QLDashboard.debugMode()) return true;
+    if (isLiveGamePhase(liveData)) return true;
+    if (!liveData || !archive) return false;
+    if (liveData.phase === "ended" || String(liveData.status || "").toLowerCase() === "ended") {
+      return false;
+    }
+    if (liveData.warmup || liveData.phase === "warmup") {
+      return !!(
+        (archive.deaths && archive.deaths.length) ||
+        (archive.accuracy_summary && archive.accuracy_summary.length) ||
+        (archive.pickups && archive.pickups.length)
+      );
+    }
+    return false;
+  }
+
   function mockArchiveSummary(matchId) {
     return {
       session_id: matchId,
@@ -354,10 +371,25 @@
       }
     }
 
-    var showLiveAnalytics = debug || isLiveGamePhase(liveData);
     var analyticsSection = document.getElementById("server-analytics-section");
     var analyticsHint = document.getElementById("server-analytics-hint");
     var analyticsWrap = document.getElementById("server-analytics-wrap");
+    var archive = null;
+    if (!debug) {
+      archive = await QLDashboard.fetchArchiveSummary(matchId);
+    }
+    if (debug) {
+      archive = mockArchiveSummary(matchId);
+    } else if (!archive) {
+      archive = {
+        deaths: [],
+        pickups: [],
+        accuracy_summary: [],
+        accuracy_timeline: [],
+        players: [],
+      };
+    }
+    var showLiveAnalytics = shouldShowLiveAnalytics(liveData, archive);
 
     if (!showLiveAnalytics) {
       if (analyticsWrap) analyticsWrap.innerHTML = "";
@@ -368,21 +400,6 @@
       if (analyticsSection) analyticsSection.style.display = "";
     } else {
       if (analyticsHint) analyticsHint.hidden = true;
-      var archive = null;
-      if (!debug) {
-        archive = await QLDashboard.fetchArchiveSummary(matchId);
-      }
-      if (debug) {
-        archive = mockArchiveSummary(matchId);
-      } else if (!archive) {
-        archive = {
-          deaths: [],
-          pickups: [],
-          accuracy_summary: [],
-          accuracy_timeline: [],
-          players: [],
-        };
-      }
       lastArchive = archive;
       if (scrubGameTimeMs == null) {
         scrubGameTimeMs = A().computeTimelineMaxMs(archive, liveData);
