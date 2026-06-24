@@ -1388,7 +1388,7 @@
   var cachedTransform = null;
   var currentImageSrc = "";
   var mapImageLoaded = false;
-  var lastMapContext = { map_name: null, gametype: null, match_id: null };
+  var lastMapContext = { map_name: null, gametype: null, match_id: null, warmup: null };
   var mapDebugState = {
     lastPayload: null,
     lastWsMessage: null,
@@ -1693,6 +1693,18 @@
     canvas.classList.add("hidden");
   }
 
+  function clearPickupOverlayState() {
+    mapPickupToasts = [];
+    mapPickupLog = [];
+    if (pickupToastLoopId) {
+      cancelAnimationFrame(pickupToastLoopId);
+      pickupToastLoopId = 0;
+    }
+    var pickupsEl = document.getElementById("map-pickups");
+    if (pickupsEl) pickupsEl.innerHTML = "";
+    renderPickupLog();
+  }
+
   function resetMatchOverlayState(reason, payload) {
     clearHeatmap();
     mapDeathMarkers = [];
@@ -1701,9 +1713,14 @@
     mapKillFeed = [];
     mapKillFeedDedup = [];
     renderKillFeed();
-    if (reason === "match_end" || reason === "replay_seek") {
-      mapPickupLog = [];
-      renderPickupLog();
+    if (
+      reason === "match_end" ||
+      reason === "replay_seek" ||
+      reason === "game_start" ||
+      reason === "match_id" ||
+      reason === "map"
+    ) {
+      clearPickupOverlayState();
     }
     if (window.MapSpawns && typeof MapSpawns.resetMatchState === "function") {
       MapSpawns.resetMatchState();
@@ -1713,6 +1730,31 @@
     }
     if (payload && payload.map_name) {
       lastMapContext._overlay_map = payload.map_name;
+    }
+  }
+
+  function handleGameStartedEvent(data) {
+    if (!data) return;
+    resetMatchOverlayState("game_start", {
+      match_id: data.match_id || matchId(),
+      map_name: (data.match && data.match.map_name) || lastMapContext.map_name,
+    });
+  }
+
+  function handleMatchUpdateEvent(data) {
+    var matchRow = data && data.match;
+    if (!matchRow) return;
+    var prevWarmup = lastMapContext.warmup;
+    var nextWarmup = matchRow.warmup === true || matchRow.phase === "warmup";
+    if (prevWarmup === true && !nextWarmup) {
+      handleGameStartedEvent(data);
+    }
+    lastMapContext.warmup = nextWarmup;
+    if (matchRow.gametype) {
+      lastMapContext.gametype = matchRow.gametype;
+    }
+    if (matchRow.map_name) {
+      lastMapContext.map_name = matchRow.map_name;
     }
   }
 
@@ -4007,6 +4049,25 @@
     bindReplayFileLoad();
   }
 
+  function pickDefaultRecording(rows) {
+    if (!rows || !rows.length) return "";
+    var hasSegments = false;
+    for (var j = 0; j < rows.length; j++) {
+      if (rows[j].recording_id && String(rows[j].recording_id).indexOf("__") >= 0) {
+        hasSegments = true;
+        break;
+      }
+    }
+    for (var i = 0; i < rows.length; i++) {
+      var row = rows[i];
+      if (row.is_recording) continue;
+      if (row.is_complete === false) continue;
+      if (hasSegments && row.is_legacy) continue;
+      return row.recording_id || row.match_id || "";
+    }
+    return "";
+  }
+
   async function initMapReplay() {
     document.body.classList.add("map-replay-mode");
     showReplayMediaBar("replay");
@@ -4030,10 +4091,8 @@
 
     var wantRecording = recordingIdParam();
     if (!wantRecording && replayCatalogRows.length) {
-      wantRecording =
-        replayCatalogRows[0].recording_id || replayCatalogRows[0].match_id || "";
+      wantRecording = pickDefaultRecording(replayCatalogRows);
     }
-    if (!wantRecording) wantRecording = mid;
 
     populateReplaySelect(replayCatalogRows, wantRecording);
 
@@ -4176,7 +4235,10 @@
                   setStatus(String(err.message || err), true);
                 });
               }
+            } else if (data.event === "game_started") {
+              handleGameStartedEvent(data);
             } else if (data.event === "match_update") {
+              handleMatchUpdateEvent(data);
               var matchRow = data.match;
               if (matchRow && matchRow.gametype) {
                 lastMapContext.gametype = matchRow.gametype;

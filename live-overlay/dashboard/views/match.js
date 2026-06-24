@@ -317,6 +317,12 @@
           QLDashboard.escapeHtml(QLDashboard.t("matchAnalyticsHint")) +
           "</p>"
         : "";
+    var accuracyNote =
+      !debug && deaths.length && !accuracy.length
+        ? '<p class="match-analytics-empty">' +
+          QLDashboard.escapeHtml(QLDashboard.t("matchAnalyticsAccuracyHint")) +
+          "</p>"
+        : "";
 
     var html = "";
     if (debug) {
@@ -327,6 +333,10 @@
     }
     if (emptyNote && !debug) {
       return html + emptyNote;
+    }
+
+    if (accuracyNote) {
+      html += accuracyNote;
     }
 
     html += '<div class="match-analytics-grid">';
@@ -375,7 +385,29 @@
     }
   }
 
+  function filterReplayRows(rows) {
+    if (!rows || !rows.length) return [];
+    var hasSegments = false;
+    for (var j = 0; j < rows.length; j++) {
+      var rid = rows[j].recording_id || "";
+      if (rid.indexOf("__") >= 0) {
+        hasSegments = true;
+        break;
+      }
+    }
+    var out = [];
+    for (var i = 0; i < rows.length; i++) {
+      var r = rows[i];
+      if (r.is_recording) continue;
+      if (r.is_complete === false) continue;
+      if (hasSegments && r.is_legacy) continue;
+      out.push(r);
+    }
+    return out;
+  }
+
   function renderReplaySection(rows, matchId) {
+    rows = filterReplayRows(rows);
     if (!rows || !rows.length) {
       return (
         '<p class="match-analytics-empty">' +
@@ -583,6 +615,7 @@
         var replays = await QLDashboard.fetchStatsJson(
           "/api/replays?match_id=" + encodeURIComponent(matchId),
         );
+        replays = filterReplayRows(replays);
         replaysWrap.innerHTML = renderReplaySection(replays, matchId);
         if (replayBtn && replays.length) {
           var latest = replays[0];
@@ -590,6 +623,8 @@
             replay: "1",
             recording: latest.recording_id || latest.match_id,
           });
+        } else if (replayBtn) {
+          replayBtn.href = QLDashboard.liveOverlayUrl("map", matchId, { replay: "1" });
         }
       } catch (_replayErr) {
         replaysWrap.innerHTML =
