@@ -7,16 +7,173 @@
 
   var pollTimer = null;
   var clockTimer = null;
+  var ws = null;
+  var wsRefreshTimer = null;
   var activeMatchId = null;
   var lastLiveData = null;
   var lastArchive = null;
   var scrubGameTimeMs = null;
+  var scrubAtLive = true;
+
+  function stopWs() {
+    if (wsRefreshTimer) {
+      clearTimeout(wsRefreshTimer);
+      wsRefreshTimer = null;
+    }
+    if (ws) {
+      try {
+        ws.onopen = null;
+        ws.onmessage = null;
+        ws.onclose = null;
+        ws.onerror = null;
+        ws.close();
+      } catch (_e) {
+        /* ignore */
+      }
+      ws = null;
+    }
+  }
+
+  function scheduleArchiveRefresh(delayMs) {
+    if (wsRefreshTimer) clearTimeout(wsRefreshTimer);
+    wsRefreshTimer = setTimeout(function () {
+      wsRefreshTimer = null;
+      if (activeMatchId) refreshArchive(activeMatchId);
+    }, delayMs == null ? 150 : delayMs);
+  }
+
+  function mergeWsPickup(msg) {
+    if (!lastArchive || !msg) return;
+    var row = {
+      game_time_ms: msg.game_time_ms,
+      nickname: msg.nickname || msg.player,
+      item: msg.item,
+      steam_id64: msg.steam_id64,
+    };
+    lastArchive.pickups = lastArchive.pickups || [];
+    var key =
+      String(row.steam_id64 || "") +
+      "\0" +
+      String(row.item || "") +
+      "\0" +
+      String(row.game_time_ms || "");
+    var seen = false;
+    for (var i = 0; i < lastArchive.pickups.length; i++) {
+      var p = lastArchive.pickups[i];
+      var pkey =
+        String(p.steam_id64 || "") +
+        "\0" +
+        String(p.item || p.text || "") +
+        "\0" +
+        String(p.game_time_ms || "");
+      if (pkey === key) {
+        seen = true;
+        break;
+      }
+    }
+    if (!seen) lastArchive.pickups.push(row);
+  }
+
+  function mergeWsDeath(msg) {
+    if (!lastArchive || !msg) return;
+    var row = {
+      game_time_ms: msg.game_time_ms,
+      killer: msg.killer || msg.killer_name,
+      victim: msg.victim || msg.victim_name,
+      weapon: msg.weapon,
+    };
+    lastArchive.deaths = lastArchive.deaths || [];
+    lastArchive.deaths.push(row);
+  }
+
+  function mergeWsAccuracy(msg) {
+    if (!lastArchive || !msg || !msg.accuracy) return;
+    var acc = msg.accuracy;
+    lastArchive.accuracy_summary = lastArchive.accuracy_summary || [];
+    lastArchive.accuracy_timeline = lastArchive.accuracy_timeline || [];
+    var key = String(acc.steam_id64 || "") + "\0" + String(acc.weapon || "");
+    var merged = false;
+    for (var i = 0; i < lastArchive.accuracy_summary.length; i++) {
+      var s = lastArchive.accuracy_summary[i];
+      if (String(s.steam_id64 || "") + "\0" + String(s.weapon || "") === key) {
+        lastArchive.accuracy_summary[i] = Object.assign({}, s, acc);
+        merged = true;
+        break;
+      }
+    }
+    if (!merged) lastArchive.accuracy_summary.push(Object.assign({}, acc));
+    lastArchive.accuracy_timeline.push(Object.assign({}, acc));
+  }
+
+  function startWs(matchId) {
+    stopWs();
+    var url = QLDashboard.statsHubWsUrl(matchId);
+    if (!url || typeof WebSocket === "undefined") return;
+    try {
+      ws = new WebSocket(url);
+    } catch (_e) {
+      ws = null;
+      return;
+    }
+    ws.onmessage = function (ev) {
+      var msg;
+      try {
+        msg = JSON.parse(ev.data);
+      } catch (_e2) {
+        return;
+      }
+      if (!msg || String(msg.match_id || "") !== String(matchId)) return;
+      var event = String(msg.event || "");
+      if (event === "pickup") {
+        mergeWsPickup(msg);
+        scheduleArchiveRefresh(200);
+        syncScrubToLive();
+        refreshAnalyticsPanel();
+        return;
+      }
+      if (event === "death") {
+        mergeWsDeath(msg);
+        scheduleArchiveRefresh(200);
+        syncScrubToLive();
+        refreshAnalyticsPanel();
+        return;
+      }
+      if (event === "accuracy_update") {
+        mergeWsAccuracy(msg);
+        scheduleArchiveRefresh(200);
+        syncScrubToLive();
+        refreshAnalyticsPanel();
+        return;
+      }
+      if (event === "session_event") {
+        scheduleArchiveRefresh(100);
+        return;
+      }
+      if (event === "match_update") {
+        scheduleArchiveRefresh(400);
+      }
+    };
+    ws.onclose = function () {
+      if (activeMatchId === matchId) {
+        setTimeout(function () {
+          if (activeMatchId === matchId) startWs(matchId);
+        }, 3000);
+      }
+    };
+  }
+
+  function syncScrubToLive() {
+    if (!scrubAtLive || !lastArchive) return;
+    var maxMs = A().computeTimelineMaxMs(lastArchive, lastLiveData);
+    if (maxMs != null) scrubGameTimeMs = maxMs;
+  }
 
   function stopPoll() {
     if (pollTimer) {
       clearInterval(pollTimer);
       pollTimer = null;
     }
+    stopWs();
     activeMatchId = null;
   }
 
@@ -109,6 +266,13 @@
         "</span>"
       );
     }
+    if (liveData.phase === "countdown" || liveData.countdown) {
+      return (
+        '<span class="match-page-clock match-page-clock-warmup">' +
+        QLDashboard.escapeHtml(QLDashboard.t("phaseCountdown")) +
+        "</span>"
+      );
+    }
     if (liveData.phase === "ended" || String(liveData.status || "").toLowerCase() === "ended") {
       return "";
     }
@@ -130,9 +294,11 @@
   function bindTimelineScrubber(archive, liveData) {
     var scrub = document.getElementById("match-timeline-scrub");
     if (!scrub) return;
+    var minMs = A().computeTimelineMinMs(archive);
     var maxMs = A().computeTimelineMaxMs(archive, liveData);
     scrub.addEventListener("input", function () {
       scrubGameTimeMs = Number(scrub.value);
+      scrubAtLive = maxMs != null && Number(scrubGameTimeMs) >= maxMs - 500;
       var label = document.getElementById("match-timeline-label");
       if (label) label.textContent = A().formatGameTime(scrubGameTimeMs);
       refreshAnalyticsPanel();
@@ -140,6 +306,7 @@
     var liveBtn = document.getElementById("match-timeline-live");
     if (liveBtn) {
       liveBtn.addEventListener("click", function () {
+        scrubAtLive = true;
         scrubGameTimeMs = maxMs;
         scrub.value = String(maxMs);
         var label = document.getElementById("match-timeline-label");
@@ -208,6 +375,7 @@
     stopPoll();
     stopClock();
     scrubGameTimeMs = null;
+    scrubAtLive = true;
     lastLiveData = null;
     lastArchive = null;
     var matchId = route.param;
@@ -230,6 +398,7 @@
     activeMatchId = matchId;
     renderShell(root, matchId);
     loadServer(matchId);
+    startWs(matchId);
     startClock();
     pollTimer = setInterval(function () {
       if (activeMatchId) loadServer(activeMatchId);
@@ -306,6 +475,15 @@
         QLDashboard.escapeHtml(QLDashboard.t("serverRecentResultsEmpty")) +
         "</p>";
     }
+  }
+
+  async function refreshArchive(matchId) {
+    if (QLDashboard.debugMode()) return;
+    var archive = await QLDashboard.fetchArchiveSummary(matchId);
+    if (!archive || activeMatchId !== matchId) return;
+    lastArchive = archive;
+    syncScrubToLive();
+    refreshAnalyticsPanel();
   }
 
   async function loadServer(matchId) {
@@ -401,8 +579,18 @@
     } else {
       if (analyticsHint) analyticsHint.hidden = true;
       lastArchive = archive;
+      var prevMax =
+        scrubGameTimeMs != null ? scrubGameTimeMs : A().computeTimelineMaxMs(archive, liveData);
       if (scrubGameTimeMs == null) {
         scrubGameTimeMs = A().computeTimelineMaxMs(archive, liveData);
+        scrubAtLive = true;
+      } else if (scrubAtLive) {
+        scrubGameTimeMs = A().computeTimelineMaxMs(archive, liveData);
+      } else {
+        var newMax = A().computeTimelineMaxMs(archive, liveData);
+        if (newMax != null && prevMax != null && Number(prevMax) >= Number(newMax) - 500) {
+          scrubGameTimeMs = newMax;
+        }
       }
       if (analyticsWrap) {
         analyticsWrap.innerHTML = A().renderAnalytics(archive, liveData && liveData.players, {

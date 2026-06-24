@@ -204,10 +204,11 @@
       if (row.phase) {
         var phase = String(row.phase).toLowerCase();
         if (phase === "warmup") return "badge-warmup";
+        if (phase === "countdown") return "badge-warmup";
         if (phase === "playing") return "badge-live";
         if (phase === "ended") return "badge-ended";
       }
-      if (row.warmup) return "badge-warmup";
+      if (row.warmup || row.countdown) return "badge-warmup";
       var rowStatus = String(row.status || "").toLowerCase();
       if (rowStatus === "live" || rowStatus === "active" || rowStatus === "in_progress") {
         return "badge-live";
@@ -224,6 +225,7 @@
   function matchPhaseLabel(row) {
     if (!row) return "—";
     if (row.phase === "warmup" || row.warmup) return t("phaseWarmup");
+    if (row.phase === "countdown" || row.countdown) return t("phaseCountdown");
     if (row.phase === "ended" || String(row.status || "").toLowerCase() === "ended") {
       return t("phaseEnded");
     }
@@ -240,6 +242,7 @@
   function computeMatchElapsedSec(row) {
     if (!row) return null;
     if (row.phase === "warmup" || row.warmup) return null;
+    if (row.phase === "countdown" || row.countdown) return null;
     if (row.phase === "ended") return null;
     var now = Date.now();
     if (row.game_time_ms != null && row.game_time_ms > 0 && row.clock_at) {
@@ -252,11 +255,16 @@
       if (!isNaN(at2)) return row.elapsed_sec + Math.floor((now - at2) / 1000);
       return row.elapsed_sec;
     }
-    if (row.started_at) {
-      var started = Date.parse(row.started_at);
-      if (!isNaN(started)) return Math.max(0, Math.floor((now - started) / 1000));
-    }
     return null;
+  }
+
+  function statsHubWsUrl(matchId) {
+    if (!settings.statsHubBase) return null;
+    var base = String(settings.statsHubBase).replace(/\/+$/, "");
+    var wsBase = base.replace(/^http/i, "ws");
+    var url = wsBase + "/api/ws/live";
+    if (matchId) url += "?match=" + encodeURIComponent(matchId);
+    return url;
   }
 
   function buildUrl(relativePath, params) {
@@ -712,6 +720,7 @@
     matchPhaseLabel: matchPhaseLabel,
     formatClockSec: formatClockSec,
     computeMatchElapsedSec: computeMatchElapsedSec,
+    statsHubWsUrl: statsHubWsUrl,
     liveOverlayUrl: liveOverlayUrl,
     liveOverlayPreviewUrl: liveOverlayPreviewUrl,
     streamOverlayUrl: streamOverlayUrl,

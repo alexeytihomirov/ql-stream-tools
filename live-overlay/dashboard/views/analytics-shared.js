@@ -44,20 +44,40 @@
     return summary || [];
   }
 
+  function combatEventRows(archive) {
+    if (!archive) return [];
+    return (archive.deaths || [])
+      .concat(archive.accuracy_timeline || [])
+      .concat(archive.accuracy_summary || []);
+  }
+
+  function computeTimelineMinMs(archive) {
+    var minMs = Number(archive && archive.timeline_min_ms);
+    if (!isNaN(minMs) && minMs >= 0) return minMs;
+    var min = null;
+    combatEventRows(archive).forEach(function (row) {
+      var gt = Number(row.game_time_ms);
+      if (isNaN(gt) || gt < 0) return;
+      if (min == null || gt < min) min = gt;
+    });
+    (archive && archive.pickups || []).forEach(function (row) {
+      var gt = Number(row.game_time_ms);
+      if (isNaN(gt) || gt < 0) return;
+      if (min == null || gt < min) min = gt;
+    });
+    return min != null ? min : 0;
+  }
+
   function computeTimelineMaxMs(archive, liveData) {
-    var maxMs = Number(archive && archive.timeline_max_ms) || 0;
-    function bump(rows) {
-      (rows || []).forEach(function (row) {
+    var maxMs = Number(archive && archive.timeline_max_ms);
+    if (isNaN(maxMs) || maxMs <= 0) {
+      maxMs = 0;
+      combatEventRows(archive).forEach(function (row) {
         var gt = Number(row.game_time_ms);
         if (!isNaN(gt) && gt > maxMs) maxMs = gt;
       });
     }
-    if (archive) {
-      bump(archive.deaths);
-      bump(archive.pickups);
-      bump(archive.accuracy_timeline);
-    }
-    if (liveData) {
+    if (liveData && liveData.phase === "playing" && !liveData.warmup && !liveData.countdown) {
       var elapsed = QLDashboard.computeMatchElapsedSec(liveData);
       if (elapsed != null) maxMs = Math.max(maxMs, elapsed * 1000);
     }
@@ -252,7 +272,10 @@
   function renderTimelineScrubber(archive, liveData, scrubGameTimeMs) {
     var maxMs = computeTimelineMaxMs(archive, liveData);
     if (!maxMs) return "";
+    var minMs = computeTimelineMinMs(archive);
     var currentMs = scrubGameTimeMs != null ? scrubGameTimeMs : maxMs;
+    if (currentMs < minMs) currentMs = minMs;
+    if (currentMs > maxMs) currentMs = maxMs;
     var html =
       '<div class="match-timeline-panel">' +
       '<div class="match-timeline-head">' +
@@ -263,7 +286,9 @@
       QLDashboard.escapeHtml(formatGameTime(currentMs)) +
       "</span>" +
       "</div>" +
-      '<input type="range" id="match-timeline-scrub" class="match-timeline-scrub" min="0" max="' +
+      '<input type="range" id="match-timeline-scrub" class="match-timeline-scrub" min="' +
+      minMs +
+      '" max="' +
       maxMs +
       '" step="1000" value="' +
       currentMs +
@@ -317,16 +342,18 @@
         QLDashboard.escapeHtml(QLDashboard.t("matchDebugBanner")) +
         "</p>";
     }
+
+    if (showTimeline) {
+      html += renderTimelineScrubber(archive, liveData, scrubMs);
+    }
+
     if (emptyNote && !debug) {
-      return html + emptyNote;
+      html += emptyNote;
+      return html;
     }
 
     if (accuracyNote) {
       html += accuracyNote;
-    }
-
-    if (showTimeline) {
-      html += renderTimelineScrubber(archive, liveData, scrubMs);
     }
 
     html += '<div class="match-analytics-grid">';
@@ -382,6 +409,7 @@
     formatReplayDuration: formatReplayDuration,
     formatWhen: formatWhen,
     computeTimelineMaxMs: computeTimelineMaxMs,
+    computeTimelineMinMs: computeTimelineMinMs,
     renderAnalytics: renderAnalytics,
     renderTimelineScrubber: renderTimelineScrubber,
     filterRowsByGameTime: filterRowsByGameTime,

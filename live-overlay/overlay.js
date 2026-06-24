@@ -3574,13 +3574,15 @@
     if (!replayState) return;
     var targetT = replayState.startMs + replayState.cursorMs;
     var players = replayPlayersAtTime(targetT);
-    applyMapDotsPreview({
+    var payload = {
       match_id: replayState.matchId,
       map_name: replayState.meta.map_name || lastMapContext.map_name,
       gametype: replayState.meta.gametype || lastMapContext.gametype,
       players: players,
       transform: cachedTransform,
-    });
+    };
+    applyMapDotsPreview(payload);
+    notifyMapPayload(payload);
     if (window.MapSpawns && typeof MapSpawns.refreshItemRespawnOverlays === "function") {
       MapSpawns.refreshItemRespawnOverlays();
     }
@@ -3598,6 +3600,7 @@
   var replaySeeking = false;
   var replaySeekRaf = 0;
   var replaySeekPendingMs = null;
+  var replayScrubWasPlaying = false;
 
   function replayLastEventIndexAtOrBefore(targetT) {
     if (!replayState) return -1;
@@ -4265,6 +4268,7 @@
     }
     if (scrub) {
       scrub.addEventListener("pointerdown", function () {
+        replayScrubWasPlaying = !!(replayState && replayState.playing);
         stopReplayPlayback();
       });
       scrub.addEventListener("input", function () {
@@ -4272,9 +4276,15 @@
       });
       scrub.addEventListener("change", function () {
         cancelScheduledSeekReplay();
-        seekReplay(Number(scrub.value)).catch(function (err) {
-          setStatus(String(err.message || err), true);
-        });
+        var resume = replayScrubWasPlaying;
+        replayScrubWasPlaying = false;
+        seekReplay(Number(scrub.value))
+          .then(function () {
+            if (resume) startReplayPlayback();
+          })
+          .catch(function (err) {
+            setStatus(String(err.message || err), true);
+          });
       });
     }
     if (speedSel) {
