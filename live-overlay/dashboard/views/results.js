@@ -24,24 +24,36 @@
 
   function bindTimelineScrubber() {
     var scrub = document.getElementById("match-timeline-scrub");
-    if (!scrub) return;
+    if (!scrub || scrub.dataset.qlBound) return;
+    scrub.dataset.qlBound = "1";
     var maxMs = A().computeTimelineMaxMs(lastArchive, null);
     scrub.addEventListener("input", function () {
       scrubGameTimeMs = Number(scrub.value);
       var label = document.getElementById("match-timeline-label");
       if (label) label.textContent = A().formatGameTime(scrubGameTimeMs);
-      refreshDetailAnalytics();
+      refreshDetailAnalyticsPanels();
     });
     var liveBtn = document.getElementById("match-timeline-live");
-    if (liveBtn) {
+    if (liveBtn && !liveBtn.dataset.qlBound) {
+      liveBtn.dataset.qlBound = "1";
       liveBtn.addEventListener("click", function () {
+        maxMs = A().computeTimelineMaxMs(lastArchive, null);
         scrubGameTimeMs = maxMs;
         scrub.value = String(maxMs);
         var label = document.getElementById("match-timeline-label");
         if (label) label.textContent = A().formatGameTime(maxMs);
-        refreshDetailAnalytics();
+        refreshDetailAnalyticsPanels();
       });
     }
+  }
+
+  function refreshDetailAnalyticsPanels() {
+    var panels = document.getElementById("match-analytics-panels");
+    if (!panels || !lastArchive) return;
+    panels.innerHTML = A().renderAnalyticsPanels(lastArchive, lastArchive.players, {
+      scrubMs: scrubGameTimeMs,
+      liveData: null,
+    });
   }
 
   function refreshDetailAnalytics() {
@@ -180,7 +192,7 @@
       var archive = await QLDashboard.fetchStatsJson(
         "/api/stream/results/" + encodeURIComponent(recordingId),
       );
-      lastArchive = archive;
+      lastArchive = A().normalizeArchivePickupTimes(archive);
       scrubGameTimeMs = A().computeTimelineMaxMs(archive, null);
       var matchId = archive.session_id || archive.match_id || "";
       if (statusEl) {

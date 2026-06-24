@@ -1498,6 +1498,30 @@
     return deathSpriteUrl;
   }
 
+  function createDeathCrossMarker() {
+    var marker = document.createElement("div");
+    marker.className = "map-death-marker map-death-marker-cross";
+    marker.setAttribute("aria-hidden", "true");
+    var svg = document.createElementNS("http://www.w3.org/2000/svg", "svg");
+    svg.setAttribute("class", "map-death-marker-cross-svg");
+    svg.setAttribute("viewBox", "0 0 24 24");
+    svg.setAttribute("aria-hidden", "true");
+    var lineA = document.createElementNS("http://www.w3.org/2000/svg", "line");
+    lineA.setAttribute("x1", "6");
+    lineA.setAttribute("y1", "6");
+    lineA.setAttribute("x2", "18");
+    lineA.setAttribute("y2", "18");
+    var lineB = document.createElementNS("http://www.w3.org/2000/svg", "line");
+    lineB.setAttribute("x1", "18");
+    lineB.setAttribute("y1", "6");
+    lineB.setAttribute("x2", "6");
+    lineB.setAttribute("y2", "18");
+    svg.appendChild(lineA);
+    svg.appendChild(lineB);
+    marker.appendChild(svg);
+    return marker;
+  }
+
   function fmtPickupTime(iso) {
     if (!iso) return "";
     try {
@@ -2587,14 +2611,7 @@
     for (var i = 0; i < mapDeathMarkers.length; i++) {
       var row = mapDeathMarkers[i];
       if (!row.el) {
-        var marker = document.createElement("div");
-        marker.className = "map-death-marker map-death-marker-sprite";
-        marker.setAttribute("aria-hidden", "true");
-        var deathImg = document.createElement("img");
-        deathImg.className = "map-death-marker-img";
-        deathImg.src = resolveDeathSpriteUrl();
-        deathImg.alt = "";
-        marker.appendChild(deathImg);
+        var marker = createDeathCrossMarker();
         marker.title = stripQuakeColors(
           row.victim_name || row.victim_steam_id64 || "death",
         );
@@ -3535,6 +3552,14 @@
     return endT != null && isFinite(endT) ? endT : null;
   }
 
+  function filterReplayPlayersAtTime(players, targetT) {
+    if (!replayState || !replayState.deathWindows) return players;
+    return players.filter(function (p) {
+      var sid = normalizeSteamId64(p.steam_id64);
+      return !isReplayPlayerDeadAt(sid, targetT, replayState.deathWindows);
+    });
+  }
+
   function replayPlayersAtTime(targetT) {
     if (!replayState) return [];
     if (
@@ -3557,16 +3582,25 @@
       }
     }
     if (!prev && !next) return [];
-    if (!prev) return normalizePlayersList(next.players || []);
-    if (!next) return normalizePlayersList(prev.players || []);
+    if (!prev) {
+      return filterReplayPlayersAtTime(normalizePlayersList(next.players || []), targetT);
+    }
+    if (!next) {
+      return filterReplayPlayersAtTime(normalizePlayersList(prev.players || []), targetT);
+    }
     var prevT = prev.t || 0;
     var nextT = next.t || 0;
-    if (nextT <= prevT) return normalizePlayersList(prev.players || []);
+    if (nextT <= prevT) {
+      return filterReplayPlayersAtTime(normalizePlayersList(prev.players || []), targetT);
+    }
     var frac = (targetT - prevT) / (nextT - prevT);
-    return lerpReplayPlayers(
-      normalizePlayersList(prev.players || []),
-      normalizePlayersList(next.players || []),
-      frac,
+    return filterReplayPlayersAtTime(
+      lerpReplayPlayers(
+        normalizePlayersList(prev.players || []),
+        normalizePlayersList(next.players || []),
+        frac,
+      ),
+      targetT,
     );
   }
 
@@ -3871,6 +3905,93 @@
     }
   }
 
+  function replayGameTimeFieldMs(ev) {
+    if (!ev || ev.time == null || !isFinite(Number(ev.time))) return null;
+    var g = Number(ev.time);
+    return g < 100000 ? g * 1000 : g;
+  }
+
+  function replayPositionsTimeSpan(events) {
+    var min = null;
+    var max = null;
+    for (var i = 0; i < events.length; i++) {
+      if (events[i].event !== "positions") continue;
+      var t = events[i].t || 0;
+      if (min == null || t < min) min = t;
+      if (max == null || t > max) max = t;
+    }
+    return min != null && max != null ? { min: min, max: max } : null;
+  }
+
+  function normalizeLegacyReplayEventTimes(events, meta) {
+    var span = replayPositionsTimeSpan(events);
+    if (!span) return events;
+    var wallMin = Number(meta.started_at || events[0].t || span.min);
+    var wallMax = wallMin + (span.max - span.min);
+    var legacyBase = null;
+    for (var i = 0; i < events.length; i++) {
+      var ev = events[i];
+      if (ev.event !== "pickup" && ev.event !== "death") continue;
+      var g = replayGameTimeFieldMs(ev);
+      if (g != null && (legacyBase == null || g < legacyBase)) legacyBase = g;
+    }
+    return events.map(function (ev) {
+      if (ev.event !== "pickup" && ev.event !== "death") return ev;
+      var t = ev.t || 0;
+      if (t <= wallMax + 120000 && t >= wallMin - 120000) return ev;
+      var g = replayGameTimeFieldMs(ev);
+      if (g != null && legacyBase != null) {
+        return Object.assign({}, ev, {
+          t: wallMin + Math.max(0, g - legacyBase),
+        });
+      }
+      return ev;
+    });
+  }
+
+  function buildReplayDeathWindows(events) {
+    var pending = {};
+    var windows = {};
+    for (var i = 0; i < events.length; i++) {
+      var ev = events[i];
+      if (ev.event === "death") {
+        var sid = normalizeSteamId64(ev.victim_steam_id64);
+        if (!sid) continue;
+        windows[sid] = windows[sid] || [];
+        windows[sid].push({ deathT: ev.t || 0, respawnT: null });
+        pending[sid] = windows[sid].length - 1;
+        continue;
+      }
+      if (ev.event === "positions") {
+        var t = ev.t || 0;
+        var players = ev.players || [];
+        for (var pi = 0; pi < players.length; pi++) {
+          var p = players[pi];
+          var psid = normalizeSteamId64(p.steam_id64);
+          if (!psid || pending[psid] == null) continue;
+          var hp = p.health != null ? Number(p.health) : null;
+          if (hp != null && hp > 0) {
+            windows[psid][pending[psid]].respawnT = t;
+            delete pending[psid];
+          }
+        }
+      }
+    }
+    return windows;
+  }
+
+  function isReplayPlayerDeadAt(sid, targetT, deathWindows) {
+    if (!sid || !deathWindows) return false;
+    var rows = deathWindows[sid];
+    if (!rows || !rows.length) return false;
+    for (var wi = 0; wi < rows.length; wi++) {
+      var row = rows[wi];
+      if (targetT < row.deathT) continue;
+      if (row.respawnT == null || targetT < row.respawnT) return true;
+    }
+    return false;
+  }
+
   function normalizeReplayDocument(raw) {
     if (!raw || typeof raw !== "object") {
       throw new Error("Invalid replay file");
@@ -3887,13 +4008,14 @@
       return (a.t || 0) - (b.t || 0);
     });
     events = sanitizeReplayEvents(events);
+    var meta = raw.meta && typeof raw.meta === "object" ? Object.assign({}, raw.meta) : {};
+    if (!meta.started_at) meta.started_at = events[0].t;
+    events = normalizeLegacyReplayEventTimes(events, meta);
     if (!events.length) {
       throw new Error("Replay has no events");
     }
-    var meta = raw.meta && typeof raw.meta === "object" ? Object.assign({}, raw.meta) : {};
     var matchIdValue =
       raw.match_id || meta.match_id || events[0].match_id || matchId() || "local";
-    if (!meta.started_at) meta.started_at = events[0].t;
     if (!meta.duration_ms && events.length) {
       meta.duration_ms = Math.max(
         0,
@@ -3957,6 +4079,7 @@
       rafId: 0,
       lastTickMs: 0,
       source: normalized.source,
+      deathWindows: buildReplayDeathWindows(events),
     };
 
     var speedSel = document.getElementById("map-replay-speed");

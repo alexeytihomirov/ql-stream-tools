@@ -35,6 +35,38 @@
     });
   }
 
+  /** Legacy archives: warmup pickups carry ~15min game_time_ms; remap into combat window. */
+  function normalizeArchivePickupTimes(archive) {
+    if (!archive || !archive.pickups || !archive.pickups.length) return archive;
+    var combatMax = computeTimelineMaxMs(archive, null);
+    if (combatMax == null || combatMax <= 0) return archive;
+    var combatMin = computeTimelineMinMs(archive);
+    var staleSlack = 60000;
+    var stale = [];
+    var fresh = [];
+    for (var i = 0; i < archive.pickups.length; i++) {
+      var row = archive.pickups[i];
+      var gt = Number(row.game_time_ms);
+      if (!isNaN(gt) && gt > combatMax + staleSlack) stale.push(row);
+      else fresh.push(row);
+    }
+    if (!stale.length) return archive;
+    stale.sort(function (a, b) {
+      var ta = a.ts || a.game_time_ms || 0;
+      var tb = b.ts || b.game_time_ms || 0;
+      return String(ta).localeCompare(String(tb));
+    });
+    var span = Math.max(combatMax - (combatMin != null ? combatMin : 0), 1000);
+    var step = Math.max(1000, Math.floor(span / Math.max(stale.length, 1)));
+    var base = combatMin != null ? combatMin : 0;
+    var normalizedStale = stale.map(function (row, idx) {
+      return Object.assign({}, row, { game_time_ms: base + idx * step });
+    });
+    return Object.assign({}, archive, {
+      pickups: fresh.concat(normalizedStale),
+    });
+  }
+
   function accuracyAtScrub(timeline, summary, scrubMs) {
     if (scrubMs == null || !timeline || !timeline.length) {
       return summary || [];
@@ -320,17 +352,16 @@
     return html;
   }
 
-  function renderAnalytics(archive, livePlayers, opts) {
+  function renderAnalyticsPanels(archive, livePlayers, opts) {
     opts = opts || {};
     var debug = !!opts.debug;
     var scrubMs = opts.scrubMs;
     var liveData = opts.liveData || null;
-    var showTimeline = opts.showTimeline !== false;
+    archive = normalizeArchivePickupTimes(archive);
 
     var maxMs = computeTimelineMaxMs(archive, liveData);
     var atEnd = scrubMs == null || (maxMs != null && Number(scrubMs) >= maxMs);
     var deaths = filterRowsByGameTime(archive.deaths || [], scrubMs);
-    // Combat-only timeline_max can sit before last pickup; show full snapshot at end.
     var pickups = atEnd
       ? archive.pickups || []
       : filterRowsByGameTime(archive.pickups || [], scrubMs);
@@ -364,20 +395,12 @@
         QLDashboard.escapeHtml(QLDashboard.t("matchDebugBanner")) +
         "</p>";
     }
-
-    if (showTimeline) {
-      html += renderTimelineScrubber(archive, liveData, scrubMs);
-    }
-
     if (emptyNote && !debug) {
-      html += emptyNote;
-      return html;
+      return html + emptyNote;
     }
-
     if (accuracyNote) {
       html += accuracyNote;
     }
-
     html += '<div class="match-analytics-grid">';
     html +=
       '<div class="match-analytics-panel match-analytics-span-2"><h3>' +
@@ -404,6 +427,24 @@
       renderAccuracy(accuracy) +
       "</div></div>";
     html += "</div>";
+    return html;
+  }
+
+  function renderAnalytics(archive, livePlayers, opts) {
+    opts = opts || {};
+    var scrubMs = opts.scrubMs;
+    var liveData = opts.liveData || null;
+    var showTimeline = opts.showTimeline !== false;
+    archive = normalizeArchivePickupTimes(archive);
+
+    var html = "";
+    if (showTimeline) {
+      html += renderTimelineScrubber(archive, liveData, scrubMs);
+    }
+    html +=
+      '<div id="match-analytics-panels">' +
+      renderAnalyticsPanels(archive, livePlayers, opts) +
+      "</div>";
     return html;
   }
 
@@ -434,7 +475,9 @@
     formatWhen: formatWhen,
     computeTimelineMaxMs: computeTimelineMaxMs,
     computeTimelineMinMs: computeTimelineMinMs,
+    normalizeArchivePickupTimes: normalizeArchivePickupTimes,
     renderAnalytics: renderAnalytics,
+    renderAnalyticsPanels: renderAnalyticsPanels,
     renderTimelineScrubber: renderTimelineScrubber,
     filterRowsByGameTime: filterRowsByGameTime,
     accuracyAtScrub: accuracyAtScrub,

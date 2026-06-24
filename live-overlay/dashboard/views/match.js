@@ -293,37 +293,58 @@
 
   function bindTimelineScrubber(archive, liveData) {
     var scrub = document.getElementById("match-timeline-scrub");
-    if (!scrub) return;
-    var minMs = A().computeTimelineMinMs(archive);
+    if (!scrub || scrub.dataset.qlBound) return;
+    scrub.dataset.qlBound = "1";
     var maxMs = A().computeTimelineMaxMs(archive, liveData);
     scrub.addEventListener("input", function () {
       scrubGameTimeMs = Number(scrub.value);
+      maxMs = A().computeTimelineMaxMs(lastArchive, lastLiveData);
       scrubAtLive = maxMs != null && Number(scrubGameTimeMs) >= maxMs - 500;
       var label = document.getElementById("match-timeline-label");
       if (label) label.textContent = A().formatGameTime(scrubGameTimeMs);
-      refreshAnalyticsPanel();
+      refreshAnalyticsPanels();
     });
     var liveBtn = document.getElementById("match-timeline-live");
-    if (liveBtn) {
+    if (liveBtn && !liveBtn.dataset.qlBound) {
+      liveBtn.dataset.qlBound = "1";
       liveBtn.addEventListener("click", function () {
+        maxMs = A().computeTimelineMaxMs(lastArchive, lastLiveData);
         scrubAtLive = true;
         scrubGameTimeMs = maxMs;
         scrub.value = String(maxMs);
         var label = document.getElementById("match-timeline-label");
         if (label) label.textContent = A().formatGameTime(maxMs);
-        refreshAnalyticsPanel();
+        refreshAnalyticsPanels();
       });
     }
+  }
+
+  function refreshAnalyticsPanels() {
+    var panels = document.getElementById("match-analytics-panels");
+    if (!panels || !lastArchive) return;
+    panels.innerHTML = A().renderAnalyticsPanels(
+      lastArchive,
+      lastLiveData && lastLiveData.players,
+      {
+        debug: QLDashboard.debugMode(),
+        scrubMs: scrubGameTimeMs,
+        liveData: lastLiveData,
+      },
+    );
   }
 
   function refreshAnalyticsPanel() {
     var analyticsWrap = document.getElementById("server-analytics-wrap");
     if (!analyticsWrap || !lastArchive) return;
-    analyticsWrap.innerHTML = A().renderAnalytics(lastArchive, lastLiveData && lastLiveData.players, {
-      debug: QLDashboard.debugMode(),
-      scrubMs: scrubGameTimeMs,
-      liveData: lastLiveData,
-    });
+    analyticsWrap.innerHTML = A().renderAnalytics(
+      lastArchive,
+      lastLiveData && lastLiveData.players,
+      {
+        debug: QLDashboard.debugMode(),
+        scrubMs: scrubGameTimeMs,
+        liveData: lastLiveData,
+      },
+    );
     bindTimelineScrubber(lastArchive, lastLiveData);
   }
 
@@ -481,7 +502,7 @@
     if (QLDashboard.debugMode()) return;
     var archive = await QLDashboard.fetchArchiveSummary(matchId);
     if (!archive || activeMatchId !== matchId) return;
-    lastArchive = archive;
+    lastArchive = A().normalizeArchivePickupTimes(archive);
     syncScrubToLive();
     refreshAnalyticsPanel();
   }
@@ -578,7 +599,7 @@
       if (analyticsSection) analyticsSection.style.display = "";
     } else {
       if (analyticsHint) analyticsHint.hidden = true;
-      lastArchive = archive;
+      lastArchive = A().normalizeArchivePickupTimes(archive);
       var prevMax =
         scrubGameTimeMs != null ? scrubGameTimeMs : A().computeTimelineMaxMs(archive, liveData);
       if (scrubGameTimeMs == null) {
