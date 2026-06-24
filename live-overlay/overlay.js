@@ -1388,7 +1388,44 @@
   var cachedTransform = null;
   var currentImageSrc = "";
   var mapImageLoaded = false;
-  var lastMapContext = { map_name: null, gametype: null, match_id: null, warmup: null };
+  var lastMapContext = {
+    map_name: null,
+    gametype: null,
+    match_id: null,
+    warmup: null,
+    phase: null,
+  };
+
+  function mapLivePhase() {
+    if (lastMapContext.phase) return lastMapContext.phase;
+    if (lastMapContext.warmup === true) return "warmup";
+    return null;
+  }
+
+  function mapPositionsVisible() {
+    if (replayMode()) return true;
+    return mapLivePhase() === "playing";
+  }
+
+  function syncMapLivePhase(matchRow) {
+    if (!matchRow) return;
+    var phase = matchRow.phase
+      ? String(matchRow.phase).toLowerCase()
+      : matchPhase(matchRow);
+    lastMapContext.phase = phase;
+    lastMapContext.warmup = phase === "warmup";
+  }
+
+  function clearLiveMapPlayers() {
+    clearMapMotion();
+    applyMapDotsPreview({
+      match_id: lastMapContext.match_id,
+      map_name: lastMapContext.map_name,
+      gametype: lastMapContext.gametype,
+      players: [],
+      transform: cachedTransform,
+    });
+  }
   var mapDebugState = {
     lastPayload: null,
     lastWsMessage: null,
@@ -1744,12 +1781,18 @@
   function handleMatchUpdateEvent(data) {
     var matchRow = data && data.match;
     if (!matchRow) return;
-    var prevWarmup = lastMapContext.warmup;
-    var nextWarmup = matchRow.warmup === true || matchRow.phase === "warmup";
-    if (prevWarmup === true && !nextWarmup) {
+    var prevPhase = mapLivePhase();
+    syncMapLivePhase(matchRow);
+    var nextPhase = mapLivePhase();
+    if (prevPhase === "warmup" && nextPhase === "playing") {
       handleGameStartedEvent(data);
+    } else if (prevPhase === "playing" && nextPhase !== "playing") {
+      resetMatchOverlayState("match_end", {
+        match_id: matchRow.match_id || lastMapContext.match_id,
+        map_name: matchRow.map_name || lastMapContext.map_name,
+      });
+      clearLiveMapPlayers();
     }
-    lastMapContext.warmup = nextWarmup;
     if (matchRow.gametype) {
       lastMapContext.gametype = matchRow.gametype;
     }
@@ -3319,6 +3362,9 @@
     if (data.match_id) {
       lastMapContext.match_id = data.match_id;
     }
+    if (!mapPositionsVisible()) {
+      data = Object.assign({}, data, { players: [] });
+    }
 
     var prepared = await MapCoords.prepareMapPayload(
       data.map_name,
@@ -3359,6 +3405,14 @@
 
   async function prefetchMapHttp(id) {
     try {
+      try {
+        var matchRow = await fetchJson(
+          "/api/stream/matches/" + encodeURIComponent(id),
+        );
+        if (matchRow) syncMapLivePhase(matchRow);
+      } catch (_matchErr) {
+        /* phase optional */
+      }
       var data = await fetchJson(
         "/api/matches/" + encodeURIComponent(id) + "/positions",
       );
@@ -3465,8 +3519,30 @@
     return out;
   }
 
+  function computeReplayPositionsEndT(events, meta) {
+    var endT = null;
+    for (var i = 0; i < events.length; i++) {
+      var ev = events[i];
+      if (ev.event !== "match_status") continue;
+      var st = String(ev.status || "").toLowerCase();
+      if (st === "ended" || st === "aborted") {
+        endT = ev.t || 0;
+      }
+    }
+    if (endT == null && meta && meta.ended_at != null) {
+      endT = Number(meta.ended_at);
+    }
+    return endT != null && isFinite(endT) ? endT : null;
+  }
+
   function replayPlayersAtTime(targetT) {
     if (!replayState) return [];
+    if (
+      replayState.positionsEndT != null &&
+      targetT > replayState.positionsEndT
+    ) {
+      return [];
+    }
     var events = replayState.events;
     var prev = null;
     var next = null;
@@ -3544,6 +3620,12 @@
 
   function replayLastPositionsEventAtOrBefore(targetT) {
     if (!replayState) return null;
+    if (
+      replayState.positionsEndT != null &&
+      targetT > replayState.positionsEndT
+    ) {
+      targetT = replayState.positionsEndT;
+    }
     var events = replayState.events;
     var best = null;
     for (var i = 0; i < events.length; i++) {
@@ -3848,6 +3930,10 @@
     if (!isFinite(durationMs) || durationMs <= 0) {
       durationMs = Math.max(0, (events[events.length - 1].t || startMs) - startMs);
     }
+    var positionsEndT = computeReplayPositionsEndT(events, meta);
+    if (positionsEndT != null) {
+      durationMs = Math.min(durationMs, Math.max(0, positionsEndT - startMs));
+    }
 
     stopReplayPlayback();
     replayClock.active = true;
@@ -3860,6 +3946,7 @@
       events: events,
       startMs: startMs,
       durationMs: durationMs,
+      positionsEndT: positionsEndT,
       cursorMs: 0,
       playing: false,
       speed: replaySpeedDefault(),
@@ -4098,6 +4185,13 @@
     var i = replayState.lastAppliedIndex + 1;
     while (i < events.length && (events[i].t || 0) <= targetT) {
       var ev = events[i];
+      if (
+        replayState.positionsEndT != null &&
+        (ev.t || 0) > replayState.positionsEndT &&
+        ev.event !== "match_status"
+      ) {
+        break;
+      }
       if (ev.event !== "match_status") {
         applyReplayEvent(ev).catch(function (err) {
           setStatus(String(err.message || err), true);
@@ -4365,6 +4459,7 @@
             } else if (data.event === "match_status") {
               recordClientMatchStatus(data);
               if (data.status === "ended" || data.status === "aborted") {
+                lastMapContext.phase = "ended";
                 resetMatchOverlayState("match_end", {
                   match_id: data.match_id,
                   map_name: lastMapContext.map_name,
@@ -4381,6 +4476,7 @@
                 });
               }
             } else if (data.event === "game_started") {
+              lastMapContext.phase = "playing";
               handleGameStartedEvent(data);
             } else if (data.event === "match_update") {
               handleMatchUpdateEvent(data);
