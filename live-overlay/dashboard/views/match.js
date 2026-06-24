@@ -193,7 +193,7 @@
 
   function isLiveGamePhase(liveData) {
     if (!liveData) return false;
-    if (liveData.phase === "warmup" || liveData.warmup) return false;
+    if (QLDashboard.isWarmupPhase(liveData)) return false;
     if (liveData.phase === "ended" || String(liveData.status || "").toLowerCase() === "ended") {
       return false;
     }
@@ -207,7 +207,7 @@
     if (liveData.phase === "ended" || String(liveData.status || "").toLowerCase() === "ended") {
       return false;
     }
-    if (liveData.warmup || liveData.phase === "warmup") {
+    if (QLDashboard.isWarmupPhase(liveData)) {
       return !!(
         (archive.deaths && archive.deaths.length) ||
         (archive.accuracy_summary && archive.accuracy_summary.length) ||
@@ -259,17 +259,14 @@
 
   function renderMatchClockHtml(liveData) {
     if (!liveData) return "";
-    if (liveData.phase === "warmup" || liveData.warmup) {
+    if (QLDashboard.isWarmupPhase(liveData)) {
+      var phaseKey =
+        String(liveData.phase || "").toLowerCase() === "countdown" || liveData.countdown
+          ? "phaseCountdown"
+          : "phaseWarmup";
       return (
         '<span class="match-page-clock match-page-clock-warmup">' +
-        QLDashboard.escapeHtml(QLDashboard.t("phaseWarmup")) +
-        "</span>"
-      );
-    }
-    if (liveData.phase === "countdown" || liveData.countdown) {
-      return (
-        '<span class="match-page-clock match-page-clock-warmup">' +
-        QLDashboard.escapeHtml(QLDashboard.t("phaseCountdown")) +
+        QLDashboard.escapeHtml(QLDashboard.t(phaseKey)) +
         "</span>"
       );
     }
@@ -534,7 +531,7 @@
       var title = document.getElementById("server-title");
       var meta = document.getElementById("server-meta");
       var badge = document.getElementById("server-badge");
-      if (title) title.textContent = liveData.score_summary || liveData.match_id;
+      if (title) title.textContent = QLDashboard.matchScoreSummary(liveData);
       if (meta) {
         meta.textContent = [liveData.map_name, liveData.gametype, liveData.server_name, matchId]
           .filter(Boolean)
@@ -556,6 +553,9 @@
         var html =
           '<table class="data-table"><thead><tr><th>Player</th><th>Score</th><th>K</th><th>D</th></tr></thead><tbody>';
         var sorted = liveData.players.slice().sort(function (a, b) {
+          if (QLDashboard.isWarmupPhase(liveData)) {
+            return String(A().displayNickname(a)).localeCompare(String(A().displayNickname(b)));
+          }
           return (b.score || 0) - (a.score || 0);
         });
         for (var i = 0; i < sorted.length; i++) {
@@ -564,11 +564,11 @@
             "<tr><td>" +
             QLDashboard.escapeHtml(A().displayNickname(p)) +
             "</td><td>" +
-            (p.score || 0) +
+            QLDashboard.playerStatDisplay(liveData, p.score) +
             "</td><td>" +
-            (p.kills || 0) +
+            QLDashboard.playerStatDisplay(liveData, p.kills) +
             "</td><td>" +
-            (p.deaths || 0) +
+            QLDashboard.playerStatDisplay(liveData, p.deaths) +
             "</td></tr>";
         }
         html += "</tbody></table>";

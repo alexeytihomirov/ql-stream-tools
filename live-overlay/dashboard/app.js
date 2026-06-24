@@ -222,6 +222,25 @@
     return "badge-other";
   }
 
+  function isWarmupPhase(row) {
+    if (!row) return false;
+    if (row.warmup) return true;
+    if (row.countdown) return true;
+    var phase = String(row.phase || "").toLowerCase();
+    return phase === "warmup" || phase === "countdown";
+  }
+
+  function matchScoreSummary(row) {
+    if (!row) return "—";
+    if (isWarmupPhase(row)) return "—";
+    return row.score_summary || row.match_id || "—";
+  }
+
+  function playerStatDisplay(liveData, value) {
+    if (isWarmupPhase(liveData)) return "—";
+    return value != null ? value : 0;
+  }
+
   function matchPhaseLabel(row) {
     if (!row) return "—";
     if (row.phase === "warmup" || row.warmup) return t("phaseWarmup");
@@ -717,6 +736,9 @@
     fetchTournamentFile: fetchTournamentFile,
     connectForMatch: connectForMatch,
     statusBadgeClass: statusBadgeClass,
+    isWarmupPhase: isWarmupPhase,
+    matchScoreSummary: matchScoreSummary,
+    playerStatDisplay: playerStatDisplay,
     matchPhaseLabel: matchPhaseLabel,
     formatClockSec: formatClockSec,
     computeMatchElapsedSec: computeMatchElapsedSec,

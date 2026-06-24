@@ -97,7 +97,7 @@
       var scoreCell = document.createElement("td");
       scoreCell.innerHTML =
         "<strong>" +
-        QLDashboard.escapeHtml(row.score_summary || mid) +
+        QLDashboard.escapeHtml(QLDashboard.matchScoreSummary(row)) +
         "</strong>" +
         (connect
           ? '<div class="match-id">/connect ' + QLDashboard.escapeHtml(connect) + "</div>"

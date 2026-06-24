@@ -349,6 +349,9 @@
     var maxMs = computeTimelineMaxMs(archive, liveData);
     var atEnd = scrubMs == null || (maxMs != null && Number(scrubMs) >= maxMs);
     var deaths = filterRowsByGameTime(archive.deaths || [], scrubMs);
+    if (liveData && QLDashboard.isWarmupPhase(liveData)) {
+      deaths = [];
+    }
     var pickups = atEnd
       ? archive.pickups || []
       : filterRowsByGameTime(archive.pickups || [], scrubMs);
