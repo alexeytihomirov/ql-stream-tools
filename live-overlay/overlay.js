@@ -2389,7 +2389,7 @@
     }
   }
 
-  function handlePickupEvent(data) {
+  function handlePickupEvent(data, opts) {
     if (!data || typeof data !== "object") return;
     if (
       replayState &&
@@ -2398,9 +2398,10 @@
     ) {
       return;
     }
-    recordClientPickup(data);
+    var silent = !!(opts && opts.silent) || replaySeeking;
+    if (!silent) recordClientPickup(data);
     if (String(data.action || "pickup").toLowerCase() === "drop") return;
-    pushPickupFeed(data);
+    if (!silent) pushPickupFeed(data);
     notifyPickup(data);
     if (debugPickups() && typeof console !== "undefined" && console.info) {
       console.info(
@@ -2593,7 +2594,7 @@
     renderDeathMarkers();
   }
 
-  function handleDeathEvent(data) {
+  function handleDeathEvent(data, opts) {
     if (
       replayState &&
       data.victim_steam_id64 &&
@@ -2601,6 +2602,7 @@
     ) {
       return;
     }
+    if ((opts && opts.silent) || replaySeeking) return;
     recordClientDeath(data);
     pushKillFeed(data);
     addDeathMarker(data);
@@ -3517,6 +3519,63 @@
   }
 
   var replayState = null;
+  var replaySeeking = false;
+  var replaySeekRaf = 0;
+  var replaySeekPendingMs = null;
+
+  function replayLastEventIndexAtOrBefore(targetT) {
+    if (!replayState) return -1;
+    var events = replayState.events;
+    var lo = 0;
+    var hi = events.length - 1;
+    var best = -1;
+    while (lo <= hi) {
+      var mid = (lo + hi) >> 1;
+      var t = events[mid].t || 0;
+      if (t <= targetT) {
+        best = mid;
+        lo = mid + 1;
+      } else {
+        hi = mid - 1;
+      }
+    }
+    return best;
+  }
+
+  function replayLastPositionsEventAtOrBefore(targetT) {
+    if (!replayState) return null;
+    var events = replayState.events;
+    var best = null;
+    for (var i = 0; i < events.length; i++) {
+      var ev = events[i];
+      if (ev.event !== "positions") continue;
+      var t = ev.t || 0;
+      if (t <= targetT) best = ev;
+      else break;
+    }
+    return best;
+  }
+
+  function cancelScheduledSeekReplay() {
+    if (!replaySeekRaf) return;
+    cancelAnimationFrame(replaySeekRaf);
+    replaySeekRaf = 0;
+    replaySeekPendingMs = null;
+  }
+
+  function scheduleSeekReplay(cursorMs) {
+    replaySeekPendingMs = cursorMs;
+    if (replaySeekRaf) return;
+    replaySeekRaf = requestAnimationFrame(function () {
+      replaySeekRaf = 0;
+      var ms = replaySeekPendingMs;
+      replaySeekPendingMs = null;
+      if (ms == null || !replayState) return;
+      seekReplay(ms).catch(function (err) {
+        setStatus(String(err.message || err), true);
+      });
+    });
+  }
 
   function resetClientRecorder() {
     clientRecorder.active = false;
@@ -3991,7 +4050,7 @@
     }
   }
 
-  async function reapplyReplayPickupsUpTo(targetT) {
+  async function reapplyReplayPickupsUpTo(targetT, opts) {
     if (!replayState) return;
     var events = replayState.events;
     for (var i = 0; i < events.length; i++) {
@@ -3999,34 +4058,36 @@
       if (ev.event !== "pickup") continue;
       if ((ev.t || 0) > targetT) break;
       var payload = replayPayloadFromEvent(ev);
-      if (payload) handlePickupEvent(payload);
+      if (payload) handlePickupEvent(payload, opts);
     }
   }
 
   async function seekReplay(cursorMs) {
     if (!replayState) return;
+    cancelScheduledSeekReplay();
     stopReplayPlayback();
     var dur = replayState.durationMs || 0;
     replayState.cursorMs = Math.max(0, Math.min(dur, Number(cursorMs) || 0));
     replayClock.cursorMs = replayState.cursorMs;
     var targetT = replayState.startMs + replayState.cursorMs;
-    resetReplayVisualState({
-      match_id: replayState.matchId,
-      map_name: replayState.meta.map_name || lastMapContext.map_name,
-    });
-    replayState.lastAppliedIndex = -1;
-    var events = replayState.events;
-    for (var i = 0; i < events.length; i++) {
-      var ev = events[i];
-      if ((ev.t || 0) > targetT) break;
-      if (ev.event === "match_status") continue;
-      await applyReplayEvent(ev);
-      replayState.lastAppliedIndex = i;
+    replaySeeking = true;
+    try {
+      resetReplayVisualState({
+        match_id: replayState.matchId,
+        map_name: replayState.meta.map_name || lastMapContext.map_name,
+      });
+      var posEv = replayLastPositionsEventAtOrBefore(targetT);
+      if (posEv) {
+        await ensureReplayMapFromPositions(replayPayloadFromEvent(posEv));
+      }
+      replayState.lastAppliedIndex = replayLastEventIndexAtOrBefore(targetT);
+      await reapplyReplayPickupsUpTo(targetT, { silent: true });
+      applyReplayFramePositions();
+      ensureMotionLoop();
+      updateReplayBarUi();
+    } finally {
+      replaySeeking = false;
     }
-    applyReplayFramePositions();
-    await reapplyReplayPickupsUpTo(targetT);
-    ensureMotionLoop();
-    updateReplayBarUi();
   }
 
   function applyReplayEventsIncremental() {
@@ -4113,6 +4174,10 @@
         stopReplayPlayback();
       });
       scrub.addEventListener("input", function () {
+        scheduleSeekReplay(Number(scrub.value));
+      });
+      scrub.addEventListener("change", function () {
+        cancelScheduledSeekReplay();
         seekReplay(Number(scrub.value)).catch(function (err) {
           setStatus(String(err.message || err), true);
         });
