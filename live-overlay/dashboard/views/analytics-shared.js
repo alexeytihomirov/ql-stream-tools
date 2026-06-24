@@ -290,7 +290,7 @@
       minMs +
       '" max="' +
       maxMs +
-      '" step="1000" value="' +
+      '" step="100" value="' +
       currentMs +
       '" />' +
       '<div class="match-timeline-actions">' +
@@ -308,11 +308,14 @@
     var liveData = opts.liveData || null;
     var showTimeline = opts.showTimeline !== false;
 
-    var deaths = filterRowsByGameTime(archive.deaths || [], scrubMs);
-    var pickups = filterRowsByGameTime(archive.pickups || [], scrubMs);
-    var summary = enrichAccuracyNicknames(archive, livePlayers);
     var maxMs = computeTimelineMaxMs(archive, liveData);
     var atEnd = scrubMs == null || (maxMs != null && Number(scrubMs) >= maxMs);
+    var deaths = filterRowsByGameTime(archive.deaths || [], scrubMs);
+    // Combat-only timeline_max can sit before last pickup; show full snapshot at end.
+    var pickups = atEnd
+      ? archive.pickups || []
+      : filterRowsByGameTime(archive.pickups || [], scrubMs);
+    var summary = enrichAccuracyNicknames(archive, livePlayers);
     var accuracy = atEnd
       ? summary
       : accuracyAtScrub(archive.accuracy_timeline, summary, scrubMs);
