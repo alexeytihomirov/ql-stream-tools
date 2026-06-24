@@ -1,6 +1,17 @@
 (function (global) {
   "use strict";
 
+  function stripQuakeColors(text) {
+    return String(text || "")
+      .replace(/\^[0-9a-zA-Z]/g, "")
+      .trim();
+  }
+
+  function displayNickname(row) {
+    var nick = stripQuakeColors(row.nickname || row.player || row.steam_id64);
+    return nick || "—";
+  }
+
   function formatGameTime(ms) {
     if (ms == null || isNaN(ms)) return "—";
     var sec = Math.max(0, Math.floor(Number(ms) / 1000));
@@ -87,13 +98,19 @@
   function enrichAccuracyNicknames(archive, livePlayers) {
     var bySteam = {};
     (livePlayers || []).forEach(function (p) {
-      if (p.steam_id64) bySteam[p.steam_id64] = p.nickname || p.steam_id64;
+      if (p.steam_id64) {
+        bySteam[p.steam_id64] =
+          stripQuakeColors(p.nickname) || p.steam_id64;
+      }
     });
     (archive.players || []).forEach(function (p) {
-      if (p.steam_id64) bySteam[p.steam_id64] = p.nickname || p.steam_id64;
+      if (p.steam_id64) {
+        bySteam[p.steam_id64] =
+          stripQuakeColors(p.nickname) || p.steam_id64;
+      }
     });
     return (archive.accuracy_summary || []).map(function (row) {
-      var nick = row.nickname;
+      var nick = stripQuakeColors(row.nickname);
       if (!nick && row.steam_id64) nick = bySteam[row.steam_id64];
       return Object.assign({}, row, { nickname: nick || row.steam_id64 || "—" });
     });
@@ -144,9 +161,11 @@
         '<span class="match-kill-time">' +
         QLDashboard.escapeHtml(formatGameTime(d.game_time_ms)) +
         "</span><span>" +
-        QLDashboard.escapeHtml(d.killer || QLDashboard.t("matchWorldSuicide")) +
+        QLDashboard.escapeHtml(
+          stripQuakeColors(d.killer) || QLDashboard.t("matchWorldSuicide"),
+        ) +
         "</span><span>" +
-        QLDashboard.escapeHtml(d.victim || "—") +
+        QLDashboard.escapeHtml(stripQuakeColors(d.victim) || "—") +
         '</span><span class="match-kill-weapon">' +
         QLDashboard.escapeHtml(d.weapon || "—") +
         "</span></div>";
@@ -177,7 +196,7 @@
         "<tr><td>" +
         QLDashboard.escapeHtml(formatGameTime(p.game_time_ms)) +
         "</td><td>" +
-        QLDashboard.escapeHtml(p.nickname || "—") +
+        QLDashboard.escapeHtml(displayNickname(p)) +
         "</td><td>" +
         QLDashboard.escapeHtml(p.item || p.text || "—") +
         "</td></tr>";
@@ -222,7 +241,7 @@
             : "—";
       html +=
         "<tr><td>" +
-        QLDashboard.escapeHtml(r.nickname || "—") +
+        QLDashboard.escapeHtml(displayNickname(r)) +
         "</td><td>" +
         QLDashboard.escapeHtml(r.weapon || "—") +
         "</td><td>" +
@@ -258,7 +277,7 @@
       var r = rows[i];
       html +=
         "<tr><td>" +
-        QLDashboard.escapeHtml(r.killer) +
+        QLDashboard.escapeHtml(stripQuakeColors(r.killer) || "—") +
         "</td><td>" +
         QLDashboard.escapeHtml(r.weapon) +
         "</td><td>" +
@@ -408,6 +427,8 @@
   }
 
   global.QLDashboardAnalytics = {
+    stripQuakeColors: stripQuakeColors,
+    displayNickname: displayNickname,
     formatGameTime: formatGameTime,
     formatReplayDuration: formatReplayDuration,
     formatWhen: formatWhen,

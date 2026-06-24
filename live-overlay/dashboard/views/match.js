@@ -46,7 +46,7 @@
     if (!lastArchive || !msg) return;
     var row = {
       game_time_ms: msg.game_time_ms,
-      nickname: msg.nickname || msg.player,
+      nickname: A().displayNickname(msg),
       item: msg.item,
       steam_id64: msg.steam_id64,
     };
@@ -530,7 +530,7 @@
           var p = sorted[i];
           html +=
             "<tr><td>" +
-            QLDashboard.escapeHtml(p.nickname || p.steam_id64) +
+            QLDashboard.escapeHtml(A().displayNickname(p)) +
             "</td><td>" +
             (p.score || 0) +
             "</td><td>" +
