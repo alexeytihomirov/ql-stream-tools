@@ -79,6 +79,13 @@
       var rid = r.recording_id || "";
       var detailUrl = "#/results/" + encodeURIComponent(rid);
       var serverUrl = "#/server/" + encodeURIComponent(r.session_id || r.match_id || "");
+      var replayUrl = "";
+      if (rid && r.replay_available !== false) {
+        replayUrl = QLDashboard.liveOverlayUrl("map", r.session_id || r.match_id || "", {
+          replay: "1",
+          recording: rid,
+        });
+      }
       html +=
         "<tr><td><a href=\"" +
         QLDashboard.escapeHtml(serverUrl) +
@@ -94,7 +101,15 @@
         QLDashboard.escapeHtml(detailUrl) +
         '">' +
         QLDashboard.escapeHtml(QLDashboard.t("resultsOpenDetail")) +
-        "</a></td></tr>";
+        "</a>" +
+        (replayUrl
+          ? ' <a class="control-btn control-btn-sm" href="' +
+            QLDashboard.escapeHtml(replayUrl) +
+            '" target="_blank" rel="noopener noreferrer">' +
+            QLDashboard.escapeHtml(QLDashboard.t("matchOpenReplay")) +
+            "</a>"
+          : "") +
+        "</td></tr>";
     }
     html += "</tbody></table>";
     return html;
@@ -184,7 +199,7 @@
       }
       if (actionsEl) {
         var replayUrl = "";
-        if (archive.replay_available !== false && matchId) {
+        if (archive.replay_available !== false && recordingId) {
           replayUrl = QLDashboard.liveOverlayUrl("map", matchId, {
             replay: "1",
             recording: recordingId,
