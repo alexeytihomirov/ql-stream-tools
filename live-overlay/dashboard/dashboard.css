@@ -200,6 +200,15 @@ a.control-btn {
   font-size: 12px;
 }
 
+.control-btn-danger {
+  border-color: rgba(248, 113, 113, 0.45);
+  color: var(--danger);
+}
+
+.control-btn-danger:hover {
+  background: rgba(248, 113, 113, 0.12);
+}
+
 .control-status {
   margin-top: 12px;
   font-size: 13px;

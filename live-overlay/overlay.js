@@ -1404,7 +1404,15 @@
 
   function mapPositionsVisible() {
     if (replayMode()) return true;
-    return mapLivePhase() === "playing";
+    var phase = mapLivePhase();
+    if (phase === "ended") return false;
+    // Pre-match warmup/countdown + in-progress; post-game warmup gets empty players from API.
+    return (
+      phase === "playing" ||
+      phase === "warmup" ||
+      phase === "countdown" ||
+      phase == null
+    );
   }
 
   function syncMapLivePhase(matchRow) {

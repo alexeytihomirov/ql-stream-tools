@@ -28,6 +28,13 @@
       QLDashboard.t("statsHubHint") +
       "</span></label>" +
       '<label class="control-field"><span>' +
+      QLDashboard.t("statsHubApiToken") +
+      '</span><input id="set-stats-api-token" type="password" autocomplete="off" placeholder="STATS_HUB_API_TOKEN" value="' +
+      QLDashboard.escapeHtml(QLDashboard.settings.statsHubApiToken || "") +
+      '" /><span class="control-field-hint">' +
+      QLDashboard.t("statsHubApiTokenHint") +
+      "</span></label>" +
+      '<label class="control-field"><span>' +
       QLDashboard.t("assetsBase") +
       '</span><input id="set-assets" type="url" placeholder="http://127.0.0.1:8787/live-overlay/" value="' +
       QLDashboard.escapeHtml(QLDashboard.settings.assetsBase) +
@@ -64,6 +71,7 @@
       var next = {
         publicDataBase: document.getElementById("set-public-data").value,
         statsHubBase: document.getElementById("set-stats-hub").value,
+        statsHubApiToken: document.getElementById("set-stats-api-token").value,
         assetsBase: document.getElementById("set-assets").value,
         tournamentSlug: document.getElementById("set-tournament").value,
         defaultBg: document.getElementById("set-default-bg").value,

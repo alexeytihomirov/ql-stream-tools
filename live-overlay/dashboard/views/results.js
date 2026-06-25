@@ -14,6 +14,44 @@
     return QLDashboard.qsParam("server") || "";
   }
 
+  async function confirmDeleteResult(recordingId) {
+    if (!recordingId) return;
+    if (!QLDashboard.hasStatsApiToken()) {
+      window.alert(QLDashboard.t("resultsDeleteNeedToken"));
+      return;
+    }
+    if (!window.confirm(QLDashboard.t("resultsDeleteConfirm"))) return;
+    try {
+      await QLDashboard.deleteStatsResult(recordingId);
+      var route = QLDashboard.parseRoute();
+      var root = document.getElementById("app-main");
+      if (root && route.view === "results") {
+        if (route.param) {
+          QLDashboard.navigate("#/results");
+        } else {
+          mountList(root);
+        }
+      }
+    } catch (err) {
+      window.alert(String(err.message || err));
+    }
+  }
+
+  function bindDeleteButtons(scope) {
+    if (!scope || !scope.querySelectorAll) return;
+    var nodes = scope.querySelectorAll("[data-ql-delete-result]");
+    for (var i = 0; i < nodes.length; i++) {
+      (function (btn) {
+        if (btn.dataset.qlBound) return;
+        btn.dataset.qlBound = "1";
+        btn.addEventListener("click", function (ev) {
+          ev.preventDefault();
+          confirmDeleteResult(btn.getAttribute("data-ql-delete-result"));
+        });
+      })(nodes[i]);
+    }
+  }
+
   function stopPoll() {
     if (pollTimer) {
       clearInterval(pollTimer);
@@ -121,6 +159,13 @@
             QLDashboard.escapeHtml(QLDashboard.t("matchOpenReplay")) +
             "</a>"
           : "") +
+        (QLDashboard.hasStatsApiToken() && rid
+          ? ' <button type="button" class="control-btn control-btn-sm control-btn-danger" data-ql-delete-result="' +
+            QLDashboard.escapeHtml(rid) +
+            '">' +
+            QLDashboard.escapeHtml(QLDashboard.t("resultsDelete")) +
+            "</button>"
+          : "") +
         "</td></tr>";
     }
     html += "</tbody></table>";
@@ -139,6 +184,7 @@
       var rows = await QLDashboard.fetchStatsJson(path);
       if (!Array.isArray(rows)) rows = [];
       bodyEl.innerHTML = renderResultsTable(rows);
+      bindDeleteButtons(bodyEl);
       if (statusEl) {
         statusEl.textContent = filter
           ? QLDashboard.t("resultsCountFiltered", { server: filter, n: rows.length })
@@ -237,7 +283,15 @@
           QLDashboard.escapeHtml(listUrl) +
           '">' +
           QLDashboard.escapeHtml(QLDashboard.t("resultsBackList")) +
-          "</a>";
+          "</a>" +
+          (QLDashboard.hasStatsApiToken() && recordingId
+            ? ' <button type="button" class="control-btn control-btn-danger" data-ql-delete-result="' +
+              QLDashboard.escapeHtml(recordingId) +
+              '">' +
+              QLDashboard.escapeHtml(QLDashboard.t("resultsDelete")) +
+              "</button>"
+            : "");
+        bindDeleteButtons(actionsEl);
       }
       if (analyticsEl) {
         analyticsEl.innerHTML = A().renderAnalytics(archive, archive.players, {

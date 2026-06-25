@@ -61,6 +61,7 @@
       publicDataBase: publicDataBase,
       statsHubBase: statsHubBase,
       assetsBase: assetsBase,
+      statsHubApiToken: trim(raw.statsHubApiToken || ""),
       tournamentSlug: tournamentSlug,
       defaultBg: defaultBg,
       defaultMatchId: defaultMatchId,
@@ -150,6 +151,36 @@
   async function fetchStatsJson(path) {
     if (!settings.statsHubBase) throw new Error(t("errorMissingBase"));
     return fetchPublicJson(settings.statsHubBase + path);
+  }
+
+  function hasStatsApiToken() {
+    return !!trim(settings.statsHubApiToken);
+  }
+
+  async function deleteStatsResult(recordingId) {
+    if (!settings.statsHubBase) throw new Error(t("errorMissingBase"));
+    if (!hasStatsApiToken()) throw new Error(t("errorMissingApiToken"));
+    var res = await fetch(
+      settings.statsHubBase + "/api/stream/results/" + encodeURIComponent(recordingId),
+      {
+        method: "DELETE",
+        headers: {
+          Accept: "application/json",
+          Authorization: "Bearer " + trim(settings.statsHubApiToken),
+        },
+      },
+    );
+    if (!res.ok) {
+      var detail = "HTTP " + res.status;
+      try {
+        var body = await res.json();
+        if (body && body.detail) detail = String(body.detail);
+      } catch (_e) {
+        /* ignore */
+      }
+      throw new Error(detail);
+    }
+    return res.json();
   }
 
   async function fetchArchiveSummary(matchId) {
@@ -755,6 +786,8 @@
     buildUrl: buildUrl,
     fetchStatsJson: fetchStatsJson,
     fetchArchiveSummary: fetchArchiveSummary,
+    hasStatsApiToken: hasStatsApiToken,
+    deleteStatsResult: deleteStatsResult,
     debugMode: debugMode,
     qsParam: qsParam,
     effectiveAssetsBase: effectiveAssetsBase,
