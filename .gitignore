@@ -3,3 +3,5 @@ stream-overlay/config.json
 **/__pycache__/
 *.pyc
 *.log
+_tmp_*.sh
+_vps_*.sh
