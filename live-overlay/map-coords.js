@@ -62,8 +62,12 @@
       return "";
     }
     var path = window.location.pathname || "";
-    if (path.indexOf("/live-overlay/") >= 0) {
-      return new URL("./", window.location.href).href;
+    var marker = "/live-overlay/";
+    var idx = path.indexOf(marker);
+    if (idx >= 0) {
+      // Always resolve to the live-overlay root, not the current subdirectory,
+      // so the embedded dashboard (/live-overlay/dashboard/) finds map assets.
+      return window.location.origin + path.slice(0, idx + marker.length);
     }
     if (window.location.port === "8787") {
       return window.location.origin + "/live-overlay/";

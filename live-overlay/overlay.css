@@ -842,6 +842,10 @@ body.map-debug-mode .status {
 }
 
 .map-meta {
+  /* Map caption (e.g. "REPLAY · bloodrun · duel · server-1" / "bloodrun · N
+     players") is redundant clutter on both the OBS overlay and the embedded
+     analytics widget; hide everywhere. */
+  display: none;
   margin-top: 8px;
   font-size: 13px;
   color: var(--muted);
@@ -2013,4 +2017,332 @@ body.match-page-body {
 .match-archive-events li {
   padding: 4px 0;
   border-bottom: 1px solid rgba(255, 255, 255, 0.06);
+}
+
+/* ---- Map overlay toolbar (top-left, icon buttons) ---- */
+.map-toolbar {
+  position: absolute;
+  top: 8px;
+  left: 8px;
+  z-index: 14;
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  padding: 4px;
+  border-radius: 8px;
+  background: rgba(17, 22, 34, 0.82);
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  box-shadow: 0 4px 16px rgba(0, 0, 0, 0.45);
+  backdrop-filter: blur(6px);
+  pointer-events: auto;
+}
+
+.map-tb-btn {
+  position: relative;
+  width: 30px;
+  height: 30px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  padding: 0;
+  border: 1px solid transparent;
+  border-radius: 6px;
+  background: transparent;
+  cursor: pointer;
+}
+
+.map-tb-btn:hover {
+  background: rgba(255, 255, 255, 0.1);
+}
+
+.map-tb-btn img {
+  width: 18px;
+  height: 18px;
+  filter: invert(1);
+  opacity: 0.85;
+  pointer-events: none;
+}
+
+.map-tb-btn[aria-pressed="true"] {
+  background: rgba(94, 160, 255, 0.28);
+  border-color: rgba(120, 175, 255, 0.6);
+}
+
+.map-tb-btn[aria-pressed="true"] img {
+  opacity: 1;
+}
+
+.map-tb-sep {
+  width: 1px;
+  height: 20px;
+  background: rgba(255, 255, 255, 0.14);
+  margin: 0 2px;
+}
+
+/* Main toggle button + its settings caret, grouped so they read as one control. */
+.map-tb-group {
+  display: inline-flex;
+  align-items: stretch;
+}
+
+.map-tb-caret {
+  width: 13px;
+  height: 30px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  padding: 0;
+  margin-left: -1px;
+  border: 1px solid transparent;
+  border-radius: 6px;
+  background: transparent;
+  color: #cdd6f4;
+  font-size: 9px;
+  line-height: 1;
+  cursor: pointer;
+}
+
+.map-tb-caret:hover {
+  background: rgba(255, 255, 255, 0.1);
+}
+
+.map-tb-caret[aria-expanded="true"] {
+  background: rgba(94, 160, 255, 0.28);
+  border-color: rgba(120, 175, 255, 0.6);
+  color: #fff;
+}
+
+.map-tb-heatmap-popover {
+  min-width: 210px;
+  max-width: 260px;
+}
+
+/* The heatmap field labels lose their .map-spawns-section scoped styles once
+   relocated into the toolbar popover; restore block layout + full-width ranges. */
+.map-tb-heatmap-popover .dbg-field {
+  display: block;
+  margin: 4px 0;
+  width: 100%;
+  font-size: 12px;
+  color: #eef2ff;
+}
+
+.map-tb-heatmap-popover .dbg-field input[type="range"] {
+  width: 100%;
+  margin-top: 4px;
+  accent-color: #5eead4;
+}
+
+.map-tb-heatmap-popover .dbg-field select {
+  margin-left: 6px;
+  max-width: 100%;
+  font-size: 12px;
+  background: #1a1f2e;
+  color: #eef2ff;
+  border: 1px solid rgba(255, 255, 255, 0.18);
+  border-radius: 4px;
+  padding: 2px 4px;
+}
+
+.map-tb-heatmap-popover .dbg-toggle {
+  display: block;
+  margin: 4px 0;
+}
+
+.map-tb-heatmap-popover .dbg-field.is-disabled {
+  opacity: 0.55;
+}
+
+.map-tb-heatmap-popover .spawn-heatmap-player-toggles {
+  margin: 2px 0 0;
+}
+
+.map-tb-popover {
+  position: absolute;
+  top: calc(100% + 6px);
+  left: 0;
+  z-index: 20;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 10px;
+  border-radius: 8px;
+  background: rgba(21, 27, 40, 0.97);
+  border: 1px solid rgba(255, 255, 255, 0.14);
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.5);
+}
+
+.map-tb-popover.hidden {
+  display: none;
+}
+
+.map-tb-zoom-popover {
+  min-width: 190px;
+}
+
+.map-tb-zoom-slider {
+  flex: 1;
+}
+
+.map-tb-zoom-value {
+  min-width: 38px;
+  font-size: 11px;
+  color: #cdd6f4;
+}
+
+.map-tb-select {
+  background: #0e1320;
+  color: #eef2ff;
+  border: 1px solid rgba(255, 255, 255, 0.18);
+  border-radius: 6px;
+  padding: 4px 6px;
+  font-size: 12px;
+  max-width: 220px;
+}
+
+.map-tb-popover-list {
+  flex-direction: column;
+  align-items: stretch;
+  gap: 6px;
+  min-width: 210px;
+  max-width: 280px;
+  max-height: 340px;
+  overflow: auto;
+  color: #eef2ff;
+  font-size: 12px;
+}
+
+.map-tb-pop-head {
+  font-weight: 600;
+  font-size: 11px;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: #9aa6c4;
+  margin-top: 2px;
+}
+
+.map-tb-handle {
+  font-size: 16px;
+  line-height: 1;
+  color: #cdd6f4;
+  font-weight: 700;
+}
+
+.map-toolbar.collapsed {
+  gap: 0;
+  padding: 2px;
+}
+
+.map-toolbar.collapsed > *:not(.map-tb-handle) {
+  display: none;
+}
+
+/* ---- Item controls (Items popover + settings) ---- */
+.spawn-item-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 2px 0;
+}
+
+.spawn-item-row-child {
+  padding-left: 8px;
+}
+
+.spawn-item-row.is-disabled {
+  opacity: 0.4;
+}
+
+.spawn-item-icon {
+  width: 20px;
+  height: 20px;
+  object-fit: contain;
+  flex: 0 0 auto;
+}
+
+.spawn-item-name {
+  flex: 1 1 auto;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: 12px;
+  color: #eef2ff;
+}
+
+.spawn-item-states {
+  display: flex;
+  align-items: center;
+  gap: 2px;
+  flex: 0 0 auto;
+}
+
+.spawn-item-state {
+  width: 24px;
+  height: 24px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  padding: 0;
+  border: 1px solid transparent;
+  border-radius: 5px;
+  background: transparent;
+  cursor: pointer;
+}
+
+.spawn-item-state:hover {
+  background: rgba(255, 255, 255, 0.1);
+}
+
+.spawn-item-state img {
+  width: 14px;
+  height: 14px;
+  filter: invert(1);
+  opacity: 0.6;
+  pointer-events: none;
+}
+
+.spawn-item-state[aria-pressed="true"] {
+  background: rgba(94, 160, 255, 0.28);
+  border-color: rgba(120, 175, 255, 0.6);
+}
+
+.spawn-item-state[aria-pressed="true"] img {
+  opacity: 1;
+}
+
+.spawn-item-details {
+  margin: 2px 0 4px 0;
+}
+
+.spawn-item-details > summary {
+  cursor: pointer;
+  font-size: 11px;
+  color: #9aa6c4;
+  padding: 2px 0;
+}
+
+/* ---- Settings modal (was side panel) ---- */
+.map-spawns-backdrop {
+  position: absolute;
+  inset: 0;
+  z-index: 30;
+  background: rgba(4, 6, 12, 0.55);
+  pointer-events: auto;
+}
+
+.map-spawns-backdrop.hidden {
+  display: none;
+}
+
+.map-spawns-modal {
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  right: auto;
+  bottom: auto;
+  transform: translate(-50%, -50%);
+  width: min(420px, 94%);
+  max-height: 90%;
+  z-index: 31;
 }

@@ -3,7 +3,60 @@
 
   var STORAGE_KEY = "ql-live-overlay-base";
 
+  // Widget config injection: when the map runs embedded (dashboard) instead of as
+  // a standalone OBS page, parameters come from an opts object rather than the URL.
+  var configOverride = null;
+  function setConfigOverride(opts) {
+    configOverride = opts || null;
+  }
+
+  // Map-scoped teardown registry so the embedded widget can stop WS/loops/RAF/
+  // observers on unmount (OBS page never unmounts; SPA navigation does).
+  var mapWidgetCleanups = [];
+  function registerMapCleanup(fn) {
+    if (typeof fn === "function") mapWidgetCleanups.push(fn);
+  }
+  function runMapCleanups() {
+    while (mapWidgetCleanups.length) {
+      var fn = mapWidgetCleanups.pop();
+      try {
+        fn();
+      } catch (_e) {
+        /* ignore cleanup errors */
+      }
+    }
+    // Listener arrays are re-populated on the next mount (MapSpawns.init /
+    // initMap); reset to avoid duplicate handlers across re-mounts.
+    if (mapPayloadListeners) mapPayloadListeners.length = 0;
+    if (pickupListeners) pickupListeners.length = 0;
+    // Dashboard re-registers this after each mount; drop the stale closure so a
+    // previous results view does not keep receiving replay cursor updates.
+    replayCursorListener = null;
+    // Map render caches are module-scoped (shared with the OBS page, which never
+    // unmounts). SPA re-mount rebuilds the DOM with a fresh empty <img>, so these
+    // caches must be cleared: otherwise applyMapImage() sees url === currentImageSrc
+    // and ensureReplayMapFromPositions() sees a cached transform, both skip loading
+    // the image, and the stage stays black until a full page reload.
+    cachedMapKey = "";
+    cachedTransform = null;
+    currentImageSrc = "";
+    mapImageLoaded = false;
+    lastMapContext.map_name = null;
+    lastMapContext.gametype = null;
+    lastMapContext.match_id = null;
+    lastMapContext.warmup = null;
+    lastMapContext.phase = null;
+    lastMapContext._overlay_map = null;
+  }
+
   function qs(name, fallback) {
+    if (
+      configOverride &&
+      Object.prototype.hasOwnProperty.call(configOverride, name)
+    ) {
+      var cv = configOverride[name];
+      return cv == null ? fallback || "" : String(cv);
+    }
     var params = new URLSearchParams(window.location.search);
     if (!params.has(name)) return fallback || "";
     var v = params.get(name);
@@ -1480,6 +1533,10 @@
   var deathSpriteUrl = "";
 
   function ensureMapAssetsInUrl() {
+    // Embedded widget: do not touch the host page URL. Assets resolve via
+    // MapCoords.pageOverlayAssetsRoot() (the /live-overlay/ root), so no param
+    // is needed and mutating the URL would clobber the dashboard hash route.
+    if (configOverride) return;
     if (qs("assets")) return;
     if (!window.MapCoords || typeof MapCoords.overlayAssetsRoot !== "function") return;
     var root = MapCoords.overlayAssetsRoot();
@@ -1488,7 +1545,8 @@
     if (root === pageRoot) return;
     var params = new URLSearchParams(window.location.search);
     params.set("assets", root.replace(/\/+$/, ""));
-    var next = window.location.pathname + "?" + params.toString();
+    var next =
+      window.location.pathname + "?" + params.toString() + window.location.hash;
     window.history.replaceState(null, "", next);
   }
 
@@ -1667,8 +1725,8 @@
       showOpponent: true,
       showOther: true,
       playerHidden: {},
-      selfColor: "#3b82f6",
-      opponentColor: "#ef4444",
+      selfColor: "#ef4444",
+      opponentColor: "#3b82f6",
       otherColor: "#f97316",
     };
   }
@@ -1678,8 +1736,8 @@
       return MapSpawns.getPlayerColors();
     }
     return {
-      selfColor: "#3b82f6",
-      opponentColor: "#ef4444",
+      selfColor: "#ef4444",
+      opponentColor: "#3b82f6",
       otherColor: "#f97316",
     };
   }
@@ -1712,12 +1770,38 @@
     return countRenderablePlayers(players) === 2;
   }
 
+  function normalizeTeamName(team) {
+    var t = String(team == null ? "" : team)
+      .trim()
+      .toLowerCase();
+    if (t === "1") return "red";
+    if (t === "2") return "blue";
+    return t;
+  }
+
+  function findPlayerById(players, playerId) {
+    var list = normalizePlayersList(players);
+    for (var i = 0; i < list.length; i++) {
+      if (playerMotionId(list[i], i) === playerId) return list[i];
+    }
+    return null;
+  }
+
+  // Role -> color mapping (see theme.players): "self" = color 1 (Team Red /
+  // Opponent 1), "opponent" = color 2 (Team Blue / Opponent 2), "other" = hidden
+  // fallback for 3+ / unteamed players. There is no local "self" in demos, so we
+  // color by actual team; a 2-player duel without teams falls back to the
+  // reference player vs the other.
   function playerMarkerRole(playerId, players, gametype) {
-    if (!isDuelLikeContext(players, gametype)) return "other";
-    var refId = resolveReferencePlayerId(players);
-    if (!refId) return "other";
-    if (playerId === refId) return "self";
-    return "opponent";
+    var p = findPlayerById(players, playerId);
+    var team = p ? normalizeTeamName(p.team) : "";
+    if (team === "red") return "self";
+    if (team === "blue") return "opponent";
+    if (isDuelLikeContext(players, gametype)) {
+      var refId = resolveReferencePlayerId(players);
+      if (refId) return playerId === refId ? "self" : "opponent";
+    }
+    return "other";
   }
 
   function colorForPlayerRole(role) {
@@ -3643,6 +3727,50 @@
     );
   }
 
+  function rebuildReplayHeatmapTrails(targetT, settings) {
+    mapHeatmap.byId = {};
+    if (!replayState) return;
+    var isAggregate = settings.mode === "aggregate";
+    var maxAge = isAggregate
+      ? 0
+      : clampHeatmapDurationSec(settings.durationSec) * 1000;
+    var minT = isAggregate ? -Infinity : targetT - maxAge;
+    var events = replayState.events;
+    for (var i = 0; i < events.length; i++) {
+      var ev = events[i];
+      if (ev.event !== "positions") continue;
+      var t = ev.t || 0;
+      if (t > targetT) break;
+      if (t < minT) continue;
+      var list = normalizePlayersList(ev.players || []);
+      for (var j = 0; j < list.length; j++) {
+        var p = list[j];
+        if (!playerShouldRenderOnMap(p)) continue;
+        if (p.x == null || p.y == null) continue;
+        var id = playerMotionId(p, j);
+        if (!mapHeatmap.byId[id]) mapHeatmap.byId[id] = [];
+        var trail = mapHeatmap.byId[id];
+        var last = trail.length ? trail[trail.length - 1] : null;
+        trail.push({
+          x: Number(p.x),
+          y: Number(p.y),
+          t: t,
+          breakBefore:
+            !!last &&
+            heatmapTeleportJump(last.x, last.y, Number(p.x), Number(p.y)),
+        });
+      }
+    }
+  }
+
+  function renderReplayHeatmap(players, gametype, targetT) {
+    var settings = heatmapSettings();
+    if (settings.enabled) {
+      rebuildReplayHeatmapTrails(targetT, settings);
+    }
+    renderHeatmap(players, gametype);
+  }
+
   function applyReplayFramePositions() {
     if (!replayState) return;
     var targetT = replayState.startMs + replayState.cursorMs;
@@ -3659,6 +3787,7 @@
     if (window.MapSpawns && typeof MapSpawns.refreshItemRespawnOverlays === "function") {
       MapSpawns.refreshItemRespawnOverlays();
     }
+    renderReplayHeatmap(players, payload.gametype, targetT);
   }
 
   function fmtReplayClock(ms) {
@@ -3670,6 +3799,7 @@
   }
 
   var replayState = null;
+  var replayCursorListener = null;
   var replaySeeking = false;
   var replaySeekRaf = 0;
   var replaySeekPendingMs = null;
@@ -3932,7 +4062,11 @@
       playback.classList.toggle("hidden", mode !== "replay");
     }
     if (loadWrap) {
-      loadWrap.classList.toggle("hidden", mode !== "replay");
+      // Load-file belongs to the standalone replay player. The embedded results
+      // widget plays only the server replay tied to that result, so hide its
+      // file picker (will live on a dedicated Replays player page later).
+      var embedded = !!(window.MapWidget && window.MapWidget.embedded);
+      loadWrap.classList.toggle("hidden", mode !== "replay" || embedded);
     }
   }
 
@@ -4085,6 +4219,15 @@
     return normalizeReplayDocument(JSON.parse(trimmed));
   }
 
+  // Absolute wall epoch (ms) of game-clock 0, supplied by the dashboard so the
+  // embedded replay can drop the pre-match countdown lead-in and start at the
+  // fight (cursor 0 == match start). Events before it are kept for state
+  // baseline but are not reachable by the scrubber.
+  function replayTrimStartMs() {
+    var v = Number(qs("replay_trim_start_ms", ""));
+    return isFinite(v) && v > 0 ? v : null;
+  }
+
   async function activateReplayData(data) {
     var normalized = normalizeReplayDocument(data);
     var events = normalized.events;
@@ -4097,6 +4240,14 @@
     var positionsEndT = computeReplayPositionsEndT(events, meta);
     if (positionsEndT != null) {
       durationMs = Math.min(durationMs, Math.max(0, positionsEndT - startMs));
+    }
+    var trimStartMs = replayTrimStartMs();
+    if (trimStartMs != null) {
+      var endT = startMs + durationMs;
+      if (trimStartMs > startMs && trimStartMs < endT) {
+        durationMs = endT - trimStartMs;
+        startMs = trimStartMs;
+      }
     }
 
     stopReplayPlayback();
@@ -4119,6 +4270,7 @@
       lastTickMs: 0,
       source: normalized.source,
       deathWindows: buildReplayDeathWindows(events),
+      gameStartWall: computeReplayGameStartWall(events),
     };
 
     var speedSel = document.getElementById("map-replay-speed");
@@ -4262,6 +4414,60 @@
     return false;
   }
 
+  // Replay scrub is wall-clock offset (cursorMs); the dashboard match timeline is
+  // game-clock (game_time_ms). death/pickup events carry both a wall `t` and a
+  // game `time`, so the median (t - game_time) is the wall epoch of game start.
+  function computeReplayGameStartWall(events) {
+    var diffs = [];
+    for (var i = 0; i < events.length; i++) {
+      var ev = events[i];
+      if (ev.event !== "death" && ev.event !== "pickup") continue;
+      var g = replayGameTimeFieldMs(ev);
+      if (g == null) continue;
+      var t = ev.t;
+      if (t == null || !isFinite(Number(t))) continue;
+      diffs.push(Number(t) - g);
+    }
+    if (!diffs.length) return null;
+    diffs.sort(function (a, b) {
+      return a - b;
+    });
+    return diffs[Math.floor(diffs.length / 2)];
+  }
+
+  function replayCursorToGameMs(cursorMs) {
+    if (!replayState || replayState.gameStartWall == null) return null;
+    var g = replayState.startMs + (Number(cursorMs) || 0) - replayState.gameStartWall;
+    return g < 0 ? 0 : g;
+  }
+
+  function replayGameMsToCursor(gameMs) {
+    if (!replayState || replayState.gameStartWall == null) return null;
+    var dur = replayState.durationMs || 0;
+    var c = replayState.gameStartWall + (Number(gameMs) || 0) - replayState.startMs;
+    if (c < 0) c = 0;
+    if (c > dur) c = dur;
+    return c;
+  }
+
+  function notifyReplayCursorListeners() {
+    if (!replayCursorListener || !replayState) return;
+    var cursorMs = replayState.cursorMs;
+    var durationMs = replayState.durationMs || 0;
+    try {
+      replayCursorListener({
+        cursorMs: cursorMs,
+        durationMs: durationMs,
+        startMs: replayState.startMs,
+        playing: !!replayState.playing,
+        gameMs: replayCursorToGameMs(cursorMs),
+        gameMaxMs: replayCursorToGameMs(durationMs),
+      });
+    } catch (_e) {
+      /* listener errors must not break replay playback */
+    }
+  }
+
   function updateReplayBarUi() {
     if (!replayState) return;
     var scrub = document.getElementById("map-replay-scrub");
@@ -4291,6 +4497,7 @@
       if (replayState.matchId) bits.push(replayState.matchId);
       meta.textContent = bits.join(" · ");
     }
+    notifyReplayCursorListeners();
   }
 
   function stopReplayPlayback() {
@@ -4557,6 +4764,26 @@
     var silentTimer = null;
     var httpPollTimer = null;
     var gotWsFrame = false;
+    var stopped = false;
+
+    registerMapCleanup(function () {
+      stopped = true;
+      clearSilentTimer();
+      stopHttpPoll();
+      if (reconnectTimer) {
+        clearTimeout(reconnectTimer);
+        reconnectTimer = null;
+      }
+      if (ws) {
+        ws.onopen = ws.onmessage = ws.onclose = ws.onerror = null;
+        try {
+          ws.close();
+        } catch (_e) {
+          /* ignore */
+        }
+        ws = null;
+      }
+    });
 
     function clearSilentTimer() {
       if (silentTimer) {
@@ -4585,7 +4812,7 @@
     }
 
     function scheduleReconnect(ms) {
-      if (reconnectTimer) return;
+      if (reconnectTimer || stopped) return;
       reconnectTimer = setTimeout(function () {
         reconnectTimer = null;
         connect();
@@ -4593,6 +4820,7 @@
     }
 
     function connect() {
+      if (stopped) return;
       clearSilentTimer();
       stopHttpPoll();
       gotWsFrame = false;
@@ -4700,7 +4928,7 @@
     fn().catch(function (err) {
       setStatus(String(err.message || err), true);
     });
-    setInterval(function () {
+    return setInterval(function () {
       fn().catch(function (err) {
         setStatus(String(err.message || err), true);
       });
@@ -4824,10 +5052,28 @@
         var zoomHost = document.getElementById("map-zoom-host");
         if (wrap && window.ResizeObserver) {
           var resizeTarget = zoomHost || wrap;
-          new ResizeObserver(function () {
+          var ro = new ResizeObserver(function () {
             ensureMotionLoop();
-          }).observe(resizeTarget);
+          });
+          ro.observe(resizeTarget);
+          registerMapCleanup(function () {
+            ro.disconnect();
+          });
         }
+        registerMapCleanup(function () {
+          if (mapMotion && mapMotion.loopId) {
+            cancelAnimationFrame(mapMotion.loopId);
+            mapMotion.loopId = null;
+          }
+          if (pickupToastLoopId) {
+            cancelAnimationFrame(pickupToastLoopId);
+            pickupToastLoopId = null;
+          }
+          if (replayState && replayState.rafId) {
+            cancelAnimationFrame(replayState.rafId);
+            replayState.rafId = null;
+          }
+        });
         loadPickupSpriteMap().then(function () {
           return loadPickupSpriteImage(resolveDeathSpriteUrl());
         });
@@ -4838,7 +5084,10 @@
           if (useWebSocket()) {
             initMapWebSocket();
           } else {
-            loop(refreshMap, mapPollMs());
+            var mapLoopId = loop(refreshMap, mapPollMs());
+            registerMapCleanup(function () {
+              clearInterval(mapLoopId);
+            });
           }
           if (clientRecordEnabled()) {
             initClientRecordingUi();
@@ -4853,6 +5102,33 @@
     onPickup: function (fn) {
       pickupListeners.push(fn);
     },
+    replayProgress: function () {
+      if (!replayState) return null;
+      var durationMs = replayState.durationMs || 0;
+      return {
+        cursorMs: replayState.cursorMs,
+        durationMs: durationMs,
+        startMs: replayState.startMs,
+        playing: !!replayState.playing,
+        gameMs: replayCursorToGameMs(replayState.cursorMs),
+        gameMaxMs: replayCursorToGameMs(durationMs),
+      };
+    },
+    seekReplayMs: function (cursorMs) {
+      if (!replayState) return;
+      scheduleSeekReplay(Number(cursorMs) || 0);
+    },
+    seekReplayGameMs: function (gameMs) {
+      if (!replayState) return;
+      var c = replayGameMsToCursor(Number(gameMs) || 0);
+      if (c == null) return;
+      scheduleSeekReplay(c);
+    },
+    setReplayCursorListener: function (fn) {
+      replayCursorListener = typeof fn === "function" ? fn : null;
+    },
+    _setConfig: setConfigOverride,
+    _teardownMap: runMapCleanups,
     _applyMapDotsPreview: applyMapDotsPreview,
     getMapMotionKeys: function () {
       return Object.keys(mapMotion.byId);

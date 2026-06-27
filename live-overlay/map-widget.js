@@ -1,0 +1,179 @@
+(function (global) {
+  "use strict";
+
+  // Inner markup of the map widget. Mounted either by the standalone OBS page
+  // (map.html) or embedded in the dashboard match-analytics page. Phase 1 is a
+  // single-instance widget: element ids match what overlay.js / map-spawns.js
+  // look up via getElementById, so only one mounted widget per document.
+  var MARKUP =
+    '<div class="map-layout">' +
+    '<div class="map-main">' +
+    '<div class="map-stage">' +
+    '<div id="map-stage-frame" class="map-stage-frame">' +
+    '<div id="map-zoom-host" class="map-zoom-host">' +
+    '<div id="map-wrap" class="map-wrap hidden">' +
+    '<img id="map-image" alt="map" />' +
+    '<div id="map-calib" class="map-calib hidden" aria-hidden="true">' +
+    '<div class="map-calib-box">' +
+    '<svg id="map-calib-grid" class="map-calib-grid" aria-hidden="true"></svg>' +
+    '<div class="map-calib-move" title="Drag = offset \u00b7 Wheel = scale"></div>' +
+    "</div>" +
+    "</div>" +
+    '<div id="map-spawn-threshold" class="map-spawn-layer" aria-hidden="true"></div>' +
+    '<div id="map-spawns" class="map-spawn-layer" aria-hidden="true"></div>' +
+    '<div id="map-item-respawns" class="map-item-respawn-layer" aria-hidden="true"></div>' +
+    '<div id="map-spawn-ref" class="map-spawn-ref" aria-hidden="true"></div>' +
+    '<div id="map-deaths" class="map-death-layer" aria-hidden="true"></div>' +
+    '<canvas id="map-contour-trail" class="map-contour-layer hidden" aria-hidden="true"></canvas>' +
+    '<canvas id="map-heatmap" class="map-heatmap-layer hidden" aria-hidden="true"></canvas>' +
+    '<div id="map-spawn-cursor" class="map-spawn-cursor hidden" aria-hidden="true"></div>' +
+    '<div id="map-players"></div>' +
+    '<div id="map-pickups" class="map-pickups" aria-live="polite"></div>' +
+    "</div>" +
+    "</div>" +
+    "</div>" +
+    "</div>" +
+    '<div id="map-meta" class="map-meta"></div>' +
+    '<div id="map-replay-bar" class="map-replay-bar hidden" aria-label="Match replay and recording">' +
+    '<div id="map-record-controls" class="map-record-controls hidden">' +
+    '<button type="button" id="map-record-start" class="map-record-btn">Rec</button>' +
+    '<button type="button" id="map-record-stop" class="map-record-btn" disabled>Stop</button>' +
+    '<button type="button" id="map-record-save" class="map-record-btn" disabled>Save</button>' +
+    '<span id="map-record-status" class="map-record-status">0 events</span>' +
+    "</div>" +
+    '<label id="map-replay-segment-wrap" class="map-replay-select-wrap hidden">' +
+    '<span class="sr-only">Game segment</span>' +
+    '<select id="map-replay-segment-select" class="map-replay-select" aria-label="Game segment"></select>' +
+    "</label>" +
+    '<div id="map-replay-playback" class="map-replay-playback hidden">' +
+    '<button type="button" id="map-replay-play" class="map-replay-play">Play</button>' +
+    '<input id="map-replay-scrub" class="map-replay-scrub" type="range" min="0" max="0" value="0" aria-label="Replay timeline" />' +
+    '<span id="map-replay-time" class="map-replay-time">0:00 / 0:00</span>' +
+    '<label class="map-replay-speed-label">' +
+    '<span class="sr-only">Playback speed</span>' +
+    '<select id="map-replay-speed" class="map-replay-speed" aria-label="Playback speed">' +
+    '<option value="0.25">0.25\u00d7</option>' +
+    '<option value="0.5">0.5\u00d7</option>' +
+    '<option value="1" selected>1\u00d7</option>' +
+    '<option value="1.5">1.5\u00d7</option>' +
+    '<option value="2">2\u00d7</option>' +
+    '<option value="4">4\u00d7</option>' +
+    "</select>" +
+    "</label>" +
+    "</div>" +
+    '<label id="map-replay-load-wrap" class="map-replay-load-wrap hidden">' +
+    '<span class="map-replay-load-btn">Load file</span>' +
+    '<input type="file" id="map-replay-file" accept=".json,.jsonl,application/json" hidden />' +
+    "</label>" +
+    "</div>" +
+    '<div id="status" class="status"></div>' +
+    "</div>" +
+    '<aside id="map-debug" class="map-debug hidden" aria-label="Map calibration debug"></aside>' +
+    "</div>" +
+    '<div id="map-page-overlays" class="map-page-overlays">' +
+    '<aside id="map-chrome" class="map-chrome" aria-label="Map overlay chrome">' +
+    '<div id="map-killfeed" class="map-killfeed" aria-live="polite"></div>' +
+    '<div id="map-toolbar" class="map-toolbar" role="toolbar" aria-label="Map overlay toolbar"></div>' +
+    "</aside>" +
+    '<div id="map-spawns-backdrop" class="map-spawns-backdrop hidden"></div>' +
+    '<aside id="map-spawns-panel" class="map-spawns-panel map-spawns-modal hidden" role="dialog" aria-modal="true" aria-label="Map overlay settings"></aside>' +
+    "</div>";
+
+  var mountedContainer = null;
+  var fitObserver = null;
+  // Map render space is a fixed square (MAP_BASE_PX in map-spawns.js). When the
+  // widget is embedded in a narrower/wider dashboard column we scale the whole
+  // map layer to fit the column width via CSS zoom (zoom changes layout box, so
+  // the column height follows). Toolbar/modal live in #map-page-overlays (a
+  // sibling of .map-layout) and stay crisp at native size.
+  var MAP_FIT_BASE_PX = 512;
+
+  function applyFit() {
+    if (!mountedContainer) return;
+    var layout = mountedContainer.querySelector(".map-layout");
+    if (!layout) return;
+    var w = mountedContainer.clientWidth;
+    if (!w) return;
+    // The 512px map square is not the only thing in .map-layout: the replay bar
+    // (play/scrub/speed/segment/load) and other controls can make the natural
+    // content WIDER than 512. Dividing by a hardcoded 512 then over-scales and
+    // the container's overflow:hidden crops the right/bottom of the map.
+    // Measure the real natural width at zoom 1 and fit to that (never below the
+    // 512 map base, so the square fills the column when controls are narrower).
+    layout.style.zoom = "1";
+    var natural = Math.max(MAP_FIT_BASE_PX, layout.scrollWidth);
+    var scale = w / natural;
+    layout.style.zoom = scale > 0 ? String(scale) : "1";
+  }
+
+  function mount(container, opts) {
+    if (!container) throw new Error("MapWidget.mount: container required");
+    opts = opts || {};
+    destroy();
+    var embedded = !!opts.embedded;
+    MapWidget.embedded = embedded;
+    container.classList.add("map-widget-root", "overlay-body", "map-body");
+    if (embedded) container.classList.add("map-widget-embedded");
+    container.innerHTML = MARKUP;
+    mountedContainer = container;
+
+    if (global.OverlayApp && typeof OverlayApp._setConfig === "function") {
+      OverlayApp._setConfig(opts);
+    }
+    if (global.MapSpawns && typeof MapSpawns.init === "function") {
+      MapSpawns.init();
+    }
+    if (global.OverlayApp && typeof OverlayApp.initMap === "function") {
+      OverlayApp.initMap();
+    }
+
+    if (embedded) {
+      applyFit();
+      if (typeof ResizeObserver === "function") {
+        fitObserver = new ResizeObserver(applyFit);
+        fitObserver.observe(container);
+      } else if (global.addEventListener) {
+        global.addEventListener("resize", applyFit);
+      }
+    }
+    return { destroy: destroy };
+  }
+
+  function destroy() {
+    if (fitObserver) {
+      try {
+        fitObserver.disconnect();
+      } catch (_e) {
+        /* ignore */
+      }
+      fitObserver = null;
+    }
+    if (global.removeEventListener) {
+      global.removeEventListener("resize", applyFit);
+    }
+    if (global.OverlayApp && typeof OverlayApp._teardownMap === "function") {
+      OverlayApp._teardownMap();
+    }
+    if (global.OverlayApp && typeof OverlayApp._setConfig === "function") {
+      OverlayApp._setConfig(null);
+    }
+    if (mountedContainer) {
+      mountedContainer.innerHTML = "";
+      mountedContainer.classList.remove(
+        "map-widget-root",
+        "overlay-body",
+        "map-body",
+        "map-widget-embedded",
+      );
+      mountedContainer = null;
+    }
+    MapWidget.embedded = false;
+  }
+
+  global.MapWidget = {
+    mount: mount,
+    destroy: destroy,
+    MARKUP: MARKUP,
+    embedded: false,
+  };
+})(typeof window !== "undefined" ? window : globalThis);

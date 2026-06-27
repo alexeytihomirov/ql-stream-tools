@@ -1,0 +1,25 @@
+UI toolbar icons in this folder are from Icons8 (https://icons8.com),
+style "iOS Glyphs" (platform id ios11), monochrome.
+
+Free use requires a visible attribution link to https://icons8.com.
+See https://icons8.com/license for the current terms. Replace with a paid
+Icons8 plan or self-hosted icons if attribution is not desired.
+
+Vendored icon ids (https://img.icons8.com/?id=<id>&format=png):
+  overlay.png        60022  (Eye / visible)
+  layers.png         59823  (Layers)
+  zoom.png           60720  (Zoom In)
+  anchor-player.png  62889  (Map Pin)
+  anchor-mouse.png   91077  (Mouse)
+  items.png          59745  (Box)
+  heatmap.png        60985  (Fire)
+  killfeed.png       92971  (Skull)
+  settings.png       69913  (Slider / sorting options)
+  direction.png      62826  (Navigation arrow)
+  fov.png            100525 (Glasses)
+  hp-armor.png       92640  (Heart with pulse)
+  item-hidden.png    59814  (Invisible / eye-slash) -- item state: Hidden
+  item-respawn.png   59872  (Refresh) -- item state: Hide until respawn
+
+Item-state icons added earlier without recorded ids (replace if attribution
+needed): item-show.png (eye), item-timer.png (stopwatch).

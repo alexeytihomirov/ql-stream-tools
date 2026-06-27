@@ -211,8 +211,8 @@
       viewLengthPx: 80,
       arrowHeadColor: "#ffffff",
       arrowSpriteUrl: "",
-      selfColor: "#3b82f6",
-      opponentColor: "#ef4444",
+      selfColor: "#ef4444",
+      opponentColor: "#3b82f6",
       otherColor: "#f97316",
     },
     respawn: {
@@ -2132,22 +2132,28 @@
     var host = document.getElementById("spawn-item-category-toggles");
     if (!host) return;
     var cats = this.settings.itemCategories || DEFAULT_ITEM_CATEGORIES;
-    var categoryInputs = host.querySelectorAll("input[data-item-category]");
-    for (var i = 0; i < categoryInputs.length; i++) {
-      var input = categoryInputs[i];
-      var cat = input.getAttribute("data-item-category");
-      input.checked = cats[cat] !== false;
-    }
-    var classnameInputs = host.querySelectorAll("input[data-item-classname]");
-    for (var j = 0; j < classnameInputs.length; j++) {
-      var cInput = classnameInputs[j];
-      var cn = cInput.getAttribute("data-item-classname");
-      var parent = cInput.getAttribute("data-item-parent-category");
-      var parentOff = parent && cats[parent] === false;
-      cInput.checked = !parentOff && cats[cn] !== false;
-      cInput.disabled = !!parentOff;
-      var wrap = cInput.closest("label");
-      if (wrap) wrap.classList.toggle("is-disabled", !!parentOff);
+    var rows = host.querySelectorAll(".spawn-item-row");
+    for (var i = 0; i < rows.length; i++) {
+      var row = rows[i];
+      var key = row.getAttribute("data-item-key");
+      var parent = row.getAttribute("data-item-parent");
+      var disabledByParent = !!(parent && cats[parent] === false);
+      var state = this.itemStateFor(key, parent);
+      row.classList.toggle("is-disabled", disabledByParent);
+      var btns = row.querySelectorAll(".spawn-item-state");
+      for (var j = 0; j < btns.length; j++) {
+        var btn = btns[j];
+        btn.setAttribute(
+          "aria-pressed",
+          btn.getAttribute("data-item-state") === state ? "true" : "false",
+        );
+        btn.disabled = disabledByParent;
+      }
+      var iconEl = row.querySelector(".spawn-item-icon[data-item-sprite]");
+      if (iconEl && !iconEl.getAttribute("src")) {
+        var u = this._itemSpriteUrl(iconEl.getAttribute("data-item-sprite"));
+        if (u) iconEl.src = u;
+      }
     }
   };
 
@@ -2979,93 +2985,171 @@
     }
   };
 
-  MapSpawns.prototype._appendItemCategoryToggle = function (host, categoryKey, labelText) {
-    var label = document.createElement("label");
-    label.className = "dbg-toggle spawn-item-category-parent";
-    var input = document.createElement("input");
-    input.type = "checkbox";
-    input.setAttribute("data-item-category", categoryKey);
-    input.checked = this.settings.itemCategories[categoryKey] !== false;
-    var self = this;
-    input.addEventListener("change", function () {
-      self.setItemCategoryEnabled(categoryKey, this.checked);
-    });
-    label.appendChild(input);
-    label.appendChild(document.createTextNode(" " + labelText));
-    host.appendChild(label);
+  // Representative sprite (from sprite-map.json) used as the row icon for each
+  // item category in the consolidated Items menu.
+  var ITEM_CATEGORY_ICON_CLASSNAME = {
+    weapons: "weapon_railgun",
+    ammo: "ammo_rockets",
+    ammo_pack: "ammo_pack",
+    health: "item_health_mega",
+    armor: "item_armor_body",
+    powerups: "item_quad",
   };
 
-  MapSpawns.prototype._appendItemClassnameGroup = function (
+  // Single 4-state control per item: merges visibility (itemCategories on/off)
+  // with after-pickup behaviour (itemPickupDisplay timer/hide/always).
+  var ITEM_STATE_BUTTONS = [
+    { state: "off", icon: "item-hidden", title: "Hidden" },
+    { state: "always", icon: "item-show", title: "Always visible" },
+    { state: "hide", icon: "item-respawn", title: "Hide until respawn" },
+    { state: "timer", icon: "item-timer", title: "Timer ring after pickup" },
+  ];
+
+  MapSpawns.prototype._itemSpriteUrl = function (classname) {
+    if (!window.MapCoords || !classname) return "";
+    var rel = resolveSprite(classname, this.spriteMap);
+    return rel ? MapCoords.assetUrl(rel) : "";
+  };
+
+  MapSpawns.prototype.itemStateFor = function (key, parentKey) {
+    var cats = this.settings.itemCategories || DEFAULT_ITEM_CATEGORIES;
+    if (parentKey && cats[parentKey] === false) return "off";
+    if (cats[key] === false) return "off";
+    if (parentKey) {
+      return pickupDisplayForClassname(key, this.settings) || "timer";
+    }
+    var modes = mergeItemPickupDisplay(this.settings.itemPickupDisplay);
+    return modes[key] || "timer";
+  };
+
+  MapSpawns.prototype.setItemState = function (key, state, parentKey) {
+    if (!this.settings.itemCategories) {
+      this.settings.itemCategories = Object.assign({}, DEFAULT_ITEM_CATEGORIES);
+    }
+    if (!this.settings.itemPickupDisplay) {
+      this.settings.itemPickupDisplay = mergeItemPickupDisplay(null);
+    }
+    markCustom(this.settings);
+    if (state === "off") {
+      this.settings.itemCategories[key] = false;
+    } else {
+      this.settings.itemCategories[key] = true;
+      if (parentKey && this.settings.itemCategories[parentKey] === false) {
+        this.settings.itemCategories[parentKey] = true;
+      }
+      var m = normalizePickupDisplayMode(state, false);
+      if (m) this.settings.itemPickupDisplay[key] = m;
+    }
+    saveSettings(this.settings);
+    this._markStaticLayerDirty();
+    this.render();
+    this.syncItemCategoryControls();
+  };
+
+  MapSpawns.prototype._appendItemRow = function (
+    host,
+    key,
+    labelText,
+    iconClassname,
+    parentKey,
+  ) {
+    var self = this;
+    var row = document.createElement("div");
+    row.className = "spawn-item-row" + (parentKey ? " spawn-item-row-child" : "");
+    row.setAttribute("data-item-key", key);
+    if (parentKey) row.setAttribute("data-item-parent", parentKey);
+
+    var icon = document.createElement("img");
+    icon.className = "spawn-item-icon";
+    icon.alt = "";
+    icon.setAttribute("aria-hidden", "true");
+    icon.setAttribute("data-item-sprite", iconClassname || "");
+    // Keep the 20px slot (visibility, not display) so names stay aligned even
+    // when a sprite is missing or fails to load; reveal once a sprite resolves.
+    icon.style.visibility = "hidden";
+    icon.onerror = function () {
+      icon.style.visibility = "hidden";
+    };
+    icon.onload = function () {
+      icon.style.visibility = "visible";
+    };
+    var url = this._itemSpriteUrl(iconClassname);
+    if (url) icon.src = url;
+    row.appendChild(icon);
+
+    var name = document.createElement("span");
+    name.className = "spawn-item-name";
+    name.textContent = labelText;
+    row.appendChild(name);
+
+    var states = document.createElement("div");
+    states.className = "spawn-item-states";
+    states.setAttribute("role", "group");
+    ITEM_STATE_BUTTONS.forEach(function (b) {
+      var btn = document.createElement("button");
+      btn.type = "button";
+      btn.className = "spawn-item-state";
+      btn.setAttribute("data-item-state", b.state);
+      btn.title = b.title;
+      btn.setAttribute("aria-label", labelText + ": " + b.title);
+      var img = document.createElement("img");
+      img.src =
+        window.MapCoords && typeof MapCoords.assetUrl === "function"
+          ? MapCoords.assetUrl("ui-icons/" + b.icon + ".png")
+          : "ui-icons/" + b.icon + ".png";
+      img.alt = "";
+      img.setAttribute("aria-hidden", "true");
+      btn.appendChild(img);
+      btn.addEventListener("click", function () {
+        self.setItemState(key, b.state, parentKey || null);
+      });
+      states.appendChild(btn);
+    });
+    row.appendChild(states);
+    host.appendChild(row);
+  };
+
+  MapSpawns.prototype._appendItemGroup = function (
     host,
     categoryKey,
     categoryLabel,
     classnames,
   ) {
-    var group = document.createElement("div");
-    group.className = "spawn-item-category-group";
-
-    var head = document.createElement("div");
-    head.className = "spawn-item-category-group-head";
-    this._appendItemCategoryToggle(head, categoryKey, categoryLabel);
-    group.appendChild(head);
-
+    this._appendItemRow(
+      host,
+      categoryKey,
+      categoryLabel,
+      ITEM_CATEGORY_ICON_CLASSNAME[categoryKey],
+    );
     if (classnames && classnames.length) {
       var details = document.createElement("details");
-      details.className = "spawn-item-category-details";
-      details.open = true;
+      details.className = "spawn-item-details";
       var summary = document.createElement("summary");
       summary.textContent = "Individual types";
       details.appendChild(summary);
-
-      var children = document.createElement("div");
-      children.className = "spawn-item-category-children";
-      var self = this;
       for (var i = 0; i < classnames.length; i++) {
-        var cn = classnames[i];
-        var childLabel = document.createElement("label");
-        childLabel.className = "dbg-toggle spawn-item-category-child";
-        var childInput = document.createElement("input");
-        childInput.type = "checkbox";
-        childInput.setAttribute("data-item-classname", cn);
-        childInput.setAttribute("data-item-parent-category", categoryKey);
-        childInput.checked = self.settings.itemCategories[cn] !== false;
-        childInput.addEventListener("change", function () {
-          var classname = this.getAttribute("data-item-classname");
-          self.setItemClassnameEnabled(classname, this.checked);
-        });
-        childLabel.appendChild(childInput);
-        childLabel.appendChild(
-          document.createTextNode(" " + itemClassnameLabel(cn)),
+        this._appendItemRow(
+          details,
+          classnames[i],
+          itemClassnameLabel(classnames[i]),
+          classnames[i],
+          categoryKey,
         );
-        children.appendChild(childLabel);
       }
-      details.appendChild(children);
-      group.appendChild(details);
+      host.appendChild(details);
     }
-
-    host.appendChild(group);
   };
 
   MapSpawns.prototype.rebuildItemCategoryControls = function () {
     var host = document.getElementById("spawn-item-category-toggles");
     if (!host) return;
     host.innerHTML = "";
-
-    this._appendItemCategoryToggle(host, "weapons", "Weapons");
-    this._appendItemCategoryToggle(host, "ammo", "Ammo");
-    this._appendItemCategoryToggle(
-      host,
-      "ammo_pack",
-      "Ammo packs (CA/FFA; hidden in duel/TDM)",
-    );
-    this._appendItemClassnameGroup(host, "health", "Health", HEALTH_CLASSNAMES);
-    this._appendItemClassnameGroup(host, "armor", "Armor", ARMOR_CLASSNAMES);
-    this._appendItemClassnameGroup(
-      host,
-      "powerups",
-      "Powerups",
-      POWERUP_CLASSNAME_LIST,
-    );
+    this._appendItemRow(host, "weapons", "Weapons", ITEM_CATEGORY_ICON_CLASSNAME.weapons);
+    this._appendItemRow(host, "ammo", "Ammo", ITEM_CATEGORY_ICON_CLASSNAME.ammo);
+    this._appendItemRow(host, "ammo_pack", "Ammo packs", ITEM_CATEGORY_ICON_CLASSNAME.ammo_pack);
+    this._appendItemGroup(host, "health", "Health", HEALTH_CLASSNAMES);
+    this._appendItemGroup(host, "armor", "Armor", ARMOR_CLASSNAMES);
+    this._appendItemGroup(host, "powerups", "Powerups", POWERUP_CLASSNAME_LIST);
     this.syncItemCategoryControls();
   };
 
@@ -3490,57 +3574,15 @@
     host.appendChild(group);
   };
 
+  // After-pickup behaviour is now merged into the consolidated Items control
+  // (see rebuildItemCategoryControls / setItemState). These remain as no-ops so
+  // existing callers (presets, profile load) keep working.
   MapSpawns.prototype.rebuildPickupDisplayControls = function () {
     var host = document.getElementById("spawn-pickup-display-toggles");
-    if (!host) return;
-    host.innerHTML = "";
-    this._appendPickupDisplayCategoryRow(host, "weapons", "Weapons");
-    this._appendPickupDisplayCategoryRow(host, "ammo", "Ammo");
-    this._appendPickupDisplayCategoryRow(
-      host,
-      "ammo_pack",
-      "Ammo packs",
-    );
-    this._appendPickupDisplayClassnameGroup(
-      host,
-      "health",
-      "Health (default)",
-      HEALTH_CLASSNAMES,
-    );
-    this._appendPickupDisplayClassnameGroup(
-      host,
-      "armor",
-      "Armor (default)",
-      ARMOR_CLASSNAMES,
-    );
-    this._appendPickupDisplayCategoryRow(host, "powerups", "Powerups");
-    this.syncPickupDisplayControls();
+    if (host) host.innerHTML = "";
   };
 
-  MapSpawns.prototype.syncPickupDisplayControls = function () {
-    var host = document.getElementById("spawn-pickup-display-toggles");
-    if (!host) return;
-    var modes = mergeItemPickupDisplay(this.settings.itemPickupDisplay);
-    var cats = this.settings.itemCategories || DEFAULT_ITEM_CATEGORIES;
-    var categoryInputs = host.querySelectorAll("select[data-pickup-display-category]");
-    for (var i = 0; i < categoryInputs.length; i++) {
-      var input = categoryInputs[i];
-      var cat = input.getAttribute("data-pickup-display-category");
-      input.value = modes[cat] || "timer";
-    }
-    var classnameInputs = host.querySelectorAll("select[data-pickup-display-classname]");
-    for (var j = 0; j < classnameInputs.length; j++) {
-      var cInput = classnameInputs[j];
-      var cn = cInput.getAttribute("data-pickup-display-classname");
-      var parent = cInput.getAttribute("data-pickup-display-parent-category");
-      var parentOff = parent && cats[parent] === false;
-      var typeOff = cats[cn] === false;
-      cInput.value = pickupDisplayOverrideForClassname(cn, this.settings);
-      cInput.disabled = !!parentOff || !!typeOff;
-      var wrap = cInput.closest("label");
-      if (wrap) wrap.classList.toggle("is-disabled", cInput.disabled);
-    }
-  };
+  MapSpawns.prototype.syncPickupDisplayControls = function () {};
 
   MapSpawns.prototype.syncProfileControls = function () {
     var select = document.getElementById("spawn-profile-select");
@@ -3601,7 +3643,6 @@
       "spawn-theme-view-sprite": theme.players.arrowSpriteUrl,
       "spawn-theme-player-self": theme.players.selfColor,
       "spawn-theme-player-opponent": theme.players.opponentColor,
-      "spawn-theme-player-other": theme.players.otherColor,
       "spawn-theme-respawn-color": theme.respawn.ringColor,
       "spawn-theme-respawn-bg": theme.respawn.ringBg,
       "spawn-theme-respawn-count": theme.respawn.countColor,
@@ -3704,7 +3745,6 @@
       '<label class="dbg-toggle"><input type="radio" name="spawn-anchor" value="cursor" /> Anchor: mouse</label>' +
       '<label class="dbg-toggle"><input type="checkbox" id="spawn-show-inactive" /> Show rejected spawns</label>' +
       '<label class="dbg-toggle"><input type="checkbox" id="spawn-show-threshold" /> Show threshold square</label>' +
-      '<label class="dbg-field">middle_val override <input type="number" id="spawn-middle-val" min="0" step="1" placeholder="auto" /></label>' +
       '<div id="spawn-meta" class="dbg-meta"></div>' +
       "</section>" +
       "</div>" +
@@ -3758,13 +3798,8 @@
       '<div class="map-spawns-tab-panel hidden" data-settings-panel="items">' +
       '<section class="map-spawns-section">' +
       "<h3>Item categories</h3>" +
-      '<p class="map-spawns-hint">When the items layer is on — toggle categories; expand Health, Armor, or Powerups for per-type filters. Shards off by default (25 s respawn).</p>' +
+      '<p class="map-spawns-hint">Per item: Hidden / Always visible / Hide until respawn / Timer ring after pickup. Expand Health, Armor, Powerups for per-type. Shards off by default (25 s respawn).</p>' +
       '<div id="spawn-item-category-toggles"></div>' +
-      "</section>" +
-      '<section class="map-spawns-section">' +
-      "<h3>After pickup</h3>" +
-      '<p class="map-spawns-hint">Timer = dim + countdown ring. Hide = sprite gone until respawn (no ring). Always = never hide on pickup.</p>' +
-      '<div id="spawn-pickup-display-toggles"></div>' +
       "</section>" +
       "</div>" +
       '<div class="map-spawns-tab-panel hidden" data-settings-panel="hud">' +
@@ -3812,10 +3847,9 @@
       '<input type="range" id="spawn-theme-view-opacity" min="0" max="100" step="5" value="100" /></label>' +
       '<label class="dbg-field">Arrow length (px) <input type="number" id="spawn-theme-view-length" min="36" max="140" step="4" /></label>' +
       '<label class="dbg-field">Arrow sprite URL <input type="url" id="spawn-theme-view-sprite" placeholder="https://…/arrow.svg" /></label>' +
-      '<label class="dbg-field">Self color (duel) <input type="color" id="spawn-theme-player-self" /></label>' +
-      '<label class="dbg-field">Opponent color (duel) <input type="color" id="spawn-theme-player-opponent" /></label>' +
-      '<label class="dbg-field">Other players color <input type="color" id="spawn-theme-player-other" /></label>' +
-      '<p class="map-spawns-hint">Sprite URLs must be reachable from OBS Browser Source (CDN or same host as overlay). Duel / 2-player matches use self vs opponent colors on dots and arrows.</p>' +
+      '<label class="dbg-field">Opponent 1 / Team Red <input type="color" id="spawn-theme-player-self" /></label>' +
+      '<label class="dbg-field">Opponent 2 / Team Blue <input type="color" id="spawn-theme-player-opponent" /></label>' +
+      '<p class="map-spawns-hint">Sprite URLs must be reachable from OBS Browser Source (CDN or same host as overlay). Players are colored by team (red / blue); in a 2-player duel without teams the reference player uses the first color, the other uses the second.</p>' +
       "</section>" +
       '<section class="map-spawns-section">' +
       "<h3>Theme — respawn timer</h3>" +
@@ -3846,7 +3880,6 @@
     var enabled = document.getElementById("spawn-enabled");
     var inactive = document.getElementById("spawn-show-inactive");
     var threshold = document.getElementById("spawn-show-threshold");
-    var middle = document.getElementById("spawn-middle-val");
     var playerSelect = document.getElementById("spawn-reference-player");
     var killfeedToggle = document.getElementById("spawn-show-killfeed");
     var pickupToastsToggle = document.getElementById("spawn-show-pickup-toasts");
@@ -4054,16 +4087,6 @@
         self.render();
       });
     }
-    if (middle) {
-      middle.addEventListener("change", function () {
-        markCustom(self.settings);
-        var v = middle.value.trim();
-        self.settings.middleVal = v === "" ? null : Number(v);
-        saveSettings(self.settings);
-        self.updatePanelMeta();
-        self.render();
-      });
-    }
     anchors.forEach(function (el) {
       el.checked = el.value === self.settings.anchor;
       el.addEventListener("change", function () {
@@ -4185,7 +4208,6 @@
     bindThemeInput("spawn-theme-view-sprite", "players", "arrowSpriteUrl");
     bindThemeInput("spawn-theme-player-self", "players", "selfColor");
     bindThemeInput("spawn-theme-player-opponent", "players", "opponentColor");
-    bindThemeInput("spawn-theme-player-other", "players", "otherColor");
     bindThemeInput("spawn-theme-respawn-color", "respawn", "ringColor");
     bindThemeInput("spawn-theme-respawn-bg", "respawn", "ringBg");
     bindThemeInput("spawn-theme-respawn-count", "respawn", "countColor");
@@ -4241,6 +4263,8 @@
         self.togglePanel(false);
       });
     }
+
+    this.buildToolbar();
   };
 
   MapSpawns.prototype.syncChrome = function () {
@@ -4248,6 +4272,10 @@
     var btn = this.toggleBtn;
     if (panel) {
       panel.classList.toggle("hidden", !this.settings.panelOpen);
+    }
+    var backdrop = document.getElementById("map-spawns-backdrop");
+    if (backdrop) {
+      backdrop.classList.toggle("hidden", !this.settings.panelOpen);
     }
     if (btn) {
       btn.classList.remove("hidden");
@@ -4257,6 +4285,499 @@
       );
     }
     document.body.classList.toggle("map-spawns-mode", !!this.settings.panelOpen);
+    this.syncToolbar();
+  };
+
+  MapSpawns.prototype.openSettingsTab = function (tabId) {
+    if (tabId) this.switchSettingsTab(tabId);
+    this.togglePanel(true);
+  };
+
+  MapSpawns.prototype.syncToolbar = function () {
+    var s = this.settings;
+    function pressed(btn, on) {
+      if (btn) btn.setAttribute("aria-pressed", on ? "true" : "false");
+    }
+    pressed(this._tbOverlay, !!s.enabled);
+    pressed(this._tbHeatmap, mergeHeatmap(s.heatmap).enabled === true);
+    pressed(this._tbKillfeed, s.showKillfeed !== false);
+    pressed(this._tbPickupFeed, s.showPickupToasts !== false);
+    pressed(this._tbAnchorPlayer, s.anchor === "player");
+    pressed(this._tbAnchorMouse, s.anchor === "cursor");
+    pressed(this._tbDirection, s.showDirectionArrow !== false);
+    pressed(this._tbFov, s.showFovWedge !== false);
+    pressed(this._tbStats, s.showPlayerHealthArmor !== false);
+  };
+
+  // Compact top-left icon toolbar. Quick toggles proxy to the detailed controls
+  // in the settings modal (single source of truth); popovers mirror the modal
+  // inputs so existing bindings keep working.
+  MapSpawns.prototype.buildToolbar = function () {
+    var bar = document.getElementById("map-toolbar");
+    if (!bar) return;
+    var self = this;
+    bar.innerHTML = "";
+
+    // Embedded (dashboard) = toolbar always visible. OBS standalone = collapsible
+    // to a single handle so it can be hidden from the broadcast frame.
+    var embedded = !!(window.MapWidget && window.MapWidget.embedded);
+
+    function iconUrl(name) {
+      if (window.MapCoords && typeof MapCoords.assetUrl === "function") {
+        return MapCoords.assetUrl("ui-icons/" + name + ".png");
+      }
+      return "ui-icons/" + name + ".png";
+    }
+    function closePopovers(except) {
+      var pops = bar.querySelectorAll(".map-tb-popover");
+      for (var i = 0; i < pops.length; i++) {
+        if (pops[i] !== except) pops[i].classList.add("hidden");
+      }
+    }
+    // Align a popover under its trigger button (popover is absolute, offsetParent
+    // is the toolbar). Clamp so a wide popover does not overflow the bar's right
+    // edge by much.
+    function placePop(pop, btn) {
+      if (!pop || !btn) return;
+      var left = btn.offsetLeft || 0;
+      var max = (bar.clientWidth || 0) - (pop.offsetWidth || 0);
+      if (max > 0 && left > max) left = max;
+      if (left < 0) left = 0;
+      pop.style.left = left + "px";
+    }
+    function makeBtn(opts) {
+      var btn = document.createElement("button");
+      btn.type = "button";
+      btn.className = "map-tb-btn";
+      btn.title = opts.title;
+      btn.setAttribute("aria-label", opts.title);
+      if (opts.id) btn.id = opts.id;
+      if (opts.toggle) btn.setAttribute("aria-pressed", "false");
+      var img = document.createElement("img");
+      img.src = iconUrl(opts.icon);
+      img.alt = "";
+      img.setAttribute("aria-hidden", "true");
+      btn.appendChild(img);
+      if (opts.onClick) btn.addEventListener("click", opts.onClick);
+      bar.appendChild(btn);
+      return btn;
+    }
+    function sep() {
+      var s = document.createElement("span");
+      s.className = "map-tb-sep";
+      s.setAttribute("aria-hidden", "true");
+      bar.appendChild(s);
+    }
+    // Thin caret rendered right after a main toggle button. Opens the button's
+    // extra-settings popover WITHOUT toggling the feature, so the popover can be
+    // reopened freely (previously you had to toggle a feature off/on to see it).
+    function addCaret(mainBtn, pop, opts) {
+      if (!mainBtn || !pop) return null;
+      opts = opts || {};
+      var group = document.createElement("span");
+      group.className = "map-tb-group";
+      if (mainBtn.parentNode) mainBtn.parentNode.insertBefore(group, mainBtn);
+      else bar.appendChild(group);
+      group.appendChild(mainBtn);
+      var caret = document.createElement("button");
+      caret.type = "button";
+      caret.className = "map-tb-caret";
+      var ttl = opts.title || "More settings";
+      caret.title = ttl;
+      caret.setAttribute("aria-label", ttl);
+      caret.setAttribute("aria-haspopup", "true");
+      caret.setAttribute("aria-expanded", "false");
+      caret.textContent = "\u25be";
+      caret.addEventListener("click", function (ev) {
+        ev.stopPropagation();
+        var show = pop.classList.contains("hidden");
+        closePopovers(pop);
+        var carets = bar.querySelectorAll(".map-tb-caret");
+        for (var i = 0; i < carets.length; i++) {
+          carets[i].setAttribute("aria-expanded", "false");
+        }
+        pop.classList.toggle("hidden", !show);
+        caret.setAttribute("aria-expanded", show ? "true" : "false");
+        if (show) {
+          if (typeof opts.onOpen === "function") opts.onOpen();
+          placePop(pop, mainBtn);
+        }
+      });
+      group.appendChild(caret);
+      return caret;
+    }
+    function proxyCheckbox(id) {
+      var cb = document.getElementById(id);
+      if (!cb) return false;
+      cb.checked = !cb.checked;
+      cb.dispatchEvent(new Event("change"));
+      return cb.checked;
+    }
+    // val: "player" | "cursor" | "none" (none = respawn helper off, no anchor).
+    function applyAnchor(val) {
+      markCustom(self.settings);
+      self.settings.anchor = val;
+      saveSettings(self.settings);
+      var radios = document.querySelectorAll('input[name="spawn-anchor"]');
+      for (var i = 0; i < radios.length; i++) {
+        radios[i].checked = radios[i].value === val;
+      }
+      self.syncAnchorControls();
+      self.render();
+      self.syncToolbar();
+    }
+
+    if (!embedded) {
+      var collapsed = self.settings.toolbarCollapsed === true;
+      bar.classList.toggle("collapsed", collapsed);
+      var handle = document.createElement("button");
+      handle.type = "button";
+      handle.className = "map-tb-btn map-tb-handle";
+      handle.title = "Hide / show toolbar";
+      handle.setAttribute("aria-label", "Hide / show toolbar");
+      handle.textContent = collapsed ? "\u00bb" : "\u00ab";
+      handle.addEventListener("click", function () {
+        var nowCollapsed = !bar.classList.contains("collapsed");
+        bar.classList.toggle("collapsed", nowCollapsed);
+        handle.textContent = nowCollapsed ? "\u00bb" : "\u00ab";
+        self.settings.toolbarCollapsed = nowCollapsed;
+        saveSettings(self.settings);
+      });
+      bar.appendChild(handle);
+      sep();
+    }
+
+    self._tbOverlay = makeBtn({
+      icon: "overlay",
+      title: "Overlay on / off",
+      toggle: true,
+      onClick: function () {
+        proxyCheckbox("spawn-enabled");
+        self.syncToolbar();
+      },
+    });
+
+    sep();
+
+    var layersPop = document.createElement("div");
+    layersPop.className = "map-tb-popover map-tb-popover-list hidden";
+    self._tbLayers = makeBtn({
+      icon: "layers",
+      title: "Layers & spawns",
+      onClick: function () {
+        var show = layersPop.classList.contains("hidden");
+        closePopovers(layersPop);
+        layersPop.classList.toggle("hidden", !show);
+        if (show) placePop(layersPop, self._tbLayers);
+      },
+    });
+    bar.appendChild(layersPop);
+
+    var itemsPop = document.createElement("div");
+    itemsPop.className = "map-tb-popover map-tb-popover-list hidden";
+    self._tbItems = makeBtn({
+      icon: "items",
+      title: "Items",
+      onClick: function () {
+        var show = itemsPop.classList.contains("hidden");
+        closePopovers(itemsPop);
+        itemsPop.classList.toggle("hidden", !show);
+        if (show) placePop(itemsPop, self._tbItems);
+      },
+    });
+    bar.appendChild(itemsPop);
+
+    self._tbHeatmap = makeBtn({
+      icon: "heatmap",
+      title: "Heatmap on / off",
+      toggle: true,
+      onClick: function () {
+        proxyCheckbox("spawn-heatmap-enabled");
+        self.syncToolbar();
+      },
+    });
+    var heatmapPop = document.createElement("div");
+    heatmapPop.className =
+      "map-tb-popover map-tb-popover-list map-tb-heatmap-popover hidden";
+    bar.appendChild(heatmapPop);
+    addCaret(self._tbHeatmap, heatmapPop, { title: "Heatmap settings" });
+
+    sep();
+
+    var refPop = document.createElement("div");
+    refPop.className = "map-tb-popover map-tb-ref-popover hidden";
+    var refSel = document.createElement("select");
+    refSel.className = "map-tb-select";
+    refSel.setAttribute("aria-label", "Reference player");
+    refPop.appendChild(refSel);
+    refSel.addEventListener("change", function () {
+      var src = document.getElementById("spawn-reference-player");
+      if (src) {
+        src.value = refSel.value;
+        src.dispatchEvent(new Event("change"));
+      }
+    });
+    function mirrorRef() {
+      var src = document.getElementById("spawn-reference-player");
+      refSel.innerHTML = src ? src.innerHTML : "";
+      if (src) refSel.value = src.value;
+    }
+
+    self._tbAnchorPlayer = makeBtn({
+      icon: "anchor-player",
+      title: "Respawn helper: player",
+      toggle: true,
+      onClick: function () {
+        // Main button is a plain toggle; the caret opens the reference-player
+        // select without toggling the helper off/on.
+        applyAnchor(self.settings.anchor === "player" ? "none" : "player");
+      },
+    });
+    bar.appendChild(refPop);
+    addCaret(self._tbAnchorPlayer, refPop, {
+      title: "Reference player",
+      onOpen: mirrorRef,
+    });
+    self._tbAnchorMouse = makeBtn({
+      icon: "anchor-mouse",
+      title: "Respawn helper: mouse",
+      toggle: true,
+      onClick: function () {
+        if (self.settings.anchor === "cursor") {
+          applyAnchor("none");
+        } else {
+          applyAnchor("cursor");
+        }
+        refPop.classList.add("hidden");
+      },
+    });
+
+    sep();
+
+    // Direction (player facing) toggle + style select, modeled on the anchor
+    // control: released = no direction, pressed = direction on with a style
+    // select popover. Proxies the hidden modal controls.
+    function setCheckbox(id, val) {
+      var cb = document.getElementById(id);
+      if (!cb) return;
+      cb.checked = val;
+      cb.dispatchEvent(new Event("change"));
+    }
+    var dirPop = document.createElement("div");
+    dirPop.className = "map-tb-popover map-tb-dir-popover hidden";
+    var dirSel = document.createElement("select");
+    dirSel.className = "map-tb-select";
+    dirSel.setAttribute("aria-label", "Direction style");
+    dirPop.appendChild(dirSel);
+    dirSel.addEventListener("change", function () {
+      var src = document.getElementById("spawn-player-marker-style");
+      if (src) {
+        src.value = dirSel.value;
+        src.dispatchEvent(new Event("change"));
+      }
+    });
+    function mirrorDir() {
+      var src = document.getElementById("spawn-player-marker-style");
+      dirSel.innerHTML = src ? src.innerHTML : "";
+      if (src) dirSel.value = src.value;
+    }
+    self._tbDirection = makeBtn({
+      icon: "direction",
+      title: "Direction (facing) on / off",
+      toggle: true,
+      onClick: function () {
+        // Plain toggle; the caret opens the direction-style select.
+        setCheckbox(
+          "spawn-show-direction-arrow",
+          self.settings.showDirectionArrow === false,
+        );
+        self.syncToolbar();
+      },
+    });
+    bar.appendChild(dirPop);
+    addCaret(self._tbDirection, dirPop, {
+      title: "Direction style",
+      onOpen: mirrorDir,
+    });
+
+    self._tbFov = makeBtn({
+      icon: "fov",
+      title: "FOV wedge on / off",
+      toggle: true,
+      onClick: function () {
+        proxyCheckbox("spawn-show-fov-wedge");
+        self.syncToolbar();
+      },
+    });
+    self._tbStats = makeBtn({
+      icon: "hp-armor",
+      title: "HP / armor labels on / off",
+      toggle: true,
+      onClick: function () {
+        proxyCheckbox("spawn-show-player-stats");
+        self.syncToolbar();
+      },
+    });
+
+    sep();
+
+    var zoomPop = document.createElement("div");
+    zoomPop.className = "map-tb-popover map-tb-zoom-popover hidden";
+    var zoomVal = document.createElement("span");
+    zoomVal.className = "map-tb-zoom-value";
+    var zoomSlider = document.createElement("input");
+    zoomSlider.type = "range";
+    zoomSlider.min = String(MAP_ZOOM_MIN);
+    zoomSlider.max = String(MAP_ZOOM_MAX);
+    zoomSlider.step = "5";
+    zoomSlider.className = "map-tb-zoom-slider";
+    zoomPop.appendChild(zoomVal);
+    zoomPop.appendChild(zoomSlider);
+    function mirrorZoom() {
+      var src = document.getElementById("spawn-map-zoom");
+      var v = src ? src.value : String(clampMapZoom(self.settings.mapZoomPercent));
+      zoomSlider.value = v;
+      zoomVal.textContent = v + "%";
+    }
+    zoomSlider.addEventListener("input", function () {
+      var src = document.getElementById("spawn-map-zoom");
+      if (src) {
+        src.value = zoomSlider.value;
+        src.dispatchEvent(new Event("input"));
+      }
+      zoomVal.textContent = zoomSlider.value + "%";
+    });
+    zoomSlider.addEventListener("change", function () {
+      var src = document.getElementById("spawn-map-zoom");
+      if (src) src.dispatchEvent(new Event("change"));
+    });
+    var zoomBtn = makeBtn({
+      icon: "zoom",
+      title: "Map zoom",
+      onClick: function () {
+        mirrorZoom();
+        var show = zoomPop.classList.contains("hidden");
+        closePopovers(zoomPop);
+        zoomPop.classList.toggle("hidden", !show);
+        if (show) placePop(zoomPop, zoomBtn);
+      },
+    });
+    bar.appendChild(zoomPop);
+
+    sep();
+
+    self._tbKillfeed = makeBtn({
+      icon: "killfeed",
+      title: "Killfeed on / off",
+      toggle: true,
+      onClick: function () {
+        proxyCheckbox("spawn-show-killfeed");
+        self.syncToolbar();
+      },
+    });
+    self._tbPickupFeed = makeBtn({
+      icon: "items",
+      title: "Pickup feed on / off",
+      toggle: true,
+      onClick: function () {
+        proxyCheckbox("spawn-show-pickup-toasts");
+        self.syncToolbar();
+      },
+    });
+    // Settings button drives the modal; click binding is added by init() via
+    // this.toggleBtn, so no onClick here (avoids double toggle).
+    self.toggleBtn = makeBtn({
+      icon: "settings",
+      title: "All settings",
+      id: "map-spawns-toggle",
+    });
+
+    var backdrop = document.getElementById("map-spawns-backdrop");
+    if (backdrop && !backdrop.dataset.qlBound) {
+      backdrop.dataset.qlBound = "1";
+      backdrop.addEventListener("click", function () {
+        self.togglePanel(false);
+      });
+    }
+    if (!self._tbOutsideBound) {
+      self._tbOutsideBound = true;
+      document.addEventListener("click", function (ev) {
+        var t = document.getElementById("map-toolbar");
+        if (t && !t.contains(ev.target)) {
+          var pops = t.querySelectorAll(".map-tb-popover");
+          for (var i = 0; i < pops.length; i++) pops[i].classList.add("hidden");
+          var carets = t.querySelectorAll(".map-tb-caret");
+          for (var k = 0; k < carets.length; k++) {
+            carets[k].setAttribute("aria-expanded", "false");
+          }
+        }
+      });
+    }
+
+    // Relocate the (already populated) layer / item control groups from the
+    // settings modal into the toolbar popovers. Moving DOM nodes preserves their
+    // event bindings; getElementById-based sync/rebuild keeps targeting them.
+    function moveInto(pop, id, labelText) {
+      var el = document.getElementById(id);
+      if (!el) return;
+      var node =
+        el.tagName === "INPUT" || el.tagName === "SELECT"
+          ? el.closest("label") || el
+          : el;
+      if (labelText) {
+        var h = document.createElement("div");
+        h.className = "map-tb-pop-head";
+        h.textContent = labelText;
+        pop.appendChild(h);
+      }
+      pop.appendChild(node);
+    }
+    moveInto(layersPop, "spawn-layer-toggles");
+    moveInto(layersPop, "spawn-show-inactive");
+    moveInto(layersPop, "spawn-show-threshold");
+    moveInto(itemsPop, "spawn-item-category-toggles", "Items");
+    if (!layersPop.querySelector("*")) {
+      layersPop.appendChild(document.createTextNode("No layers for this map."));
+    }
+
+    // Heatmap settings move into the toolbar popover next to the Heatmap button.
+    // The enable checkbox stays in the (hidden) modal section as the proxy target
+    // for the toolbar Heatmap toggle; only its detail controls relocate here.
+    moveInto(heatmapPop, "spawn-heatmap-mode", "Heatmap");
+    moveInto(heatmapPop, "spawn-heatmap-duration");
+    moveInto(heatmapPop, "spawn-heatmap-opacity");
+    moveInto(heatmapPop, "spawn-heatmap-player-toggles", "Players");
+    var hmEnabled = document.getElementById("spawn-heatmap-enabled");
+    var hmSection =
+      hmEnabled && hmEnabled.closest
+        ? hmEnabled.closest("section.map-spawns-section")
+        : null;
+    if (hmSection) hmSection.style.display = "none";
+
+    // Layers + Items now live in toolbar popovers; hide their modal tabs and
+    // default the modal to a remaining tab. Source controls (overlay / zoom /
+    // anchor) stay in the hidden layers panel for the toolbar proxies.
+    if (self.panel) {
+      ["layers", "items", "hud"].forEach(function (t) {
+        var tab = self.panel.querySelector('[data-settings-tab="' + t + '"]');
+        if (tab) tab.style.display = "none";
+      });
+    }
+    // Direction toggle + style now live on the toolbar; hide their modal rows but
+    // keep the inputs in the DOM so the toolbar proxies and sync keep working.
+    [
+      "spawn-show-direction-arrow",
+      "spawn-player-marker-style",
+      "spawn-show-fov-wedge",
+      "spawn-show-player-stats",
+    ].forEach(function (id) {
+      var el = document.getElementById(id);
+      var lab = el && el.closest ? el.closest("label") : null;
+      if (lab) lab.style.display = "none";
+    });
+    this.switchSettingsTab("players");
+
+    this.syncToolbar();
   };
 
   MapSpawns.prototype.init = function () {
@@ -4312,6 +4833,9 @@
 
     this.ensureDisplayConfig();
     this.ensureSpriteMap().then(function () {
+      // Item rows are built before the sprite map resolves, so their sprite
+      // <img> src starts empty; refresh once the map is available.
+      self.syncItemCategoryControls();
       self.render();
     });
   };

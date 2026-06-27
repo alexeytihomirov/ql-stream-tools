@@ -80,6 +80,8 @@
       game_time_ms: msg.game_time_ms,
       killer: msg.killer || msg.killer_name,
       victim: msg.victim || msg.victim_name,
+      killer_steam_id64: msg.killer_steam_id64,
+      victim_steam_id64: msg.victim_steam_id64,
       weapon: msg.weapon,
     };
     lastArchive.deaths = lastArchive.deaths || [];
@@ -177,6 +179,33 @@
     activeMatchId = null;
   }
 
+  function mountMapWidget(matchId) {
+    if (typeof MapWidget === "undefined") return;
+    var host = document.getElementById("server-map-widget");
+    if (!host) return;
+    var base = QLDashboard.settings.statsHubBase;
+    if (!base) return;
+    try {
+      MapWidget.mount(host, {
+        base: String(base).replace(/\/+$/, ""),
+        match: matchId,
+        transport: "ws",
+        embedded: true,
+      });
+    } catch (_e) {
+      /* map widget is optional enrichment; ignore mount failures */
+    }
+  }
+
+  function destroyMapWidget() {
+    if (typeof MapWidget === "undefined") return;
+    try {
+      MapWidget.destroy();
+    } catch (_e) {
+      /* ignore */
+    }
+  }
+
   function stopClock() {
     if (clockTimer) {
       clearInterval(clockTimer);
@@ -224,12 +253,16 @@
       gametype: "duel",
       status: "live",
       deaths: [
-        { game_time_ms: 45000, killer: "Cypher", victim: "rapha", weapon: "RL" },
-        { game_time_ms: 78000, killer: "rapha", victim: "Cypher", weapon: "RG" },
+        { game_time_ms: 45000, killer: "Cypher", victim: "rapha", weapon: "ROCKET" },
+        { game_time_ms: 61000, killer: "Cypher", victim: "rapha", weapon: "ROCKET_SPLASH" },
+        { game_time_ms: 78000, killer: "rapha", victim: "Cypher", weapon: "RAILGUN" },
+        { game_time_ms: 95000, killer: "rapha", victim: "Cypher", weapon: "LIGHTNING" },
       ],
       pickups: [
-        { game_time_ms: 12000, nickname: "Cypher", item: "megahealth" },
-        { game_time_ms: 28000, nickname: "rapha", item: "yellowarmor" },
+        { game_time_ms: 12000, nickname: "Cypher", item: "item_health_mega" },
+        { game_time_ms: 28000, nickname: "rapha", item: "item_armor_combat" },
+        { game_time_ms: 40000, nickname: "Cypher", item: "item_armor_body" },
+        { game_time_ms: 52000, nickname: "rapha", item: "item_quad" },
       ],
       accuracy_summary: [
         { nickname: "Cypher", weapon: "RL", hits: 18, shots: 42, accuracy_pct: 42.9 },
@@ -432,6 +465,7 @@
 
     activeMatchId = matchId;
     renderShell(root, matchId);
+    mountMapWidget(matchId);
     loadServer(matchId);
     startWs(matchId);
     startClock();
@@ -441,6 +475,7 @@
   }
 
   function unmount() {
+    destroyMapWidget();
     stopPoll();
     stopClock();
   }
@@ -476,6 +511,12 @@
       QLDashboard.escapeHtml(QLDashboard.t("matchOpenMap")) +
       "</a>" +
       "</div></section>" +
+      '<section class="control-section" id="server-map-section">' +
+      '<h2 class="match-section-title">' +
+      QLDashboard.escapeHtml(QLDashboard.t("matchSectionMap")) +
+      "</h2>" +
+      '<div id="server-map-widget" class="match-map-widget"></div>' +
+      "</section>" +
       '<section class="control-section" id="server-analytics-section">' +
       '<div id="server-analytics-wrap"></div>' +
       '<p id="server-analytics-hint" class="control-field-hint" hidden></p>' +
@@ -551,7 +592,15 @@
       var wrap = document.getElementById("server-players-wrap");
       if (wrap && Array.isArray(liveData.players)) {
         var html =
-          '<table class="data-table"><thead><tr><th>Player</th><th>Score</th><th>K</th><th>D</th></tr></thead><tbody>';
+          '<table class="data-table results-scoreboard-table"><thead><tr><th>' +
+          QLDashboard.escapeHtml(QLDashboard.t("sbColPlayer")) +
+          '</th><th class="sb-num">' +
+          QLDashboard.escapeHtml(QLDashboard.t("sbColScore")) +
+          '</th><th class="sb-num">' +
+          QLDashboard.escapeHtml(QLDashboard.t("sbColKills")) +
+          '</th><th class="sb-num">' +
+          QLDashboard.escapeHtml(QLDashboard.t("sbColDeaths")) +
+          "</th></tr></thead><tbody>";
         var sorted = liveData.players.slice().sort(function (a, b) {
           if (QLDashboard.isWarmupPhase(liveData)) {
             return String(A().displayNickname(a)).localeCompare(String(A().displayNickname(b)));
@@ -563,11 +612,11 @@
           html +=
             "<tr><td>" +
             QLDashboard.escapeHtml(A().displayNickname(p)) +
-            "</td><td>" +
+            '</td><td class="sb-num">' +
             QLDashboard.playerStatDisplay(liveData, p.score) +
-            "</td><td>" +
+            '</td><td class="sb-num">' +
             QLDashboard.playerStatDisplay(liveData, p.kills) +
-            "</td><td>" +
+            '</td><td class="sb-num">' +
             QLDashboard.playerStatDisplay(liveData, p.deaths) +
             "</td></tr>";
         }

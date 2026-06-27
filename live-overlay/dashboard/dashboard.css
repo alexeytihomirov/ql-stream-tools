@@ -460,6 +460,33 @@ a.control-btn {
   font-weight: 500;
 }
 
+.results-scoreboard-section {
+  margin: 12px 0;
+}
+
+/* Scoreboard is a small summary — size to content, not full width. */
+.results-scoreboard-table {
+  width: auto;
+  min-width: 260px;
+  max-width: 440px;
+}
+
+.results-scoreboard-table th,
+.results-scoreboard-table td {
+  padding: 5px 12px;
+}
+
+.results-scoreboard-table th.sb-num,
+.results-scoreboard-table td.sb-num {
+  text-align: right;
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+
+.results-scoreboard-table td:first-child {
+  font-weight: 600;
+}
+
 .stats-grid {
   display: grid;
   grid-template-columns: repeat(auto-fill, minmax(120px, 1fr));
@@ -633,32 +660,217 @@ a.control-btn {
   line-height: 1.45;
 }
 
-.match-kill-row {
+/* Shared pickup/weapon HUD sprite icon. */
+.ql-icon {
+  display: inline-block;
+  width: 18px;
+  height: 18px;
+  object-fit: contain;
+  vertical-align: middle;
+  image-rendering: -webkit-optimize-contrast;
+}
+
+/* Compact killfeed: killer · weapon icon · victim. */
+.ql-killfeed {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.ql-kill {
   display: grid;
-  grid-template-columns: 52px 1fr 1fr 56px;
-  gap: 6px;
-  padding: 5px 0;
+  grid-template-columns: 44px 1fr;
+  align-items: center;
+  gap: 8px;
+  padding: 4px 0;
   font-size: 12px;
   border-bottom: 1px solid var(--border);
 }
 
-.match-kill-row-head {
-  color: var(--muted);
-  font-size: 11px;
-  font-weight: 500;
-}
-
-.match-kill-time {
+.ql-kill-time {
   font-variant-numeric: tabular-nums;
   color: var(--muted);
+  font-size: 11px;
 }
 
-.match-kill-weapon {
+/* Killer · weapon · victim group, right-aligned (time stays left). */
+.ql-kill-body {
+  display: inline-flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 8px;
+  min-width: 0;
+}
+
+.ql-kill-actor {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.ql-kill-killer {
+  font-weight: 600;
+}
+
+.ql-kill-victim {
+  color: var(--muted);
+}
+
+.ql-kill-mod {
+  display: inline-flex;
+  align-items: center;
+  flex: none;
+}
+
+.ql-kill-mod-abbr {
   font-family: ui-monospace, monospace;
   font-size: 11px;
   color: var(--accent);
 }
 
+/* Pickup quick filters (collapsed behind a toggle button). */
+.ql-pk-toolbar {
+  display: flex;
+  margin-bottom: 8px;
+}
+
+.ql-pk-filters {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  margin-bottom: 8px;
+}
+
+.ql-pk-filter-row {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 4px;
+}
+
+.ql-pk-filter-label {
+  font-size: 11px;
+  color: var(--muted);
+  margin-right: 2px;
+}
+
+.ql-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 2px 8px;
+  font-size: 11px;
+  border-radius: 999px;
+  border: 1px solid var(--border);
+  background: var(--surface);
+  color: var(--text);
+  cursor: pointer;
+}
+
+.ql-chip:hover {
+  border-color: var(--accent);
+}
+
+.ql-chip-active {
+  background: var(--accent);
+  border-color: var(--accent);
+  color: #0b0f17;
+  font-weight: 600;
+}
+
+.ql-chip-icon {
+  width: 14px;
+  height: 14px;
+}
+
+/* Pickup list rows: time · icon+label · player. */
+.ql-pickups-list {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.ql-pk-row {
+  display: grid;
+  grid-template-columns: 44px 1fr 1fr;
+  align-items: center;
+  gap: 8px;
+  padding: 3px 0;
+  font-size: 12px;
+  border-bottom: 1px solid var(--border);
+}
+
+.ql-pk-time {
+  font-variant-numeric: tabular-nums;
+  color: var(--muted);
+  font-size: 11px;
+}
+
+.ql-pk-item {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-weight: 600;
+}
+
+.ql-pk-player {
+  color: var(--muted);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* Combined weapon stats: kills + accuracy, one row per player+weapon. */
+.ql-ws-table th.ql-ws-num,
+.ql-ws-table td.ql-ws-num {
+  text-align: right;
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+
+.ql-ws-weapon {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+}
+
+.ql-ws-icon {
+  width: 16px;
+  height: 16px;
+}
+
 .hidden {
   display: none !important;
+}
+
+/* Embedded map widget (match-analytics page). Contain the overlay chrome that
+   is position:fixed on the standalone OBS page so it stays inside the widget. */
+.match-map-widget {
+  position: relative;
+  overflow: hidden;
+  width: 100%;
+  max-width: 560px;
+  border: none;
+  border-radius: 10px;
+  background: #0b0d12;
+}
+
+.match-map-widget .map-page-overlays {
+  position: absolute;
+}
+
+.match-map-widget .map-layout {
+  margin: 0;
+}
+
+/* Pin the main column to the 512px map base so the replay bar wraps INSIDE the
+   square instead of widening .map-layout past 512. With a fixed natural width
+   the widget's applyFit() zoom (clientWidth / contentWidth) fills the column
+   with no horizontal crop. */
+.match-map-widget .map-main {
+  width: 512px;
+}
+
+.match-map-widget .map-meta {
+  display: none;
 }

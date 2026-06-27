@@ -8,142 +8,16 @@
     <script src="assets-bootstrap.js"></script>
   </head>
   <body class="overlay-body map-body">
-    <div class="map-layout">
-      <div class="map-main">
-        <div class="map-stage">
-          <div id="map-stage-frame" class="map-stage-frame">
-            <div id="map-zoom-host" class="map-zoom-host">
-              <div id="map-wrap" class="map-wrap hidden">
-                <img id="map-image" alt="map" />
-                <div id="map-calib" class="map-calib hidden" aria-hidden="true">
-                  <div class="map-calib-box">
-                    <svg id="map-calib-grid" class="map-calib-grid" aria-hidden="true"></svg>
-                    <div class="map-calib-move" title="Drag = offset · Wheel = scale"></div>
-                  </div>
-                </div>
-                <div id="map-spawn-threshold" class="map-spawn-layer" aria-hidden="true"></div>
-                <div id="map-spawns" class="map-spawn-layer" aria-hidden="true"></div>
-                <div id="map-item-respawns" class="map-item-respawn-layer" aria-hidden="true"></div>
-                <div id="map-spawn-ref" class="map-spawn-ref" aria-hidden="true"></div>
-                <div id="map-deaths" class="map-death-layer" aria-hidden="true"></div>
-                <canvas id="map-contour-trail" class="map-contour-layer hidden" aria-hidden="true"></canvas>
-                <canvas id="map-heatmap" class="map-heatmap-layer hidden" aria-hidden="true"></canvas>
-                <div id="map-spawn-cursor" class="map-spawn-cursor hidden" aria-hidden="true"></div>
-                <div id="map-players"></div>
-                <div id="map-pickups" class="map-pickups" aria-live="polite"></div>
-              </div>
-            </div>
-          </div>
-        </div>
-        <div id="map-meta" class="map-meta"></div>
-        <div id="map-replay-bar" class="map-replay-bar hidden" aria-label="Match replay and recording">
-          <div id="map-record-controls" class="map-record-controls hidden">
-            <button type="button" id="map-record-start" class="map-record-btn">Rec</button>
-            <button type="button" id="map-record-stop" class="map-record-btn" disabled>Stop</button>
-            <button type="button" id="map-record-save" class="map-record-btn" disabled>Save</button>
-            <span id="map-record-status" class="map-record-status">0 events</span>
-          </div>
-          <label id="map-replay-select-wrap" class="map-replay-select-wrap hidden">
-            <span class="sr-only">Recording</span>
-            <select id="map-replay-select" class="map-replay-select" aria-label="Recording"></select>
-          </label>
-          <label id="map-replay-segment-wrap" class="map-replay-select-wrap hidden">
-            <span class="sr-only">Game segment</span>
-            <select id="map-replay-segment-select" class="map-replay-select" aria-label="Game segment"></select>
-          </label>
-          <div id="map-replay-playback" class="map-replay-playback hidden">
-            <button type="button" id="map-replay-play" class="map-replay-play">Play</button>
-            <input
-              id="map-replay-scrub"
-              class="map-replay-scrub"
-              type="range"
-              min="0"
-              max="0"
-              value="0"
-              aria-label="Replay timeline"
-            />
-            <span id="map-replay-time" class="map-replay-time">0:00 / 0:00</span>
-            <label class="map-replay-speed-label">
-              <span class="sr-only">Playback speed</span>
-              <select id="map-replay-speed" class="map-replay-speed" aria-label="Playback speed">
-                <option value="0.25">0.25×</option>
-                <option value="0.5">0.5×</option>
-                <option value="1" selected>1×</option>
-                <option value="1.5">1.5×</option>
-                <option value="2">2×</option>
-                <option value="4">4×</option>
-              </select>
-            </label>
-          </div>
-          <label id="map-replay-load-wrap" class="map-replay-load-wrap hidden">
-            <span class="map-replay-load-btn">Load file</span>
-            <input
-              type="file"
-              id="map-replay-file"
-              accept=".json,.jsonl,application/json"
-              hidden
-            />
-          </label>
-        </div>
-        <div id="status" class="status"></div>
-      </div>
-      <aside id="map-debug" class="map-debug hidden" aria-label="Map calibration debug"></aside>
-    </div>
-    <div id="map-page-overlays" class="map-page-overlays">
-      <aside id="map-chrome" class="map-chrome" aria-label="Map overlay chrome">
-        <div id="map-killfeed" class="map-killfeed" aria-live="polite"></div>
-        <div class="map-chrome-actions">
-          <button
-            type="button"
-            id="map-pickup-log-btn"
-            class="map-pickup-log-btn hidden"
-            title="Pickup history"
-            aria-label="Pickup history"
-          >
-            Pickups
-          </button>
-          <button
-            type="button"
-            id="map-spawns-toggle"
-            class="map-spawns-toggle hidden"
-            title="Map overlay settings"
-            aria-label="Map overlay settings"
-          >
-            Settings
-          </button>
-        </div>
-        <aside
-          id="map-pickup-log"
-          class="map-pickup-log hidden"
-          aria-label="Pickup history"
-        >
-          <header class="map-pickup-log-head">
-            <h3>Pickup log</h3>
-            <button
-              type="button"
-              id="map-pickup-log-close"
-              class="map-pickup-log-close"
-              aria-label="Close pickup log"
-            >
-              ×
-            </button>
-          </header>
-          <div id="map-pickup-log-list" class="map-pickup-log-list"></div>
-        </aside>
-      </aside>
-      <aside
-        id="map-spawns-panel"
-        class="map-spawns-panel hidden"
-        aria-label="Map overlay settings"
-      ></aside>
-    </div>
+    <div id="map-root"></div>
     <script src="map-coords.js"></script>
     <script src="overlay.js"></script>
     <script src="map-debug.js"></script>
     <script src="map-spawns.js"></script>
+    <script src="map-widget.js"></script>
     <script>
-      MapSpawns.init();
-      OverlayApp.initMap();
+      // Standalone OBS page: config comes from the URL (qs falls back to
+      // location.search when no override keys are supplied).
+      MapWidget.mount(document.getElementById("map-root"));
     </script>
   </body>
 </html>
