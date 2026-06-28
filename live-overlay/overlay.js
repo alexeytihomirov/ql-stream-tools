@@ -32,6 +32,13 @@
     // Dashboard re-registers this after each mount; drop the stale closure so a
     // previous results view does not keep receiving replay cursor updates.
     replayCursorListener = null;
+    // These guard one-time event binding, but SPA re-mount rebuilds the replay
+    // bar DOM. Without resetting, bindReplayBar()/segment/record controls skip
+    // re-binding and the freshly-created Play/scrub/segment buttons stay dead
+    // (works on the standalone OBS page, which never unmounts; breaks embedded).
+    replayControlsBound = false;
+    replaySelectBound = false;
+    recordControlsBound = false;
     // Map render caches are module-scoped (shared with the OBS page, which never
     // unmounts). SPA re-mount rebuilds the DOM with a fresh empty <img>, so these
     // caches must be cleared: otherwise applyMapImage() sees url === currentImageSrc
