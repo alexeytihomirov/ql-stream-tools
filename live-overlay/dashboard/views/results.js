@@ -284,23 +284,33 @@
     }, 180);
   }
 
-  // Correct a saved snapshot whose timeline_max_ms overshoots the real match
-  // (warmup/countdown lead-in left in the match clock by older stats-hub). The
-  // replay's game coverage = match length; cap the analytics timeline to it.
+  // Align the analytics timeline extent with the embedded 2D-map replay, which
+  // is the source of truth for match length. The replay scrubber's `gameMaxMs`
+  // spans the whole recording (it stops at match end), so it is correct in both
+  // failure modes of the event-derived `timeline_max_ms`:
+  //  - undershoot: combat events stop early (players idle until the time limit),
+  //    so the last kill reads 1:53 while the match really ran to 9:59;
+  //  - overshoot: older stats-hub left the warmup/countdown lead-in in the clock.
+  // Round up to a whole second so a time-limit finish reads e.g. 10:00, not
+  // 9:59. Applied once, when replay timing first becomes available.
   function maybeCorrectTimelineMax(info) {
     if (timelineCapped) return;
-    if (!lastArchive || matchStartWall == null) return;
-    if (!info || info.startMs == null || !info.durationMs) return;
+    if (!lastArchive || !info || !info.durationMs) return;
+    var replayMaxMs = Number(info.gameMaxMs);
+    if (!isFinite(replayMaxMs) || replayMaxMs <= 1000) return;
     timelineCapped = true;
-    var coverage = Math.round(info.startMs + info.durationMs - matchStartWall);
+    var coverage = Math.ceil(replayMaxMs / 1000) * 1000;
     var cur = gameMaxMs();
-    if (coverage > 1000 && cur && cur > coverage + 3000) {
-      lastArchive.timeline_max_ms = coverage;
-      if (scrubGameTimeMs == null || scrubGameTimeMs > coverage) {
-        scrubGameTimeMs = coverage;
-      }
-      refreshDetailAnalytics();
+    // Only override when the replay and the event-derived extent disagree by
+    // more than ~1.5s, so well-behaved matches keep their exact event clock.
+    if (cur && Math.abs(coverage - cur) <= 1500) return;
+    var wasAtEnd =
+      scrubGameTimeMs == null || (cur != null && scrubGameTimeMs >= cur - 500);
+    lastArchive.timeline_max_ms = coverage;
+    if (wasAtEnd || scrubGameTimeMs > coverage) {
+      scrubGameTimeMs = coverage;
     }
+    refreshDetailAnalytics();
   }
 
   // Replay -> analytics: move the match timeline thumb live, throttle the heavier
