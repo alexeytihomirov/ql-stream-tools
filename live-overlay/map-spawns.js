@@ -4791,6 +4791,24 @@
 
     if (!this.layer) return;
 
+    // This is a document-level singleton, but the widget can be torn down and
+    // re-mounted (dashboard SPA switching to the Server/Results tab wipes the
+    // host innerHTML). The render caches below hold references to the PREVIOUS
+    // mount's now-detached layer nodes, and _staticLayerDirty stays false with
+    // the same _staticMarkersKey. Without resetting, _ensureRenderLayers keeps
+    // the stale _staticLayerEl and renderStaticLayer takes the no-rebuild fast
+    // path, so item/spawn markers render into detached nodes and stay invisible
+    // until a full page reload recreates the singleton. Drop the DOM-bound
+    // caches so the next render rebuilds markers into the fresh DOM.
+    this._staticLayerEl = null;
+    this._dynamicLayerEl = null;
+    this._staticMarkers = {};
+    this._staticMarkersKey = "";
+    this._staticLayerDirty = true;
+    // Respawn-cooldown rings cache their DOM nodes on _itemRespawns[*].el too;
+    // drop them so they rebuild into the fresh #map-item-respawns layer.
+    this._clearItemRespawns();
+
     var self = this;
 
     if (window.OverlayApp && typeof OverlayApp.onPickup === "function") {
