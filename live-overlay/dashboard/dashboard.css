@@ -591,10 +591,94 @@ a.control-btn {
   color: var(--text);
 }
 
+/* Track wraps the range with a kill-marker lane above and a scale ruler below.
+   The marker/tick lanes are inset 8px (≈ thumb radius) so positions line up
+   approximately with the range thumb travel. */
+.match-timeline-track {
+  position: relative;
+  padding: 20px 0 24px;
+}
+
 .match-timeline-scrub {
+  position: relative;
   width: 100%;
-  margin: 0 0 8px;
+  margin: 0;
   accent-color: var(--accent);
+  z-index: 2;
+  touch-action: none;
+}
+
+.match-timeline-kills {
+  position: absolute;
+  left: 8px;
+  right: 8px;
+  top: 0;
+  height: 18px;
+  pointer-events: none;
+}
+
+.match-timeline-kill {
+  position: absolute;
+  bottom: 0;
+  transform: translateX(-50%);
+  display: inline-flex;
+  align-items: flex-end;
+  line-height: 0;
+}
+
+.match-timeline-kill-icon {
+  width: 13px;
+  height: 13px;
+}
+
+.match-timeline-kill-dot {
+  display: inline-block;
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: var(--accent);
+}
+
+.match-timeline-ticks {
+  position: absolute;
+  left: 8px;
+  right: 8px;
+  bottom: 0;
+  height: 22px;
+  pointer-events: none;
+}
+
+.match-timeline-tick {
+  position: absolute;
+  top: 0;
+  transform: translateX(-50%);
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+}
+
+.match-timeline-tick.tick-first {
+  transform: translateX(0);
+  align-items: flex-start;
+}
+
+.match-timeline-tick.tick-last {
+  transform: translateX(-100%);
+  align-items: flex-end;
+}
+
+.match-timeline-tick-mark {
+  width: 1px;
+  height: 6px;
+  background: var(--border);
+}
+
+.match-timeline-tick-label {
+  margin-top: 2px;
+  font-size: 10px;
+  font-variant-numeric: tabular-nums;
+  color: var(--muted);
+  white-space: nowrap;
 }
 
 .match-timeline-actions {
@@ -679,7 +763,7 @@ a.control-btn {
 
 .ql-kill {
   display: grid;
-  grid-template-columns: 44px 1fr;
+  grid-template-columns: 1fr auto;
   align-items: center;
   gap: 8px;
   padding: 4px 0;
@@ -691,13 +775,15 @@ a.control-btn {
   font-variant-numeric: tabular-nums;
   color: var(--muted);
   font-size: 11px;
+  text-align: right;
+  padding-right: 6px;
 }
 
-/* Killer · weapon · victim group, right-aligned (time stays left). */
+/* Killer · weapon · victim group, left-aligned (time sits on the right). */
 .ql-kill-body {
   display: inline-flex;
   align-items: center;
-  justify-content: flex-end;
+  justify-content: flex-start;
   gap: 8px;
   min-width: 0;
 }
@@ -758,13 +844,17 @@ a.control-btn {
   display: inline-flex;
   align-items: center;
   gap: 4px;
-  padding: 2px 8px;
+  min-height: 26px;
+  padding: 4px 10px;
   font-size: 11px;
   border-radius: 999px;
   border: 1px solid var(--border);
   background: var(--surface);
   color: var(--text);
   cursor: pointer;
+  user-select: none;
+  touch-action: manipulation;
+  -webkit-tap-highlight-color: transparent;
 }
 
 .ql-chip:hover {
@@ -781,6 +871,7 @@ a.control-btn {
 .ql-chip-icon {
   width: 14px;
   height: 14px;
+  pointer-events: none;
 }
 
 /* Pickup list rows: time · icon+label · player. */
@@ -820,7 +911,50 @@ a.control-btn {
   white-space: nowrap;
 }
 
-/* Combined weapon stats: kills + accuracy, one row per player+weapon. */
+/* Combined weapon stats: per-player columns for side-by-side duel compare. */
+.ql-ws-compare {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 12px 0;
+  align-items: flex-start;
+}
+
+.ql-ws-player-col {
+  flex: 0 1 auto;
+  min-width: 132px;
+  max-width: 200px;
+}
+
+.ql-ws-player-col + .ql-ws-player-col {
+  margin-left: 20px;
+  padding-left: 20px;
+  border-left: 1px solid var(--border);
+}
+
+.ql-ws-player-title {
+  margin: 0 0 4px;
+  font-size: 12px;
+  font-weight: 700;
+  color: var(--accent);
+}
+
+.ql-ws-table-compact th,
+.ql-ws-table-compact td {
+  padding: 2px 6px;
+  font-size: 11px;
+}
+
+.ql-ws-table {
+  width: 100%;
+  min-width: 0;
+}
+
+.ql-ws-table th,
+.ql-ws-table td {
+  padding: 3px 8px;
+  font-size: 12px;
+}
+
 .ql-ws-table th.ql-ws-num,
 .ql-ws-table td.ql-ws-num {
   text-align: right;
@@ -828,10 +962,25 @@ a.control-btn {
   white-space: nowrap;
 }
 
+/* Player sub-header row: name printed once above its weapon rows. */
+.ql-ws-group th {
+  text-align: left;
+  padding-top: 8px;
+  font-size: 12px;
+  font-weight: 700;
+  color: var(--accent);
+  border-bottom: 1px solid var(--border);
+}
+
+.ql-ws-group:first-child th {
+  padding-top: 2px;
+}
+
 .ql-ws-weapon {
   display: inline-flex;
   align-items: center;
   gap: 4px;
+  white-space: nowrap;
 }
 
 .ql-ws-icon {
@@ -843,16 +992,170 @@ a.control-btn {
   display: none !important;
 }
 
+.match-timeline-controls {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: center;
+  gap: 10px;
+  margin-top: 8px;
+  padding-top: 4px;
+}
+
+.match-timeline-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 36px;
+  height: 36px;
+  padding: 0;
+  border-radius: 8px;
+  border: 1px solid var(--border);
+  background: var(--surface);
+  cursor: pointer;
+}
+
+.match-timeline-btn:hover {
+  border-color: var(--accent);
+}
+
+.match-timeline-btn-icon {
+  width: 20px;
+  height: 20px;
+  opacity: 0.95;
+  filter: invert(0.92) brightness(1.2);
+}
+
+.match-timeline-speed-wrap {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 4px 8px;
+  border-radius: 8px;
+  border: 1px solid var(--border);
+  background: var(--surface);
+}
+
+.match-timeline-speed {
+  font-size: 12px;
+  padding: 4px 6px;
+  border-radius: 6px;
+  border: 1px solid var(--border);
+  background: var(--surface);
+  color: var(--text);
+}
+
+.results-detail-hero {
+  display: grid;
+  gap: 16px;
+  margin-bottom: 16px;
+}
+
+@media (min-width: 720px) {
+  .results-detail-hero {
+    grid-template-columns: 1fr minmax(220px, 320px);
+    align-items: start;
+  }
+}
+
+.results-detail-hero-main h2 {
+  margin: 0 0 8px;
+}
+
+.results-scoreboard-side {
+  min-width: 0;
+}
+
+.results-scoreboard-wrap {
+  padding: 12px;
+  border-radius: 8px;
+  background: var(--surface);
+  border: 1px solid var(--border);
+}
+
+.results-scoreboard-title {
+  margin: 0 0 8px;
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--accent);
+}
+
+.results-scoreboard-table {
+  width: 100%;
+  font-size: 12px;
+}
+
+.results-scoreboard-table th,
+.results-scoreboard-table td {
+  padding: 4px 8px;
+}
+
+.results-matchup {
+  display: grid;
+  grid-template-columns: 1fr auto 1fr;
+  align-items: center;
+  gap: 12px;
+  margin: 12px 0;
+  padding: 16px 12px;
+  border-radius: 10px;
+  background: var(--surface);
+  border: 1px solid var(--border);
+}
+
+.results-matchup-name {
+  font-size: clamp(18px, 3vw, 28px);
+  font-weight: 700;
+  line-height: 1.2;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.results-matchup-left {
+  text-align: right;
+}
+
+.results-matchup-right {
+  text-align: left;
+}
+
+.results-matchup-score {
+  font-size: clamp(22px, 4vw, 36px);
+  font-weight: 800;
+  font-variant-numeric: tabular-nums;
+  color: var(--accent);
+  white-space: nowrap;
+}
+
+.results-map-stack {
+  width: 100%;
+  max-width: min(100%, 720px);
+  margin: 0 auto 16px;
+}
+
+.results-matchup-above-map .results-matchup {
+  margin: 0 0 8px;
+}
+
+.results-matchup-above-map:empty {
+  display: none;
+}
+
 /* Embedded map widget (match-analytics page). Contain the overlay chrome that
    is position:fixed on the standalone OBS page so it stays inside the widget. */
 .match-map-widget {
   position: relative;
   overflow: hidden;
   width: 100%;
-  max-width: 560px;
   border: none;
   border-radius: 10px;
   background: #0b0d12;
+}
+
+.map-widget-embedded #status,
+.map-widget-embedded #map-replay-bar,
+.map-widget-embedded #map-record-controls {
+  display: none !important;
 }
 
 .match-map-widget .map-page-overlays {
@@ -873,4 +1176,36 @@ a.control-btn {
 
 .match-map-widget .map-meta {
   display: none;
+}
+
+.server-location {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  white-space: nowrap;
+}
+
+.server-location-flag {
+  font-size: 1.05em;
+  line-height: 1;
+}
+
+.server-location-code {
+  font-size: 0.78rem;
+  font-weight: 600;
+  letter-spacing: 0.04em;
+  color: var(--dash-muted, #9aa3b2);
+}
+
+.server-location-name {
+  display: block;
+  margin-top: 2px;
+  font-size: 0.88rem;
+  color: var(--dash-text, #e8eaed);
+}
+
+td .server-location-name {
+  display: inline;
+  margin-top: 0;
+  margin-left: 2px;
 }

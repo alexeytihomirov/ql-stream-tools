@@ -130,6 +130,14 @@
     }
   }
 
+  function mergeQueryMatchRoute() {
+    var match = trim(qsParam("match"));
+    if (!match) return;
+    var hash = location.hash || "";
+    if (/#\/(?:server|match)\//.test(hash)) return;
+    navigate("#/server/" + encodeURIComponent(match));
+  }
+
   function escapeHtml(s) {
     return String(s)
       .replace(/&/g, "&amp;")
@@ -217,6 +225,69 @@
       if (String(row.match_id) === id && row.connect) return row.connect;
     }
     return null;
+  }
+
+  function overlayMatchFor(matchId) {
+    if (!overlayLive || !Array.isArray(overlayLive.matches)) return null;
+    var id = String(matchId || "");
+    if (!id) return null;
+    for (var i = 0; i < overlayLive.matches.length; i++) {
+      var row = overlayLive.matches[i];
+      if (String(row.match_id) === id) return row;
+    }
+    return null;
+  }
+
+  function resolveServerCountryCode(row) {
+    if (!row) return "";
+    var C = global.QLDashboardCountries;
+    if (!C) return "";
+    var direct = C.normalizeCountryCode(
+      row.server_country || row.host_country || row.country || row.location,
+    );
+    if (direct) return direct;
+    var overlay = overlayMatchFor(row.match_id);
+    if (overlay) {
+      direct = C.normalizeCountryCode(
+        overlay.server_country || overlay.host_country || overlay.country || overlay.location,
+      );
+      if (direct) return direct;
+    }
+    var fromName = C.countryCodeFromLabel(row.server_name);
+    if (fromName) return fromName;
+    if (overlay && overlay.server_name) {
+      fromName = C.countryCodeFromLabel(overlay.server_name);
+      if (fromName) return fromName;
+    }
+    return "";
+  }
+
+  function serverLocationHtml(row) {
+    if (!row) return escapeHtml("—");
+    var code = resolveServerCountryCode(row);
+    var name = trim(row.server_name || "");
+    if (!code && !name) return escapeHtml("—");
+    var C = global.QLDashboardCountries;
+    var html = "";
+    if (code) {
+      var flag = C ? C.countryFlagEmoji(code) : "";
+      html +=
+        '<span class="server-location" title="' +
+        escapeHtml(code) +
+        '">' +
+        (flag ? '<span class="server-location-flag" aria-hidden="true">' + escapeHtml(flag) + "</span>" : "") +
+        '<span class="server-location-code">' +
+        escapeHtml(code) +
+        "</span></span>";
+    }
+    if (name) {
+      html +=
+        (html ? " " : "") +
+        '<span class="server-location-name">' +
+        escapeHtml(name) +
+        "</span>";
+    }
+    return html || escapeHtml("—");
   }
 
   function tournamentName() {
@@ -417,8 +488,9 @@
     return new URL("../player-guide/index.html", resolveLiveOverlayRoot()).href;
   }
 
-  function openWindow(url) {
-    var w = window.open(url, "_blank");
+  function openWindow(url, windowName) {
+    var target = windowName || "_blank";
+    var w = window.open(url, target, "noopener,noreferrer");
     if (w) {
       try {
         w.opener = null;
@@ -445,6 +517,24 @@
     btn.textContent = label;
     btn.addEventListener("click", onClick);
     return btn;
+  }
+
+  function lastVisitedServerId() {
+    try {
+      return trim(sessionStorage.getItem("ql-dashboard-last-server") || "");
+    } catch (_e) {
+      return "";
+    }
+  }
+
+  function resolveOverlayMatchId(preferred) {
+    var id = trim(preferred || "");
+    if (id) return id;
+    id = lastVisitedServerId();
+    if (id) return id;
+    id = trim(settings.defaultMatchId || "");
+    if (id) return id;
+    return matches[0] && matches[0].match_id ? String(matches[0].match_id) : "";
   }
 
   function setStatus(text, kind) {
@@ -549,7 +639,7 @@
       await loadTournaments();
       await loadTournamentMeta();
       var route = parseRoute();
-      var onHome = route.view === "home" || (route.view === "server" && !route.param);
+      var onHome = route.view === "home";
       await refreshMatches({ probeHealth: true, notify: onHome });
     } catch (err) {
       setStatus(t("errorFetchTournaments") + ": " + (err.message || err), "error");
@@ -561,7 +651,6 @@
     stopPolling();
     var route = parseRoute();
     var viewName = route.view;
-    if (viewName === "server" && !route.param) viewName = "home";
 
     if (viewName === "home") {
       pollTimer = setInterval(function () {
@@ -668,7 +757,6 @@
     mount.innerHTML = "";
 
     var viewName = route.view;
-    if (viewName === "server" && !route.param) viewName = "home";
 
     var view = views[viewName] || views.home;
     if (!view) return;
@@ -703,11 +791,7 @@
         ev.preventDefault();
         var r = link.getAttribute("data-route");
         if (r === "home") navigate("#/");
-        else if (r === "server") {
-          var mid = settings.defaultMatchId || (matches[0] && matches[0].match_id);
-          if (mid) navigate("#/server/" + encodeURIComponent(mid));
-          else navigate("#/server");
-        } else navigate("#/" + r);
+        else navigate("#/" + r);
       });
     });
 
@@ -725,6 +809,7 @@
     settings = loadSettings();
     lang = settings.lang;
     mergeQueryIntoSettings();
+    mergeQueryMatchRoute();
     applyLangToDom();
     updateLangButtons();
     bindShell();
@@ -766,6 +851,9 @@
     tournamentUrl: tournamentUrl,
     fetchTournamentFile: fetchTournamentFile,
     connectForMatch: connectForMatch,
+    overlayMatchFor: overlayMatchFor,
+    resolveServerCountryCode: resolveServerCountryCode,
+    serverLocationHtml: serverLocationHtml,
     statusBadgeClass: statusBadgeClass,
     isWarmupPhase: isWarmupPhase,
     matchScoreSummary: matchScoreSummary,
@@ -782,6 +870,8 @@
     openWindow: openWindow,
     copyText: copyText,
     makeActionBtn: makeActionBtn,
+    lastVisitedServerId: lastVisitedServerId,
+    resolveOverlayMatchId: resolveOverlayMatchId,
     overlayQueryParams: overlayQueryParams,
     buildUrl: buildUrl,
     fetchStatsJson: fetchStatsJson,

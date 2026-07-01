@@ -6,14 +6,9 @@
   function mount(root) {
     root.innerHTML =
       '<section class="control-section">' +
-      '<div class="control-section-head">' +
       "<h2>" +
       QLDashboard.t("sectionMatches") +
       "</h2>" +
-      '<button type="button" id="home-all-matches" class="control-btn control-btn-sm">' +
-      QLDashboard.t("openMatchesOperator") +
-      "</button>" +
-      "</div>" +
       '<p id="home-status" class="control-status" role="status"></p>' +
       '<table class="matches-table"><thead><tr>' +
       "<th>" +
@@ -36,16 +31,6 @@
       el.textContent = text || "";
       el.classList.remove("error", "ok");
       if (kind) el.classList.add(kind);
-    });
-
-    document.getElementById("home-all-matches").addEventListener("click", function () {
-      QLDashboard.openWindow(
-        QLDashboard.liveOverlayUrl("matches", undefined, {
-          mode: "operator",
-          layout: "cards",
-        }),
-        "ql-matches-operator",
-      );
     });
 
     renderMatches();
@@ -123,34 +108,26 @@
       }
 
       var serverCell = document.createElement("td");
-      serverCell.textContent = row.server_name || "—";
+      serverCell.innerHTML = QLDashboard.serverLocationHtml(row);
 
       var actionsCell = document.createElement("td");
       var actions = document.createElement("div");
       actions.className = "match-actions";
-      actions.appendChild(
-        QLDashboard.makeActionBtn(QLDashboard.t("openServer"), function () {
-          QLDashboard.navigate("#/server/" + encodeURIComponent(mid));
-        }),
-      );
-      actions.appendChild(
-        QLDashboard.makeActionBtn(QLDashboard.t("openMap"), function () {
-          QLDashboard.openWindow(QLDashboard.liveOverlayUrl("map", mid), "ql-map-" + mid);
-        }),
-      );
-      actions.appendChild(
-        QLDashboard.makeActionBtn(QLDashboard.t("copyUrl"), function () {
-          QLDashboard.copyText(QLDashboard.liveOverlayUrl("scoreboard", mid)).then(function (ok) {
-            if (ok) {
-              var st = document.getElementById("home-status");
-              if (st) {
-                st.textContent = QLDashboard.t("copied");
-                st.classList.add("ok");
-              }
-            }
-          });
-        }),
-      );
+      (function (boundMatchId) {
+        actions.appendChild(
+          QLDashboard.makeActionBtn(QLDashboard.t("openServer"), function () {
+            QLDashboard.navigate("#/server/" + encodeURIComponent(boundMatchId));
+          }),
+        );
+        actions.appendChild(
+          QLDashboard.makeActionBtn(QLDashboard.t("openMap"), function () {
+            QLDashboard.openWindow(
+              QLDashboard.liveOverlayUrl("map", boundMatchId),
+              "ql-map-" + boundMatchId,
+            );
+          }),
+        );
+      })(mid);
       actionsCell.appendChild(actions);
 
       tr2.appendChild(scoreCell);

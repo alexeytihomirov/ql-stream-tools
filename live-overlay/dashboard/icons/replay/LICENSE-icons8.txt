@@ -1,0 +1,3 @@
+Replay control icons (play.png, pause.png, skip-end.png, speed.png)
+sourced from Icons8 (https://icons8.com) via Icons8 MCP.
+Icons8 ID: 398 (Play), 403 (Pause), 405 (Fast Forward), 1737 (Speedometer).

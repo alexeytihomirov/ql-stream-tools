@@ -72,8 +72,11 @@
     "</div>" +
     '<div id="map-page-overlays" class="map-page-overlays">' +
     '<aside id="map-chrome" class="map-chrome" aria-label="Map overlay chrome">' +
-    '<div id="map-killfeed" class="map-killfeed" aria-live="polite"></div>' +
+    '<div class="map-chrome-stack">' +
     '<div id="map-toolbar" class="map-toolbar" role="toolbar" aria-label="Map overlay toolbar"></div>' +
+    '<div id="map-killfeed" class="map-killfeed" aria-live="polite"></div>' +
+    "</div>" +
+    '<div id="map-score" class="map-score hidden" aria-live="polite"></div>' +
     "</aside>" +
     '<div id="map-spawns-backdrop" class="map-spawns-backdrop hidden"></div>' +
     '<aside id="map-spawns-panel" class="map-spawns-panel map-spawns-modal hidden" role="dialog" aria-modal="true" aria-label="Map overlay settings"></aside>' +
@@ -87,6 +90,8 @@
   // the column height follows). Toolbar/modal live in #map-page-overlays (a
   // sibling of .map-layout) and stay crisp at native size.
   var MAP_FIT_BASE_PX = 512;
+  var lastFitContainerWidth = 0;
+  var lastFitNaturalWidth = MAP_FIT_BASE_PX;
 
   function applyFit() {
     if (!mountedContainer) return;
@@ -100,10 +105,20 @@
     // the container's overflow:hidden crops the right/bottom of the map.
     // Measure the real natural width at zoom 1 and fit to that (never below the
     // 512 map base, so the square fills the column when controls are narrower).
-    layout.style.zoom = "1";
-    var natural = Math.max(MAP_FIT_BASE_PX, layout.scrollWidth);
+    // Only remeasure when the container width changes — resetting zoom to 1 on
+    // every ResizeObserver tick (e.g. from map DOM updates) flashes the overlay.
+    var natural = lastFitNaturalWidth;
+    if (w !== lastFitContainerWidth) {
+      layout.style.zoom = "1";
+      natural = Math.max(MAP_FIT_BASE_PX, layout.scrollWidth);
+      lastFitNaturalWidth = natural;
+      lastFitContainerWidth = w;
+    }
     var scale = w / natural;
-    layout.style.zoom = scale > 0 ? String(scale) : "1";
+    var nextZoom = scale > 0 ? String(scale) : "1";
+    if (layout.style.zoom !== nextZoom) {
+      layout.style.zoom = nextZoom;
+    }
   }
 
   function mount(container, opts) {
@@ -129,10 +144,7 @@
 
     if (embedded) {
       applyFit();
-      if (typeof ResizeObserver === "function") {
-        fitObserver = new ResizeObserver(applyFit);
-        fitObserver.observe(container);
-      } else if (global.addEventListener) {
+      if (global.addEventListener) {
         global.addEventListener("resize", applyFit);
       }
     }
@@ -167,6 +179,8 @@
       );
       mountedContainer = null;
     }
+    lastFitContainerWidth = 0;
+    lastFitNaturalWidth = MAP_FIT_BASE_PX;
     MapWidget.embedded = false;
   }
 

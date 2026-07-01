@@ -13,6 +13,7 @@
   // Map-scoped teardown registry so the embedded widget can stop WS/loops/RAF/
   // observers on unmount (OBS page never unmounts; SPA navigation does).
   var mapWidgetCleanups = [];
+  var mapSnapshotQueue = Promise.resolve();
   function registerMapCleanup(fn) {
     if (typeof fn === "function") mapWidgetCleanups.push(fn);
   }
@@ -39,6 +40,12 @@
     replayControlsBound = false;
     replaySelectBound = false;
     recordControlsBound = false;
+    stopReplayPlayback();
+    replayState = null;
+    replayClock.active = false;
+    replayClock.epochMs = 0;
+    replayClock.cursorMs = 0;
+    if (document.body) document.body.classList.remove("map-replay-mode");
     // Map render caches are module-scoped (shared with the OBS page, which never
     // unmounts). SPA re-mount rebuilds the DOM with a fresh empty <img>, so these
     // caches must be cleared: otherwise applyMapImage() sees url === currentImageSrc
@@ -54,6 +61,7 @@
     lastMapContext.warmup = null;
     lastMapContext.phase = null;
     lastMapContext._overlay_map = null;
+    mapSnapshotQueue = Promise.resolve();
   }
 
   function qs(name, fallback) {
@@ -605,6 +613,142 @@
       return Math.max(score, kills);
     }
     return score;
+  }
+
+  function replayScorePlayerKey(steam, nick) {
+    return steam ? "id:" + steam : "name:" + (nick || "?");
+  }
+
+  function collectReplayScoreRoster(events) {
+    var byKey = {};
+    var order = [];
+    for (var i = 0; i < events.length; i++) {
+      var ev = events[i];
+      if (ev.event !== "positions") continue;
+      var players = ev.players || [];
+      for (var j = 0; j < players.length; j++) {
+        var p = players[j];
+        if (!isReplayMapPlayer(p)) continue;
+        var steam = normalizeSteamId64(p.steam_id64);
+        var nick = stripQuakeColors(p.nickname || p.name || "");
+        var key = replayScorePlayerKey(steam, nick);
+        if (!byKey[key]) {
+          byKey[key] = {
+            steam_id64: steam,
+            nickname: nick || steam || "?",
+            kills: 0,
+            deaths: 0,
+            score: 0,
+          };
+          order.push(key);
+        }
+      }
+    }
+    return { byKey: byKey, order: order };
+  }
+
+  function replayScoresAtTime(targetT) {
+    if (!replayState) return [];
+    var events = replayState.events || [];
+    var roster = collectReplayScoreRoster(events);
+    var byKey = roster.byKey;
+    for (var i = 0; i < events.length; i++) {
+      var ev = events[i];
+      if (ev.event !== "death") continue;
+      if ((ev.t || 0) > targetT) break;
+      var killerSteam = normalizeSteamId64(ev.killer_steam_id64);
+      var victimSteam = normalizeSteamId64(ev.victim_steam_id64);
+      var killer = stripQuakeColors(ev.killer_name || "");
+      var victim = stripQuakeColors(ev.victim_name || "");
+      var suicide =
+        !killer ||
+        killerSteam === victimSteam ||
+        normalizeWeaponToken(ev.weapon) === "SUICIDE";
+      if (!suicide && killer) {
+        var krKey = replayScorePlayerKey(killerSteam, killer);
+        if (!byKey[krKey]) {
+          byKey[krKey] = {
+            steam_id64: killerSteam,
+            nickname: killer,
+            kills: 0,
+            deaths: 0,
+            score: 0,
+          };
+          roster.order.push(krKey);
+        }
+        byKey[krKey].kills += 1;
+        byKey[krKey].score = Math.max(byKey[krKey].score, byKey[krKey].kills);
+      }
+      if (victim) {
+        var vrKey = replayScorePlayerKey(victimSteam, victim);
+        if (!byKey[vrKey]) {
+          byKey[vrKey] = {
+            steam_id64: victimSteam,
+            nickname: victim,
+            kills: 0,
+            deaths: 0,
+            score: 0,
+          };
+          roster.order.push(vrKey);
+        }
+        byKey[vrKey].deaths += 1;
+      }
+    }
+    return roster.order.map(function (k) {
+      return byKey[k];
+    });
+  }
+
+  function renderReplayScoreHud(targetT) {
+    var el = document.getElementById("map-score");
+    if (!el) return;
+    if (!replayState || hudSettings().showMapScore === false) {
+      el.classList.add("hidden");
+      if (!replayState) el.innerHTML = "";
+      return;
+    }
+    var players = replayScoresAtTime(targetT);
+    if (!players.length) {
+      el.classList.add("hidden");
+      el.innerHTML = "";
+      return;
+    }
+    var gametype = String(
+      replayState.meta.gametype || lastMapContext.gametype || "",
+    ).toLowerCase();
+    el.classList.remove("hidden");
+    if (players.length === 2) {
+      var left = players[0];
+      var right = players[1];
+      var ls = playerDisplayScore(left, gametype);
+      var rs = playerDisplayScore(right, gametype);
+      el.innerHTML =
+        '<div class="map-score-duel">' +
+        '<span class="map-score-name map-score-left">' +
+        escapeHtmlText(left.nickname) +
+        "</span>" +
+        '<span class="map-score-mid">' +
+        escapeHtmlText(String(ls) + " : " + String(rs)) +
+        "</span>" +
+        '<span class="map-score-name map-score-right">' +
+        escapeHtmlText(right.nickname) +
+        "</span></div>";
+      return;
+    }
+    var sorted = players.slice().sort(function (a, b) {
+      return playerDisplayScore(b, gametype) - playerDisplayScore(a, gametype);
+    });
+    var rows = "";
+    for (var i = 0; i < sorted.length; i++) {
+      var p = sorted[i];
+      rows +=
+        '<div class="map-score-row"><span class="map-score-name">' +
+        escapeHtmlText(p.nickname) +
+        '</span><span class="map-score-val">' +
+        escapeHtmlText(String(playerDisplayScore(p, gametype))) +
+        "</span></div>";
+    }
+    el.innerHTML = '<div class="map-score-list">' + rows + "</div>";
   }
 
   function renderPlayers(players, gametype) {
@@ -2134,6 +2278,8 @@
   function applyPlayerMarkerStyle(el, playerId, players, gametype) {
     if (!el || !el.dot || !el.marker) return;
     var role = playerMarkerRole(playerId, players, gametype);
+    if (el._mapMarkerRole === role) return;
+    el._mapMarkerRole = role;
     var color = colorForPlayerRole(role);
     el.dot.style.background = color;
     if (el.pinFill) el.pinFill.setAttribute("fill", color);
@@ -2155,6 +2301,7 @@
     var ids = Object.keys(mapMotion.byId);
     for (var i = 0; i < ids.length; i++) {
       var st = mapMotion.byId[ids[i]];
+      if (st.el) st.el._mapMarkerRole = null;
       applyPlayerMarkerStyle(st.el, ids[i], players, gametype);
     }
     renderHeatmap(players, gametype);
@@ -2410,7 +2557,7 @@
     if (window.MapSpawns && typeof MapSpawns.getHudSettings === "function") {
       return MapSpawns.getHudSettings();
     }
-    return { showKillfeed: true, showPickupToasts: true };
+    return { showKillfeed: true, showPickupToasts: true, showMapScore: true };
   }
 
   function pushPickupLog(entry) {
@@ -3194,6 +3341,12 @@
       }
     }
     var hasYaw = yaw != null && !isNaN(yaw);
+    if (hasYaw) {
+      el._lastYaw = yaw;
+    } else if (el._lastYaw != null && !isNaN(el._lastYaw)) {
+      yaw = el._lastYaw;
+      hasYaw = true;
+    }
     var fovDeg = fov != null && !isNaN(fov) ? Number(fov) : defaultMapFov();
     if (hasYaw && display.showFovWedge && el.fov && el.fovPath) {
       el.fov.style.display = "";
@@ -3212,9 +3365,29 @@
       el.pinFill &&
       el.pinOutline &&
       el.pinSpike;
+    var modeKey = usePin
+      ? "pin"
+      : hasYaw && display.showDirectionArrow && el.view
+        ? "arrow"
+        : "dot";
+    if (el._markerMode !== modeKey) {
+      el._markerMode = modeKey;
+      if (usePin) {
+        if (el.view) el.view.style.display = "none";
+        el.dot.style.display = "none";
+        el.pin.style.display = "";
+      } else {
+        if (el.pin) el.pin.style.display = "none";
+        el.dot.style.display = "";
+        if (hasYaw && display.showDirectionArrow && el.view) {
+          el.view.style.display = "";
+        } else if (el.view) {
+          el.view.style.display = "none";
+        }
+      }
+    }
     if (usePin) {
       var layout = pinLayoutForDotSize(size);
-      el.pin.style.display = "";
       el.pin.setAttribute("viewBox", layout.viewBox);
       el.pin.style.width = layout.sizePx + "px";
       el.pin.style.height = layout.sizePx + "px";
@@ -3225,17 +3398,8 @@
       el.pinSpike.setAttribute("d", layout.spikeFill);
       el.pinOutline.setAttribute("d", layout.outline);
       el.pinOutline.setAttribute("stroke-width", String(layout.strokeWidth));
-      el.dot.style.display = "none";
-      if (el.view) el.view.style.display = "none";
-    } else {
-      if (el.pin) el.pin.style.display = "none";
-      el.dot.style.display = "";
-      if (hasYaw && display.showDirectionArrow && el.view) {
-        el.view.style.display = "";
-        el.view.style.transform = "rotate(" + -yaw + "deg)";
-      } else if (el.view) {
-        el.view.style.display = "none";
-      }
+    } else if (hasYaw && display.showDirectionArrow && el.view) {
+      el.view.style.transform = "rotate(" + -yaw + "deg)";
     }
   }
 
@@ -3442,7 +3606,13 @@
       }
       cachedMapKey = key;
       cachedTransform = transform;
-      if (url && url !== currentImageSrc) {
+      if (
+        url &&
+        (url !== currentImageSrc ||
+          !image.getAttribute("src") ||
+          !image.complete ||
+          image.naturalWidth === 0)
+      ) {
         currentImageSrc = url;
         image.src = url;
       }
@@ -3509,6 +3679,15 @@
     if (data.match_id) {
       lastMapContext.match_id = data.match_id;
     }
+    var incomingPlayers = normalizePlayersList(data.players);
+    if (
+      mapPositionsVisible() &&
+      !incomingPlayers.length &&
+      mapMotion.currentPlayers &&
+      mapMotion.currentPlayers.length
+    ) {
+      data = Object.assign({}, data, { players: mapMotion.currentPlayers });
+    }
     if (!mapPositionsVisible()) {
       data = Object.assign({}, data, { players: [] });
     }
@@ -3540,6 +3719,17 @@
     setStatus("");
   }
 
+  function scheduleMapSnapshot(data, opts) {
+    mapSnapshotQueue = mapSnapshotQueue
+      .then(function () {
+        return handleMapSnapshot(data, opts);
+      })
+      .catch(function (err) {
+        setStatus(String(err.message || err), true);
+      });
+    return mapSnapshotQueue;
+  }
+
   async function resolveMapMatchId() {
     var id = matchId();
     if (!id) {
@@ -3563,7 +3753,7 @@
       var data = await fetchJson(
         "/api/matches/" + encodeURIComponent(id) + "/positions",
       );
-      await handleMapSnapshot(data);
+      await scheduleMapSnapshot(data);
     } catch (err) {
       if (String(err.message || err).indexOf("404") >= 0) {
         showNoMatchStatus(id);
@@ -3667,13 +3857,19 @@
   }
 
   function computeReplayPositionsEndT(events, meta) {
-    var endT = null;
-    for (var i = 0; i < events.length; i++) {
+    for (var i = events.length - 1; i >= 0; i--) {
       var ev = events[i];
-      if (ev.event !== "match_status") continue;
-      var st = String(ev.status || "").toLowerCase();
+      if (ev.event === "match_end" && ev.t != null && isFinite(Number(ev.t))) {
+        return Number(ev.t);
+      }
+    }
+    var endT = null;
+    for (var j = 0; j < events.length; j++) {
+      var stEv = events[j];
+      if (stEv.event !== "match_status") continue;
+      var st = String(stEv.status || "").toLowerCase();
       if (st === "ended" || st === "aborted") {
-        endT = ev.t || 0;
+        endT = stEv.t || 0;
       }
     }
     if (endT == null && meta && meta.ended_at != null) {
@@ -3795,6 +3991,7 @@
       MapSpawns.refreshItemRespawnOverlays();
     }
     renderReplayHeatmap(players, payload.gametype, targetT);
+    renderReplayScoreHud(targetT);
   }
 
   function fmtReplayClock(ms) {
@@ -3810,6 +4007,8 @@
   var replaySeeking = false;
   var replaySeekRaf = 0;
   var replaySeekPendingMs = null;
+  var replaySeekPendingGame = null;
+  var replaySeekPendingPreview = false;
   var replayScrubWasPlaying = false;
 
   function replayLastEventIndexAtOrBefore(targetT) {
@@ -3852,24 +4051,58 @@
   }
 
   function cancelScheduledSeekReplay() {
-    if (!replaySeekRaf) return;
-    cancelAnimationFrame(replaySeekRaf);
-    replaySeekRaf = 0;
+    if (replaySeekRaf) {
+      cancelAnimationFrame(replaySeekRaf);
+      replaySeekRaf = 0;
+    }
     replaySeekPendingMs = null;
+    replaySeekPendingGame = null;
+    replaySeekPendingPreview = false;
   }
 
-  function scheduleSeekReplay(cursorMs) {
-    replaySeekPendingMs = cursorMs;
-    if (replaySeekRaf) return;
-    replaySeekRaf = requestAnimationFrame(function () {
-      replaySeekRaf = 0;
+  function flushScheduledSeekReplay() {
+    replaySeekRaf = 0;
+    if (replaySeekPendingMs != null) {
       var ms = replaySeekPendingMs;
+      var preview = !!replaySeekPendingPreview;
       replaySeekPendingMs = null;
-      if (ms == null || !replayState) return;
-      seekReplay(ms).catch(function (err) {
+      replaySeekPendingGame = null;
+      replaySeekPendingPreview = false;
+      if (!replayState) return;
+      seekReplay(ms, { scrubPreview: preview }).catch(function (err) {
         setStatus(String(err.message || err), true);
       });
-    });
+      return;
+    }
+    if (replaySeekPendingGame) {
+      var pending = replaySeekPendingGame;
+      replaySeekPendingGame = null;
+      if (!replayState) return;
+      var cursor = replayGameMsToCursor(pending.gameMs, pending.opts);
+      if (cursor == null) return;
+      seekReplay(cursor, { scrubPreview: !!pending.opts.scrubPreview }).catch(
+        function (err) {
+          setStatus(String(err.message || err), true);
+        },
+      );
+    }
+  }
+
+  function scheduleSeekReplay(cursorMs, opts) {
+    opts = opts || {};
+    replaySeekPendingMs = cursorMs;
+    replaySeekPendingGame = null;
+    replaySeekPendingPreview = !!opts.scrubPreview;
+    if (replaySeekRaf) return;
+    replaySeekRaf = requestAnimationFrame(flushScheduledSeekReplay);
+  }
+
+  function scheduleSeekReplayGameMs(gameMs, opts) {
+    replaySeekPendingGame = { gameMs: Number(gameMs) || 0, opts: opts || {} };
+    replaySeekPendingMs = null;
+    replaySeekPendingPreview = false;
+    if (replaySeekRaf) return;
+    replaySeekRaf = requestAnimationFrame(flushScheduledSeekReplay);
   }
 
   function resetClientRecorder() {
@@ -4061,18 +4294,19 @@
     var recordControls = document.getElementById("map-record-controls");
     var playback = document.getElementById("map-replay-playback");
     var loadWrap = document.getElementById("map-replay-load-wrap");
-    if (bar) bar.classList.remove("hidden");
+    var embedded = !!(window.MapWidget && window.MapWidget.embedded);
+    if (bar) bar.classList.toggle("hidden", embedded || mode === "none");
     if (recordControls) {
-      recordControls.classList.toggle("hidden", mode !== "record");
+      recordControls.classList.toggle("hidden", mode !== "record" || embedded);
     }
     if (playback) {
-      playback.classList.toggle("hidden", mode !== "replay");
+      // Embedded dashboard uses the page-level timeline controls instead.
+      playback.classList.toggle("hidden", mode !== "replay" || embedded);
     }
     if (loadWrap) {
       // Load-file belongs to the standalone replay player. The embedded results
       // widget plays only the server replay tied to that result, so hide its
       // file picker (will live on a dedicated Replays player page later).
-      var embedded = !!(window.MapWidget && window.MapWidget.embedded);
       loadWrap.classList.toggle("hidden", mode !== "replay" || embedded);
     }
   }
@@ -4284,11 +4518,16 @@
     if (speedSel) speedSel.value = String(replayState.speed);
 
     await seekReplay(0);
-    var src =
-      normalized.source === "ql-overlay-client"
-        ? "client file"
-        : normalized.source || "replay";
-    setStatus("Replay loaded (" + src + ", " + events.length + " events)");
+    var embedded = !!(window.MapWidget && window.MapWidget.embedded);
+    if (!embedded) {
+      var src =
+        normalized.source === "ql-overlay-client"
+          ? "client file"
+          : normalized.source || "replay";
+      setStatus("Replay loaded (" + src + ", " + events.length + " events)");
+    } else {
+      setStatus("");
+    }
   }
 
   function bindReplayFileLoad() {
@@ -4399,7 +4638,15 @@
   }
 
   async function applyReplayEvent(ev) {
-    if (!ev || !ev.event || ev.event === "match_status") return false;
+    if (!ev || !ev.event) return false;
+    if (
+      ev.event === "match_status" ||
+      ev.event === "countdown_start" ||
+      ev.event === "match_start" ||
+      ev.event === "match_end"
+    ) {
+      return false;
+    }
     var payload = replayPayloadFromEvent(ev);
     if (!payload) return false;
     if (payload.event === "positions") {
@@ -4424,7 +4671,19 @@
   // Replay scrub is wall-clock offset (cursorMs); the dashboard match timeline is
   // game-clock (game_time_ms). death/pickup events carry both a wall `t` and a
   // game `time`, so the median (t - game_time) is the wall epoch of game start.
+  function replayLifecycleWallT(events, kind) {
+    for (var i = events.length - 1; i >= 0; i--) {
+      var ev = events[i];
+      if (ev.event !== kind) continue;
+      var t = ev.t;
+      if (t != null && isFinite(Number(t))) return Number(t);
+    }
+    return null;
+  }
+
   function computeReplayGameStartWall(events) {
+    var fromLifecycle = replayLifecycleWallT(events, "match_start");
+    if (fromLifecycle != null) return fromLifecycle;
     var diffs = [];
     for (var i = 0; i < events.length; i++) {
       var ev = events[i];
@@ -4448,13 +4707,51 @@
     return g < 0 ? 0 : g;
   }
 
-  function replayGameMsToCursor(gameMs) {
-    if (!replayState || replayState.gameStartWall == null) return null;
+  function replayGameMaxMs(opts) {
+    if (!replayState) return null;
+    opts = opts || {};
+    var events = replayState.events || [];
+    var endRow = null;
+    for (var i = events.length - 1; i >= 0; i--) {
+      if (events[i].event === "match_end") {
+        endRow = events[i];
+        break;
+      }
+    }
+    if (endRow && endRow.game_time_ms != null && isFinite(Number(endRow.game_time_ms))) {
+      return Math.max(0, Number(endRow.game_time_ms));
+    }
+    var fromCursor = replayCursorToGameMs(replayState.durationMs);
+    if (fromCursor != null && fromCursor > 0) return fromCursor;
+    var ext = Number(opts.gameMaxMs);
+    if (isFinite(ext) && ext > 0) return ext;
+    var maxG = 0;
+    var events = replayState.events || [];
+    for (var i = 0; i < events.length; i++) {
+      var g = replayGameTimeFieldMs(events[i]);
+      if (g != null && g > maxG) maxG = g;
+    }
+    return maxG > 0 ? maxG : null;
+  }
+
+  function replayGameMsToCursor(gameMs, opts) {
+    if (!replayState) return null;
+    opts = opts || {};
     var dur = replayState.durationMs || 0;
-    var c = replayState.gameStartWall + (Number(gameMs) || 0) - replayState.startMs;
-    if (c < 0) c = 0;
-    if (c > dur) c = dur;
-    return c;
+    if (replayState.gameStartWall != null) {
+      var c = replayState.gameStartWall + (Number(gameMs) || 0) - replayState.startMs;
+      if (c < 0) c = 0;
+      if (c > dur) c = dur;
+      return c;
+    }
+    var gmax = replayGameMaxMs(opts);
+    if (gmax && gmax > 0 && dur) {
+      var c2 = (Number(gameMs) / gmax) * dur;
+      if (c2 < 0) c2 = 0;
+      if (c2 > dur) c2 = dur;
+      return c2;
+    }
+    return null;
   }
 
   function notifyReplayCursorListeners() {
@@ -4528,7 +4825,12 @@
     }
   }
 
-  async function seekReplay(cursorMs) {
+  async function seekReplay(cursorMs, opts) {
+    opts = opts || {};
+    if (opts.scrubPreview) {
+      seekReplayScrub(cursorMs);
+      return;
+    }
     if (!replayState) return;
     cancelScheduledSeekReplay();
     stopReplayPlayback();
@@ -4557,6 +4859,16 @@
     }
   }
 
+  // Live scrub preview: move interpolated player dots without rebuilding overlay
+  // state (deaths/pickups/killfeed). Full seekReplay() runs on scrub release.
+  function seekReplayScrub(cursorMs) {
+    if (!replayState) return;
+    var dur = replayState.durationMs || 0;
+    replayState.cursorMs = Math.max(0, Math.min(dur, Number(cursorMs) || 0));
+    replayClock.cursorMs = replayState.cursorMs;
+    applyReplayFramePositions();
+  }
+
   function applyReplayEventsIncremental() {
     if (!replayState) return;
     var targetT = replayState.startMs + replayState.cursorMs;
@@ -4568,15 +4880,24 @@
       if (
         replayState.positionsEndT != null &&
         (ev.t || 0) > replayState.positionsEndT &&
-        ev.event !== "match_status"
+        ev.event !== "match_status" &&
+        ev.event !== "match_end"
       ) {
         break;
       }
-      if (ev.event !== "match_status") {
-        applyReplayEvent(ev).catch(function (err) {
-          setStatus(String(err.message || err), true);
-        });
+      if (
+        ev.event === "match_status" ||
+        ev.event === "countdown_start" ||
+        ev.event === "match_start" ||
+        ev.event === "match_end"
+      ) {
+        replayState.lastAppliedIndex = i;
+        i++;
+        continue;
       }
+      applyReplayEvent(ev).catch(function (err) {
+        setStatus(String(err.message || err), true);
+      });
       replayState.lastAppliedIndex = i;
       i++;
     }
@@ -4649,7 +4970,7 @@
         stopReplayPlayback();
       });
       scrub.addEventListener("input", function () {
-        scheduleSeekReplay(Number(scrub.value));
+        scheduleSeekReplay(Number(scrub.value), { scrubPreview: true });
       });
       scrub.addEventListener("change", function () {
         cancelScheduledSeekReplay();
@@ -4741,7 +5062,7 @@
       var data = await fetchJson(
         "/api/matches/" + encodeURIComponent(id) + "/positions" + suffix,
       );
-      await handleMapSnapshot(data);
+      await scheduleMapSnapshot(data);
     } catch (err) {
       if (String(err.message || err).indexOf("404") >= 0) {
         showNoMatchStatus(id);
@@ -4861,9 +5182,7 @@
             mapDebugState.lastWsEvent = data.event || null;
             mapDebugState.wsFrameCount += 1;
             if (data.event === "positions" || data.event === "snapshot") {
-              handleMapSnapshot(data).catch(function (err) {
-                setStatus(String(err.message || err), true);
-              });
+              scheduleMapSnapshot(data);
             } else if (data.event === "match_status") {
               recordClientMatchStatus(data);
               if (data.status === "ended" || data.status === "aborted") {
@@ -4873,14 +5192,12 @@
                   map_name: lastMapContext.map_name,
                 });
                 clearMapMotion();
-                handleMapSnapshot({
+                scheduleMapSnapshot({
                   event: data.event,
                   match_id: data.match_id,
                   map_name: lastMapContext.map_name,
                   gametype: lastMapContext.gametype,
                   players: [],
-                }).catch(function (err) {
-                  setStatus(String(err.message || err), true);
                 });
               }
             } else if (data.event === "game_started") {
@@ -4891,17 +5208,6 @@
               var matchRow = data.match;
               if (matchRow && matchRow.gametype) {
                 lastMapContext.gametype = matchRow.gametype;
-              }
-              var lastPayload = mapDebugState.lastPayload;
-              if (lastPayload && matchRow && matchRow.gametype) {
-                handleMapSnapshot(
-                  Object.assign({}, lastPayload, {
-                    gametype: matchRow.gametype,
-                    match_id: matchRow.match_id || lastPayload.match_id,
-                  }),
-                ).catch(function (err) {
-                  setStatus(String(err.message || err), true);
-                });
               }
             } else if (data.event === "death") {
               handleDeathEvent(data);
@@ -5117,20 +5423,54 @@
         durationMs: durationMs,
         startMs: replayState.startMs,
         playing: !!replayState.playing,
+        speed: replayState.speed,
         gameMs: replayCursorToGameMs(replayState.cursorMs),
         gameMaxMs: replayCursorToGameMs(durationMs),
       };
     },
-    seekReplayMs: function (cursorMs) {
-      if (!replayState) return;
-      scheduleSeekReplay(Number(cursorMs) || 0);
+    isReplayPlaying: function () {
+      return !!(replayState && replayState.playing);
     },
-    seekReplayGameMs: function (gameMs) {
-      if (!replayState) return;
-      var c = replayGameMsToCursor(Number(gameMs) || 0);
-      if (c == null) return;
-      scheduleSeekReplay(c);
+    pauseReplay: function () {
+      stopReplayPlayback();
+      updateReplayBarUi();
     },
+    playReplay: function () {
+      startReplayPlayback();
+    },
+    toggleReplayPlayback: function () {
+      toggleReplayPlayback();
+    },
+    setReplaySpeed: function (speed) {
+      if (!replayState) return;
+      var n = Number(speed);
+      replayState.speed = isFinite(n) && n > 0 ? n : 1;
+      var speedSel = document.getElementById("map-replay-speed");
+      if (speedSel) speedSel.value = String(replayState.speed);
+    },
+    seekReplayMs: function (cursorMs, opts) {
+      if (!replayState) return Promise.resolve();
+      opts = opts || {};
+      var resume = !!opts.resume;
+      if (!resume) stopReplayPlayback();
+      cancelScheduledSeekReplay();
+      return seekReplay(Number(cursorMs) || 0)
+        .then(function () {
+          if (resume) startReplayPlayback();
+        })
+        .catch(function (err) {
+          setStatus(String(err.message || err), true);
+        });
+    },
+    seekReplayGameMs: function (gameMs, opts) {
+      if (!replayState) return Promise.resolve();
+      opts = opts || {};
+      var c = replayGameMsToCursor(Number(gameMs) || 0, opts);
+      if (c == null) return Promise.resolve();
+      return window.OverlayApp.seekReplayMs(c, opts);
+    },
+    scheduleSeekReplayGameMs: scheduleSeekReplayGameMs,
+    cancelScheduledSeekReplay: cancelScheduledSeekReplay,
     setReplayCursorListener: function (fn) {
       replayCursorListener = typeof fn === "function" ? fn : null;
     },
@@ -5170,6 +5510,9 @@
       renderPickupFeed();
       refreshPlayerMarkerPresentation();
       renderHeatmap(mapMotion.currentPlayers, mapMotion.currentGametype);
+      if (replayState) {
+        renderReplayScoreHud(replayState.startMs + replayState.cursorMs);
+      }
     },
     clearHeatmap: clearHeatmap,
     resetMatchOverlayState: resetMatchOverlayState,

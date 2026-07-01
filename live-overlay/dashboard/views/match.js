@@ -14,6 +14,66 @@
   var lastArchive = null;
   var scrubGameTimeMs = null;
   var scrubAtLive = true;
+  var analyticsDragging = false;
+  var scrubPanelSyncTimer = 0;
+
+  function livePlayersForDisplay() {
+    if (!scrubAtLive || !lastLiveData) return null;
+    var players = lastLiveData.players;
+    return players && players.length ? players : null;
+  }
+
+  function refreshScoreDisplay() {
+    var livePlayers = livePlayersForDisplay();
+    if (
+      !lastArchive &&
+      !(livePlayers && livePlayers.length) &&
+      !(lastLiveData && lastLiveData.players && lastLiveData.players.length)
+    ) {
+      return;
+    }
+    var scrubMs = scrubGameTimeMs;
+    var baseArchive =
+      lastArchive ||
+      {
+        gametype: lastLiveData && lastLiveData.gametype,
+        map_name: lastLiveData && lastLiveData.map_name,
+        players: [],
+        deaths: [],
+        pickups: [],
+        accuracy_summary: [],
+        accuracy_timeline: [],
+      };
+    var view = livePlayers
+      ? Object.assign({}, baseArchive, { players: livePlayers })
+      : A().archiveForScore(baseArchive, scrubMs);
+    var matchupEl = document.getElementById("server-matchup");
+    if (matchupEl) {
+      matchupEl.innerHTML = A().renderMatchupBanner(view, scrubMs, livePlayers, lastLiveData);
+    }
+    var scoreboardEl = document.getElementById("server-scoreboard");
+    if (scoreboardEl) {
+      scoreboardEl.innerHTML = A().renderScoreboard(view, scrubMs, livePlayers, lastLiveData);
+    }
+  }
+
+  function scheduleScrubPanelSync() {
+    if (scrubPanelSyncTimer) return;
+    scrubPanelSyncTimer = setTimeout(function () {
+      scrubPanelSyncTimer = 0;
+      refreshAnalyticsPanels();
+      refreshScoreDisplay();
+    }, 100);
+  }
+
+  function flushScrubPanelSync() {
+    if (scrubPanelSyncTimer) {
+      clearTimeout(scrubPanelSyncTimer);
+      scrubPanelSyncTimer = 0;
+    }
+    refreshAnalyticsPanels();
+    refreshScoreDisplay();
+  }
 
   function stopWs() {
     if (wsRefreshTimer) {
@@ -293,13 +353,12 @@
   function renderMatchClockHtml(liveData) {
     if (!liveData) return "";
     if (QLDashboard.isWarmupPhase(liveData)) {
-      var phaseKey =
-        String(liveData.phase || "").toLowerCase() === "countdown" || liveData.countdown
-          ? "phaseCountdown"
-          : "phaseWarmup";
+      return "";
+    }
+    if (liveData.phase === "countdown" || liveData.countdown) {
       return (
         '<span class="match-page-clock match-page-clock-warmup">' +
-        QLDashboard.escapeHtml(QLDashboard.t(phaseKey)) +
+        QLDashboard.escapeHtml(QLDashboard.t("phaseCountdown")) +
         "</span>"
       );
     }
@@ -326,14 +385,37 @@
     if (!scrub || scrub.dataset.qlBound) return;
     scrub.dataset.qlBound = "1";
     var maxMs = A().computeTimelineMaxMs(archive, liveData);
+
+    scrub.addEventListener("pointerdown", function () {
+      analyticsDragging = true;
+    });
+
     scrub.addEventListener("input", function () {
       scrubGameTimeMs = Number(scrub.value);
       maxMs = A().computeTimelineMaxMs(lastArchive, lastLiveData);
       scrubAtLive = maxMs != null && Number(scrubGameTimeMs) >= maxMs - 500;
       var label = document.getElementById("match-timeline-label");
       if (label) label.textContent = A().formatGameTime(scrubGameTimeMs);
-      refreshAnalyticsPanels();
+      if (analyticsDragging) {
+        scheduleScrubPanelSync();
+      } else {
+        flushScrubPanelSync();
+      }
     });
+
+    scrub.addEventListener("change", function () {
+      analyticsDragging = false;
+      flushScrubPanelSync();
+    });
+
+    scrub.addEventListener("pointercancel", function () {
+      analyticsDragging = false;
+    });
+
+    scrub.addEventListener("pointerup", function () {
+      analyticsDragging = false;
+    });
+
     var liveBtn = document.getElementById("match-timeline-live");
     if (liveBtn && !liveBtn.dataset.qlBound) {
       liveBtn.dataset.qlBound = "1";
@@ -344,7 +426,7 @@
         scrub.value = String(maxMs);
         var label = document.getElementById("match-timeline-label");
         if (label) label.textContent = A().formatGameTime(maxMs);
-        refreshAnalyticsPanels();
+        flushScrubPanelSync();
       });
     }
   }
@@ -361,26 +443,31 @@
       var label = document.getElementById("match-timeline-label");
       if (label) label.textContent = A().formatGameTime(maxMs);
     }
+    refreshScoreDisplay();
   }
 
   function refreshAnalyticsPanels() {
     var panels = document.getElementById("match-analytics-panels");
     if (!panels || !lastArchive) return;
-    panels.innerHTML = A().renderAnalyticsPanels(
-      lastArchive,
-      lastLiveData && lastLiveData.players,
-      {
-        debug: QLDashboard.debugMode(),
-        scrubMs: scrubGameTimeMs,
-        liveData: lastLiveData,
-      },
-    );
+    A().preserveAnalyticsScroll(panels, function () {
+      panels.innerHTML = A().renderAnalyticsPanels(
+        lastArchive,
+        lastLiveData && lastLiveData.players,
+        {
+          debug: QLDashboard.debugMode(),
+          scrubMs: scrubGameTimeMs,
+          liveData: lastLiveData,
+        },
+      );
+    });
   }
 
   function refreshAnalyticsOnLiveData() {
     if (!lastArchive) return;
     if (scrubAtLive) {
       updateTimelineScrubberBounds();
+    } else {
+      refreshScoreDisplay();
     }
     refreshAnalyticsPanels();
   }
@@ -439,6 +526,74 @@
     return html;
   }
 
+  function renderServerPicker(root) {
+    var matches = QLDashboard.matches || [];
+    var html =
+      '<section class="control-section">' +
+      "<h2>" +
+      QLDashboard.escapeHtml(QLDashboard.t("navServer")) +
+      "</h2>" +
+      '<p class="control-field-hint">' +
+      QLDashboard.escapeHtml(QLDashboard.t("serverSelectHint")) +
+      "</p>";
+    if (!matches.length) {
+      html +=
+        '<p class="control-field-hint">' +
+        QLDashboard.escapeHtml(QLDashboard.t("matchesEmpty")) +
+        "</p>";
+    } else {
+      html +=
+        '<table class="matches-table"><thead><tr><th>' +
+        QLDashboard.escapeHtml(QLDashboard.t("colMap")) +
+        "</th><th>" +
+        QLDashboard.escapeHtml(QLDashboard.t("colStatus")) +
+        "</th><th>" +
+        QLDashboard.escapeHtml(QLDashboard.t("colServer")) +
+        "</th><th>" +
+        QLDashboard.escapeHtml(QLDashboard.t("colActions")) +
+        '</th></tr></thead><tbody id="server-picker-body">';
+      for (var i = 0; i < matches.length; i++) {
+        var row = matches[i];
+        var mid = row.match_id || "";
+        var href = "#/server/" + encodeURIComponent(mid);
+        html +=
+          "<tr><td>" +
+          QLDashboard.escapeHtml([row.map_name, row.gametype].filter(Boolean).join(" · ") || "—") +
+          '<div class="match-id">' +
+          QLDashboard.escapeHtml(mid) +
+          "</div></td><td>" +
+          '<span class="badge ' +
+          QLDashboard.escapeHtml(QLDashboard.statusBadgeClass(row)) +
+          '">' +
+          QLDashboard.escapeHtml(QLDashboard.matchPhaseLabel(row)) +
+          "</span></td><td>" +
+          QLDashboard.serverLocationHtml(row) +
+          '</td><td><a class="control-btn control-btn-sm" href="' +
+          QLDashboard.escapeHtml(href) +
+          '">' +
+          QLDashboard.escapeHtml(QLDashboard.t("openServer")) +
+          '</a> <button type="button" class="control-btn control-btn-sm" data-map-for="' +
+          QLDashboard.escapeHtml(mid) +
+          '">' +
+          QLDashboard.escapeHtml(QLDashboard.t("openMap")) +
+          "</button></td></tr>";
+      }
+      html += "</tbody></table>";
+    }
+    html += "</section>";
+    root.innerHTML = html;
+    root.querySelectorAll("[data-map-for]").forEach(function (btn) {
+      btn.addEventListener("click", function () {
+        var id = btn.getAttribute("data-map-for") || "";
+        if (!id) return;
+        QLDashboard.openWindow(
+          QLDashboard.liveOverlayUrl("map", id),
+          "ql-map-" + id,
+        );
+      });
+    });
+  }
+
   function mount(root, route) {
     stopPoll();
     stopClock();
@@ -448,10 +603,7 @@
     lastArchive = null;
     var matchId = route.param;
     if (!matchId) {
-      root.innerHTML =
-        '<section class="control-section"><p class="control-field-hint">' +
-        QLDashboard.escapeHtml(QLDashboard.t("serverSelectHint")) +
-        "</p></section>";
+      renderServerPicker(root);
       return;
     }
 
@@ -475,6 +627,10 @@
   }
 
   function unmount() {
+    if (scrubPanelSyncTimer) {
+      clearTimeout(scrubPanelSyncTimer);
+      scrubPanelSyncTimer = 0;
+    }
     destroyMapWidget();
     stopPoll();
     stopClock();
@@ -485,20 +641,18 @@
     var urlMap = QLDashboard.liveOverlayUrl("map", matchId);
 
     root.innerHTML =
-      '<section class="control-section">' +
+      '<section class="control-section match-detail-section">' +
       '<p id="server-status" class="control-status">' +
       QLDashboard.escapeHtml(QLDashboard.t("serverLoading")) +
       "</p>" +
+      '<div class="results-detail-hero">' +
+      '<div class="results-detail-hero-main">' +
       '<header class="match-page-header">' +
       '<h1 id="server-title" class="match-page-title">—</h1>' +
       '<p id="server-meta" class="match-page-meta"></p>' +
       '<p id="server-clock" class="match-page-clock-row"></p>' +
       '<p><span id="server-badge" class="badge"></span></p>' +
       "</header>" +
-      '<h2 class="match-section-title">' +
-      QLDashboard.escapeHtml(QLDashboard.t("matchSectionPlayers")) +
-      "</h2>" +
-      '<div id="server-players-wrap"></div>' +
       '<div class="control-actions" style="margin-top:12px">' +
       '<a id="server-btn-full" class="control-btn control-btn-primary" href="' +
       QLDashboard.escapeHtml(urlFull) +
@@ -510,14 +664,13 @@
       '" target="_blank" rel="noopener noreferrer">' +
       QLDashboard.escapeHtml(QLDashboard.t("matchOpenMap")) +
       "</a>" +
-      "</div></section>" +
-      '<section class="control-section" id="server-map-section">' +
-      '<h2 class="match-section-title">' +
-      QLDashboard.escapeHtml(QLDashboard.t("matchSectionMap")) +
-      "</h2>" +
+      "</div></div>" +
+      '<div id="server-scoreboard" class="results-scoreboard-side"></div>' +
+      "</div>" +
+      '<div class="results-map-stack">' +
+      '<div id="server-matchup" class="results-matchup-above-map"></div>' +
       '<div id="server-map-widget" class="match-map-widget"></div>' +
-      "</section>" +
-      '<section class="control-section" id="server-analytics-section">' +
+      "</div>" +
       '<div id="server-analytics-wrap"></div>' +
       '<p id="server-analytics-hint" class="control-field-hint" hidden></p>' +
       "</section>" +
@@ -551,7 +704,7 @@
     if (QLDashboard.debugMode()) return;
     var archive = await QLDashboard.fetchArchiveSummary(matchId);
     if (!archive || activeMatchId !== matchId) return;
-    lastArchive = A().normalizeArchivePickupTimes(archive);
+    lastArchive = A().normalizeArchiveCombatClock(archive);
     syncScrubToLive();
     refreshAnalyticsOnLiveData();
   }
@@ -565,8 +718,10 @@
       liveData = await QLDashboard.fetchStatsJson(
         "/api/stream/matches/" + encodeURIComponent(matchId),
       );
-      if (String(QLDashboard.settings.defaultMatchId || "") !== String(matchId)) {
-        QLDashboard.patchSettings({ defaultMatchId: matchId }, { silent: true });
+      try {
+        sessionStorage.setItem("ql-dashboard-last-server", String(matchId));
+      } catch (_ss) {
+        /* ignore */
       }
 
       var title = document.getElementById("server-title");
@@ -574,9 +729,11 @@
       var badge = document.getElementById("server-badge");
       if (title) title.textContent = QLDashboard.matchScoreSummary(liveData);
       if (meta) {
-        meta.textContent = [liveData.map_name, liveData.gametype, liveData.server_name, matchId]
-          .filter(Boolean)
-          .join(" · ");
+        var metaParts = [liveData.map_name, liveData.gametype, matchId].filter(Boolean);
+        meta.innerHTML =
+          QLDashboard.escapeHtml(metaParts.join(" · ")) +
+          (metaParts.length ? "<br>" : "") +
+          QLDashboard.serverLocationHtml(liveData);
       }
       if (badge) {
         badge.className = "badge " + QLDashboard.statusBadgeClass(liveData);
@@ -588,41 +745,6 @@
         statusEl.textContent = "";
         statusEl.classList.remove("error");
       }
-
-      var wrap = document.getElementById("server-players-wrap");
-      if (wrap && Array.isArray(liveData.players)) {
-        var html =
-          '<table class="data-table results-scoreboard-table"><thead><tr><th>' +
-          QLDashboard.escapeHtml(QLDashboard.t("sbColPlayer")) +
-          '</th><th class="sb-num">' +
-          QLDashboard.escapeHtml(QLDashboard.t("sbColScore")) +
-          '</th><th class="sb-num">' +
-          QLDashboard.escapeHtml(QLDashboard.t("sbColKills")) +
-          '</th><th class="sb-num">' +
-          QLDashboard.escapeHtml(QLDashboard.t("sbColDeaths")) +
-          "</th></tr></thead><tbody>";
-        var sorted = liveData.players.slice().sort(function (a, b) {
-          if (QLDashboard.isWarmupPhase(liveData)) {
-            return String(A().displayNickname(a)).localeCompare(String(A().displayNickname(b)));
-          }
-          return (b.score || 0) - (a.score || 0);
-        });
-        for (var i = 0; i < sorted.length; i++) {
-          var p = sorted[i];
-          html +=
-            "<tr><td>" +
-            QLDashboard.escapeHtml(A().displayNickname(p)) +
-            '</td><td class="sb-num">' +
-            QLDashboard.playerStatDisplay(liveData, p.score) +
-            '</td><td class="sb-num">' +
-            QLDashboard.playerStatDisplay(liveData, p.kills) +
-            '</td><td class="sb-num">' +
-            QLDashboard.playerStatDisplay(liveData, p.deaths) +
-            "</td></tr>";
-        }
-        html += "</tbody></table>";
-        wrap.innerHTML = html;
-      }
     } catch (_err) {
       if (statusEl) {
         statusEl.textContent = QLDashboard.t("matchNotFound");
@@ -630,9 +752,10 @@
       }
     }
 
-    var analyticsSection = document.getElementById("server-analytics-section");
     var analyticsHint = document.getElementById("server-analytics-hint");
     var analyticsWrap = document.getElementById("server-analytics-wrap");
+    var matchupEl = document.getElementById("server-matchup");
+    var scoreboardEl = document.getElementById("server-scoreboard");
     var archive = null;
     if (!debug) {
       archive = await QLDashboard.fetchArchiveSummary(matchId);
@@ -656,10 +779,9 @@
         analyticsHint.hidden = false;
         analyticsHint.textContent = QLDashboard.t("serverAnalyticsLiveOnly");
       }
-      if (analyticsSection) analyticsSection.style.display = "";
     } else {
       if (analyticsHint) analyticsHint.hidden = true;
-      lastArchive = A().normalizeArchivePickupTimes(archive);
+      lastArchive = A().normalizeArchiveCombatClock(archive);
       var prevMax =
         scrubGameTimeMs != null ? scrubGameTimeMs : A().computeTimelineMaxMs(archive, liveData);
       if (scrubGameTimeMs == null) {
@@ -683,16 +805,50 @@
       }
     }
 
+    if (lastArchive || (liveData && liveData.players && liveData.players.length)) {
+      if (!lastArchive && archive) {
+        lastArchive = A().normalizeArchiveCombatClock(archive);
+      } else if (!lastArchive && liveData) {
+        lastArchive = {
+          gametype: liveData.gametype,
+          map_name: liveData.map_name,
+          players: liveData.players || [],
+          deaths: [],
+          pickups: [],
+          accuracy_summary: [],
+          accuracy_timeline: [],
+        };
+      }
+      refreshScoreDisplay();
+    } else {
+      if (matchupEl) matchupEl.innerHTML = "";
+      if (scoreboardEl) scoreboardEl.innerHTML = "";
+    }
+
     await loadRecentResults(matchId);
   }
 
   var serverView = {
     mount: mount,
     unmount: unmount,
+    onMatchesUpdated: function () {
+      var route = QLDashboard.parseRoute();
+      if ((route.view === "server" || route.view === "match") && !route.param) {
+        var root = document.getElementById("app-main");
+        if (root) renderServerPicker(root);
+        return;
+      }
+    },
     onLangChanged: function () {
       var route = QLDashboard.parseRoute();
+      var matchId = route.param;
       var root = document.getElementById("app-main");
-      if (root && (route.view === "server" || route.view === "match")) mount(root, route);
+      if (!root) return;
+      if ((route.view === "server" || route.view === "match") && !matchId) {
+        renderServerPicker(root);
+        return;
+      }
+      if (route.view === "server" || route.view === "match") mount(root, route);
     },
   };
 

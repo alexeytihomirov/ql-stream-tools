@@ -122,7 +122,7 @@
   function getDefaultMatchId() {
     var sel = document.getElementById("ov-default-match");
     if (sel && sel.value) return sel.value;
-    return QLDashboard.settings.defaultMatchId || (QLDashboard.matches[0] && QLDashboard.matches[0].match_id);
+    return QLDashboard.resolveOverlayMatchId("");
   }
 
   function renderDefaultMatchSelect() {
@@ -144,7 +144,7 @@
         (row.score_summary || row.match_id) + (row.map_name ? " · " + row.map_name : "");
       sel.appendChild(opt);
     }
-    var preferred = prev || QLDashboard.settings.defaultMatchId;
+    var preferred = prev || QLDashboard.lastVisitedServerId() || QLDashboard.settings.defaultMatchId;
     if (preferred && sel.querySelector('option[value="' + preferred + '"]')) {
       sel.value = preferred;
     }
@@ -154,6 +154,7 @@
     bindOverlayCard("overlay-scoreboard", "scoreboard", true);
     bindOverlayCard("overlay-map", "map", true);
     bindOverlayCard("overlay-matches", "matches", false);
+    bindMatchesOperatorCard();
 
     var popup = document.getElementById("overlay-popup");
     if (popup) {
@@ -170,6 +171,28 @@
         });
       }
     }
+  }
+
+  function bindMatchesOperatorCard() {
+    var root = document.getElementById("overlay-matches");
+    if (!root) return;
+    var actions = root.querySelector(".overlay-card-actions");
+    if (!actions || actions.querySelector("[data-action=operator]")) return;
+    var btn = document.createElement("button");
+    btn.type = "button";
+    btn.className = "control-btn";
+    btn.setAttribute("data-action", "operator");
+    btn.textContent = QLDashboard.t("openMatchesOperator");
+    btn.addEventListener("click", function () {
+      QLDashboard.openWindow(
+        QLDashboard.liveOverlayUrl("matches", undefined, {
+          mode: "operator",
+          layout: "cards",
+        }),
+        "ql-matches-operator",
+      );
+    });
+    actions.appendChild(btn);
   }
 
   function bindOverlayCard(rootId, page, needsMatch) {

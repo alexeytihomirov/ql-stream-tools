@@ -3,7 +3,7 @@
 
   var STORAGE_KEY = "ql-map-spawns-settings";
   var EXPORT_FILENAME = "ql-map-overlay-settings.json";
-  var SETTINGS_VERSION = 14;
+  var SETTINGS_VERSION = 15;
   var MAP_BASE_PX = 512;
   var MAP_ZOOM_MIN = 50;
   var MAP_ZOOM_MAX = 150;
@@ -137,6 +137,7 @@
   var DEFAULT_HUD = {
     showKillfeed: true,
     showPickupToasts: true,
+    showMapScore: true,
   };
 
   var DEFAULT_HEATMAP = {
@@ -254,6 +255,7 @@
     showThreshold: false,
     showKillfeed: false,
     showPickupToasts: true,
+    showMapScore: false,
     itemCategories: PRESET_MINIMAL_ITEM_CATEGORIES,
     layerTemplate: {
       duel_spawns: false,
@@ -344,6 +346,7 @@
     mapZoomPercent: 100,
     showKillfeed: true,
     showPickupToasts: true,
+    showMapScore: true,
     settingsTab: "layers",
     activePreset: null,
     theme: null,
@@ -574,6 +577,7 @@
       mapZoomPercent: clampMapZoom(settings.mapZoomPercent),
       showKillfeed: settings.showKillfeed !== false,
       showPickupToasts: settings.showPickupToasts !== false,
+      showMapScore: settings.showMapScore !== false,
       settingsTab: settings.settingsTab || "layers",
       activePreset: settings.activePreset || null,
       theme: mergeTheme(settings.theme),
@@ -693,6 +697,7 @@
     if (s.mapZoomPercent == null) s.mapZoomPercent = DEFAULTS.mapZoomPercent;
     if (s.showKillfeed == null) s.showKillfeed = DEFAULTS.showKillfeed;
     if (s.showPickupToasts == null) s.showPickupToasts = DEFAULTS.showPickupToasts;
+    if (s.showMapScore == null) s.showMapScore = DEFAULTS.showMapScore;
     if (!s.settingsTab || SETTINGS_TABS.indexOf(s.settingsTab) < 0) {
       s.settingsTab = DEFAULTS.settingsTab;
     }
@@ -751,6 +756,9 @@
       }
       if (prevVersion < 14) {
         s.playerMarkerStyle = "arrow";
+      }
+      if (prevVersion < 15) {
+        if (s.showMapScore == null) s.showMapScore = true;
       }
       s.version = SETTINGS_VERSION;
       try {
@@ -858,6 +866,7 @@
     settings.showThreshold = PRESET_MINIMAL.showThreshold;
     settings.showKillfeed = PRESET_MINIMAL.showKillfeed;
     settings.showPickupToasts = PRESET_MINIMAL.showPickupToasts;
+    settings.showMapScore = PRESET_MINIMAL.showMapScore;
     settings.itemCategories = Object.assign(
       {},
       DEFAULT_ITEM_CATEGORIES,
@@ -1446,6 +1455,8 @@
     this._staticLayerDirty = true;
     this._staticLayerEl = null;
     this._dynamicLayerEl = null;
+    this._dynamicMarkers = {};
+    this._renderRaf = 0;
     this._anchorMotion = {
       ref: null,
       threshold: null,
@@ -1487,6 +1498,97 @@
       JSON.stringify(this.settings.itemCategories || {}),
       JSON.stringify(mapLayers),
     ].join("|");
+  };
+
+  MapSpawns.prototype._clearDynamicMarkers = function () {
+    for (var key in this._dynamicMarkers) {
+      if (!Object.prototype.hasOwnProperty.call(this._dynamicMarkers, key)) continue;
+      var row = this._dynamicMarkers[key];
+      if (row.el && row.el.parentNode) row.el.parentNode.removeChild(row.el);
+    }
+    this._dynamicMarkers = {};
+    if (this._dynamicLayerEl) this._dynamicLayerEl.innerHTML = "";
+  };
+
+  MapSpawns.prototype._pruneDynamicMarkers = function (seen) {
+    for (var key in this._dynamicMarkers) {
+      if (!Object.prototype.hasOwnProperty.call(this._dynamicMarkers, key)) continue;
+      if (seen[key]) continue;
+      var gone = this._dynamicMarkers[key];
+      if (gone.el && gone.el.parentNode) gone.el.parentNode.removeChild(gone.el);
+      delete this._dynamicMarkers[key];
+    }
+  };
+
+  MapSpawns.prototype._applySpawnMarkerTheme = function (dot, className) {
+    if (!dot) return;
+    var theme = mergeTheme(this.settings.theme);
+    var themeKey =
+      className +
+      "|" +
+      (theme.spawns.activeSpriteUrl || "") +
+      "|" +
+      (theme.spawns.inactiveSpriteUrl || "");
+    if (dot._spawnThemeKey === themeKey) return;
+    dot._spawnThemeKey = themeKey;
+    dot.classList.remove("map-spawn-has-sprite");
+    dot.style.backgroundImage = "";
+    dot.style.backgroundSize = "";
+    dot.style.backgroundRepeat = "";
+    dot.style.backgroundPosition = "";
+    if (className.indexOf("is-active") >= 0 && theme.spawns.activeSpriteUrl) {
+      dot.classList.add("map-spawn-has-sprite");
+      dot.style.backgroundImage = 'url("' + theme.spawns.activeSpriteUrl + '")';
+      dot.style.backgroundSize = "contain";
+      dot.style.backgroundRepeat = "no-repeat";
+      dot.style.backgroundPosition = "center";
+    } else if (className.indexOf("is-inactive") >= 0 && theme.spawns.inactiveSpriteUrl) {
+      dot.classList.add("map-spawn-has-sprite");
+      dot.style.backgroundImage = 'url("' + theme.spawns.inactiveSpriteUrl + '")';
+      dot.style.backgroundSize = "contain";
+      dot.style.backgroundRepeat = "no-repeat";
+      dot.style.backgroundPosition = "center";
+    }
+  };
+
+  MapSpawns.prototype._scheduleRender = function () {
+    var self = this;
+    if (this._renderRaf) return;
+    this._renderRaf = requestAnimationFrame(function () {
+      self._renderRaf = 0;
+      self.render();
+    });
+  };
+
+  MapSpawns.prototype._upsertSpawnMarker = function (
+    key,
+    seen,
+    parent,
+    ent,
+    className,
+    title,
+    size,
+  ) {
+    seen[key] = true;
+    var pos = this.worldToDisplay(ent.x, ent.y);
+    if (!pos) return;
+    var row = this._dynamicMarkers[key];
+    if (!row) {
+      var dot = document.createElement("div");
+      dot.className = className;
+      parent.appendChild(dot);
+      row = { el: dot, ent: ent };
+      this._dynamicMarkers[key] = row;
+    } else {
+      row.ent = ent;
+      if (row.el.className !== className) row.el.className = className;
+    }
+    row.el.style.width = size + "px";
+    row.el.style.height = size + "px";
+    row.el.style.left = pos.x + "px";
+    row.el.style.top = pos.y + "px";
+    row.el.title = title;
+    this._applySpawnMarkerTheme(row.el, className);
   };
 
   MapSpawns.prototype._ensureRenderLayers = function () {
@@ -2328,6 +2430,7 @@
     this._staticLayerEl = null;
     this._dynamicLayerEl = null;
     this._clearStaticMarkers();
+    this._clearDynamicMarkers();
     this._clearAnchorMotion();
   };
 
@@ -2473,11 +2576,12 @@
     );
   };
 
-  MapSpawns.prototype.renderTeleportLayer = function (layer) {
+  MapSpawns.prototype.renderTeleportLayer = function (layer, dynamicSeen) {
     var layerEl = this._dynamicLayerEl;
     if (!layerEl) return;
     var graph = this.teleportGraph();
     var mode = layer.id === "teleport_entrances" ? "entrance" : "exit";
+    dynamicSeen = dynamicSeen || {};
 
     if (mode === "exit") {
       var seenExit = {};
@@ -2485,7 +2589,7 @@
         var exit = graph.exits[i];
         if (seenExit[exit.id]) continue;
         seenExit[exit.id] = true;
-        this.renderTeleportMarker(layerEl, exit, "exit", layer);
+        this._upsertTeleportMarker(layerEl, exit, "exit", layer, dynamicSeen);
       }
       return;
     }
@@ -2496,8 +2600,56 @@
       var ent = pair.entrance;
       if (seenEnt[ent.id]) continue;
       seenEnt[ent.id] = true;
-      this.renderTeleportMarker(layerEl, ent, "entrance", layer);
+      this._upsertTeleportMarker(layerEl, ent, "entrance", layer, dynamicSeen);
     }
+  };
+
+  MapSpawns.prototype._upsertTeleportMarker = function (
+    parent,
+    ent,
+    kind,
+    layer,
+    seen,
+  ) {
+    var key = "tp:" + kind + ":" + ent.id;
+    seen[key] = true;
+    var pos = this.worldToDisplay(ent.x, ent.y);
+    if (!pos) return;
+    var className =
+      "map-teleport map-teleport-" +
+      kind +
+      " layer-" +
+      (layer && layer.id ? layer.id : kind);
+    var title =
+      (kind === "exit" ? "Teleport exit" : "Teleport entrance") +
+      " #" +
+      ent.id +
+      " (" +
+      Math.round(ent.x) +
+      ", " +
+      Math.round(ent.y) +
+      ")";
+    var row = this._dynamicMarkers[key];
+    if (!row) {
+      var dot = document.createElement("div");
+      dot.className = className;
+      if (kind === "exit") {
+        var mark = document.createElement("span");
+        mark.className = "map-teleport-x";
+        mark.setAttribute("aria-hidden", "true");
+        mark.textContent = "×";
+        dot.appendChild(mark);
+      }
+      parent.appendChild(dot);
+      row = { el: dot, ent: ent };
+      this._dynamicMarkers[key] = row;
+    } else {
+      row.ent = ent;
+      if (row.el.className !== className) row.el.className = className;
+    }
+    row.el.style.left = pos.x + "px";
+    row.el.style.top = pos.y + "px";
+    row.el.title = title;
   };
 
   MapSpawns.prototype.renderTeleportMarker = function (parent, ent, kind, layer) {
@@ -2638,7 +2790,7 @@
     }
   };
 
-  MapSpawns.prototype.renderDuelLayer = function (layer, entities) {
+  MapSpawns.prototype.renderDuelLayer = function (layer, entities, dynamicSeen) {
     // Duel spawn pool: same info_player_deathmatch points as all_dm_spawns, but
     // classifySpawns marks green (active pool) vs red (rejected) from anchor.
     var ref = this.referenceWorld();
@@ -2652,6 +2804,7 @@
     var layerEl = this._dynamicLayerEl;
     var thresholdEl = this.thresholdEl;
     if (!layerEl || !thresholdEl) return;
+    dynamicSeen = dynamicSeen || {};
 
     var refPos = this.worldToDisplay(ref.x, ref.y);
     var instant = this._smoothAlpha() >= 0.999;
@@ -2676,19 +2829,24 @@
       var ent = entities[i];
       var zWeight =
         s.z != null ? Math.max(0, Math.min(1, (Number(s.z) - 24) / 512)) : 0;
-      var size = 10 + zWeight * 6;
-      this.renderMarker(
+      var markerSize = 10 + zWeight * 6;
+      var className = "map-spawn" + (active ? " is-active" : " is-inactive");
+      var title =
+        "#" +
+        ent.id +
+        " spawn (" +
+        Math.round(s.x) +
+        ", " +
+        Math.round(s.y) +
+        ")";
+      this._upsertSpawnMarker(
+        "spawn:" + ent.id,
+        dynamicSeen,
         layerEl,
         ent,
-        "map-spawn" + (active ? " is-active" : " is-inactive"),
-        "#" +
-          ent.id +
-          " spawn (" +
-          Math.round(s.x) +
-          ", " +
-          Math.round(s.y) +
-          ")",
-        size,
+        className,
+        title,
+        markerSize,
       );
     }
   };
@@ -2704,10 +2862,10 @@
     if (!layerEl || !thresholdEl) return;
 
     this._ensureRenderLayers();
-    if (this._dynamicLayerEl) this._dynamicLayerEl.innerHTML = "";
 
     if (!this.mapDisplay || !this.mapDisplay.layers || !this.mapDisplay.layers.length) {
       this._clearStaticMarkers();
+      this._clearDynamicMarkers();
       this._clearAnchorMotion();
       return;
     }
@@ -2715,26 +2873,29 @@
     var styles =
       (this.displayConfig && this.displayConfig.classname_styles) || {};
     var anyDuel = false;
+    var dynamicSeen = {};
 
     for (var i = 0; i < this.mapDisplay.layers.length; i++) {
       var layer = this.mapDisplay.layers[i];
       if (!this.layerEnabled(layer.id)) continue;
       if (layer.mode === "teleport") {
-        this.renderTeleportLayer(layer);
+        this.renderTeleportLayer(layer, dynamicSeen);
         continue;
       }
       var entities = this.entitiesForLayer(layer);
       if (!entities.length) continue;
       if (layer.mode === "duel") {
         anyDuel = true;
-        this.renderDuelLayer(layer, entities);
+        this.renderDuelLayer(layer, entities, dynamicSeen);
       } else {
         // all_dm_spawns and items: static markers (no green/red duel logic).
         this.renderStaticLayer(layer, entities, styles);
       }
     }
+    this._pruneDynamicMarkers(dynamicSeen);
 
     if (!anyDuel) {
+      this._clearDynamicMarkers();
       this._clearAnchorMotion();
     } else if (this.refEl) {
       this.refEl.style.display = "";
@@ -2798,7 +2959,10 @@
       this._clearItemRespawns();
     }
     this.transform = payload.transform || null;
-    this.players = Array.isArray(payload.players) ? payload.players : [];
+    var incoming = Array.isArray(payload.players) ? payload.players : [];
+    if (incoming.length || !this.players.length) {
+      this.players = incoming;
+    }
     var resolvedGt = resolvePayloadGametype(payload, this.settings.gametypeOverride);
     if (resolvedGt != null && resolvedGt !== "") {
       this.lastGametype = resolvedGt;
@@ -2817,7 +2981,7 @@
       this._clearItemRespawns();
       this.loadEntities(mapName);
     } else {
-      this.render();
+      this._scheduleRender();
     }
   };
 
@@ -3183,11 +3347,14 @@
   MapSpawns.prototype.syncHudControls = function () {
     var killfeed = document.getElementById("spawn-show-killfeed");
     var toasts = document.getElementById("spawn-show-pickup-toasts");
+    var mapScore = document.getElementById("spawn-show-map-score");
     if (killfeed) killfeed.checked = this.settings.showKillfeed !== false;
     if (toasts) toasts.checked = this.settings.showPickupToasts !== false;
+    if (mapScore) mapScore.checked = this.settings.showMapScore !== false;
     if (window.OverlayApp && typeof OverlayApp.refreshHud === "function") {
       OverlayApp.refreshHud();
     }
+    this.syncToolbar();
   };
 
   MapSpawns.prototype.applyPreset = function (presetName) {
@@ -3806,6 +3973,7 @@
       '<section class="map-spawns-section">' +
       "<h3>Chrome</h3>" +
       '<label class="dbg-toggle"><input type="checkbox" id="spawn-show-killfeed" /> Show killfeed</label>' +
+      '<label class="dbg-toggle"><input type="checkbox" id="spawn-show-map-score" /> Show match score on map</label>' +
       '<label class="dbg-toggle"><input type="checkbox" id="spawn-show-pickup-toasts" /> Show pickup toasts on map</label>' +
       '<p class="map-spawns-hint">Pickup history (Pickups button) is always available. Toasts are the short-lived labels on the map stage.</p>' +
       "</section>" +
@@ -3882,6 +4050,7 @@
     var threshold = document.getElementById("spawn-show-threshold");
     var playerSelect = document.getElementById("spawn-reference-player");
     var killfeedToggle = document.getElementById("spawn-show-killfeed");
+    var mapScoreToggle = document.getElementById("spawn-show-map-score");
     var pickupToastsToggle = document.getElementById("spawn-show-pickup-toasts");
     var anchors = panel.querySelectorAll('input[name="spawn-anchor"]');
 
@@ -4115,6 +4284,15 @@
         self.syncHudControls();
       });
     }
+    if (mapScoreToggle) {
+      mapScoreToggle.checked = this.settings.showMapScore !== false;
+      mapScoreToggle.addEventListener("change", function () {
+        markCustom(self.settings);
+        self.settings.showMapScore = mapScoreToggle.checked;
+        saveSettings(self.settings);
+        self.syncHudControls();
+      });
+    }
     if (pickupToastsToggle) {
       pickupToastsToggle.checked = this.settings.showPickupToasts !== false;
       pickupToastsToggle.addEventListener("change", function () {
@@ -4301,6 +4479,7 @@
     pressed(this._tbOverlay, !!s.enabled);
     pressed(this._tbHeatmap, mergeHeatmap(s.heatmap).enabled === true);
     pressed(this._tbKillfeed, s.showKillfeed !== false);
+    pressed(this._tbScore, s.showMapScore !== false);
     pressed(this._tbPickupFeed, s.showPickupToasts !== false);
     pressed(this._tbAnchorPlayer, s.anchor === "player");
     pressed(this._tbAnchorMouse, s.anchor === "cursor");
@@ -4318,9 +4497,8 @@
     var self = this;
     bar.innerHTML = "";
 
-    // Embedded (dashboard) = toolbar always visible. OBS standalone = collapsible
-    // to a single handle so it can be hidden from the broadcast frame.
-    var embedded = !!(window.MapWidget && window.MapWidget.embedded);
+    // Embedded dashboard and OBS standalone: collapsible handle so the toolbar
+    // can be hidden from the map frame.
 
     function iconUrl(name) {
       if (window.MapCoords && typeof MapCoords.assetUrl === "function") {
@@ -4427,25 +4605,23 @@
       self.syncToolbar();
     }
 
-    if (!embedded) {
-      var collapsed = self.settings.toolbarCollapsed === true;
-      bar.classList.toggle("collapsed", collapsed);
-      var handle = document.createElement("button");
-      handle.type = "button";
-      handle.className = "map-tb-btn map-tb-handle";
-      handle.title = "Hide / show toolbar";
-      handle.setAttribute("aria-label", "Hide / show toolbar");
-      handle.textContent = collapsed ? "\u00bb" : "\u00ab";
-      handle.addEventListener("click", function () {
-        var nowCollapsed = !bar.classList.contains("collapsed");
-        bar.classList.toggle("collapsed", nowCollapsed);
-        handle.textContent = nowCollapsed ? "\u00bb" : "\u00ab";
-        self.settings.toolbarCollapsed = nowCollapsed;
-        saveSettings(self.settings);
-      });
-      bar.appendChild(handle);
-      sep();
-    }
+    var collapsed = self.settings.toolbarCollapsed === true;
+    bar.classList.toggle("collapsed", collapsed);
+    var handle = document.createElement("button");
+    handle.type = "button";
+    handle.className = "map-tb-btn map-tb-handle";
+    handle.title = "Hide / show toolbar";
+    handle.setAttribute("aria-label", "Hide / show toolbar");
+    handle.textContent = collapsed ? "\u00bb" : "\u00ab";
+    handle.addEventListener("click", function () {
+      var nowCollapsed = !bar.classList.contains("collapsed");
+      bar.classList.toggle("collapsed", nowCollapsed);
+      handle.textContent = nowCollapsed ? "\u00bb" : "\u00ab";
+      self.settings.toolbarCollapsed = nowCollapsed;
+      saveSettings(self.settings);
+    });
+    bar.appendChild(handle);
+    sep();
 
     self._tbOverlay = makeBtn({
       icon: "overlay",
@@ -4675,6 +4851,15 @@
         self.syncToolbar();
       },
     });
+    self._tbScore = makeBtn({
+      icon: "score",
+      title: "Score on / off",
+      toggle: true,
+      onClick: function () {
+        proxyCheckbox("spawn-show-map-score");
+        self.syncToolbar();
+      },
+    });
     self._tbPickupFeed = makeBtn({
       icon: "items",
       title: "Pickup feed on / off",
@@ -4805,11 +4990,17 @@
     this._staticMarkers = {};
     this._staticMarkersKey = "";
     this._staticLayerDirty = true;
+    this._dynamicMarkers = {};
+    this._renderRaf = 0;
     // Respawn-cooldown rings cache their DOM nodes on _itemRespawns[*].el too;
     // drop them so they rebuild into the fresh #map-item-respawns layer.
     this._clearItemRespawns();
 
     var self = this;
+    if (this._renderRaf) {
+      cancelAnimationFrame(this._renderRaf);
+      this._renderRaf = 0;
+    }
 
     if (window.OverlayApp && typeof OverlayApp.onPickup === "function") {
       OverlayApp.onPickup(function (data) {
@@ -4892,6 +5083,7 @@
       return {
         showKillfeed: s.showKillfeed !== false,
         showPickupToasts: s.showPickupToasts !== false,
+        showMapScore: s.showMapScore !== false,
       };
     },
     getHeatmapSettings: function () {

@@ -13,20 +13,12 @@
   var syncingFromReplay = false;
   var analyticsDragging = false;
   var panelSyncTimer = 0;
-  // Wall-clock epoch (ms) of game-clock 0. Derived from archive combat events,
-  // each of which carries both `ts` (wall) and `game_time_ms`. Lets us convert
-  // the replay wall cursor to/from match game time accurately (slope 1; the
-  // replay starts a few seconds before game 0 because recording begins at the
-  // pre-match countdown).
+  // Wall epoch of game-clock 0 from lifecycle match_start marker.
   var matchStartWall = null;
-  // Sync stays dormant until the user plays/scrubs, so opening a result still
-  // shows the full match analytics instead of snapping to the replay's start.
   var syncEngaged = false;
-  // One-shot correction of an overshooting timeline_max_ms in already-saved
-  // snapshots (older stats-hub left the warmup/countdown lead-in in the match
-  // clock). The replay stops at match end, so its game coverage is the true
-  // match length.
-  var timelineCapped = false;
+  var replayScrubWasPlaying = false;
+  var seekReplayTimer = 0;
+  var scrubPanelSyncTimer = 0;
 
   function serverFilter() {
     return QLDashboard.qsParam("server") || "";
@@ -91,68 +83,44 @@
     }
   }
 
-  // Mirror stats-hub stream_player_dict: duel/ffa often report SCORE without
-  // KILLS, so use frags for both to keep K and net meaningful.
-  function scoreboardStats(p, duelLike) {
-    var kills = Number(p.kills || 0);
-    var score = Number(p.score || 0);
-    var deaths = Number(p.deaths || 0);
-    if (duelLike) {
-      kills = Math.max(kills, score);
-      score = Math.max(score, kills);
-    }
-    return { score: score, kills: kills, deaths: deaths, net: kills - deaths };
+  function refreshScoreDisplay() {
+    if (!lastArchive) return;
+    var scrubMs = scrubGameTimeMs;
+    var view = A().archiveForScore(lastArchive, scrubMs);
+    var matchupEl = document.getElementById("results-matchup");
+    if (matchupEl) matchupEl.innerHTML = A().renderMatchupBanner(view, scrubMs);
+    var scoreboardEl = document.getElementById("results-scoreboard");
+    if (scoreboardEl) scoreboardEl.innerHTML = A().renderScoreboard(view, scrubMs);
   }
 
-  function renderScoreboard(players, gametype) {
-    if (!Array.isArray(players) || !players.length) return "";
-    var gt = String(gametype || "").trim().toLowerCase();
-    var duelLike = gt === "duel" || gt === "ffa" || gt === "deathmatch";
-    var rows = players.slice().sort(function (a, b) {
-      var sa = scoreboardStats(a, duelLike).score;
-      var sb = scoreboardStats(b, duelLike).score;
-      if (sb !== sa) return sb - sa;
-      return (
-        scoreboardStats(b, duelLike).kills - scoreboardStats(a, duelLike).kills
-      );
+  function formatMatchupLabel(row) {
+    if (!row || typeof row !== "object") return "—";
+    var resolved = A().resolveFinalPlayers({
+      players: row.players || [],
+      deaths: row.deaths || [],
     });
-    var A0 = A();
-    var html =
-      '<section class="control-section results-scoreboard-section"><h3>' +
-      QLDashboard.escapeHtml(QLDashboard.t("resultsScoreboardTitle")) +
-      "</h3>" +
-      '<table class="data-table results-scoreboard-table"><thead><tr><th>' +
-      QLDashboard.escapeHtml(QLDashboard.t("sbColPlayer")) +
-      '</th><th class="sb-num">' +
-      QLDashboard.escapeHtml(QLDashboard.t("sbColScore")) +
-      '</th><th class="sb-num">' +
-      QLDashboard.escapeHtml(QLDashboard.t("sbColKills")) +
-      '</th><th class="sb-num">' +
-      QLDashboard.escapeHtml(QLDashboard.t("sbColDeaths")) +
-      '</th><th class="sb-num">' +
-      QLDashboard.escapeHtml(QLDashboard.t("sbColNet")) +
-      "</th></tr></thead><tbody>";
-    for (var i = 0; i < rows.length; i++) {
-      var p = rows[i];
-      var st = scoreboardStats(p, duelLike);
-      var name = A0.displayNickname
-        ? A0.displayNickname(p)
-        : p.nickname || p.steam_id64 || "—";
-      html +=
-        "<tr><td>" +
-        QLDashboard.escapeHtml(name) +
-        '</td><td class="sb-num">' +
-        QLDashboard.escapeHtml(String(st.score)) +
-        '</td><td class="sb-num">' +
-        st.kills +
-        '</td><td class="sb-num">' +
-        st.deaths +
-        '</td><td class="sb-num">' +
-        (st.net > 0 ? "+" + st.net : String(st.net)) +
-        "</td></tr>";
+    if (!resolved.length) return "—";
+    var nickBySteam = A().buildNicknameBySteam(row, null);
+    var gt = String(row.gametype || "").trim().toLowerCase();
+    var duelLike =
+      gt === "duel" || gt === "ffa" || gt === "deathmatch" || resolved.length === 2;
+    if (duelLike && resolved.length === 2) {
+      resolved.sort(function (a, b) {
+        return A().scoreboardStats(b, true).score - A().scoreboardStats(a, true).score;
+      });
     }
-    html += "</tbody></table></section>";
-    return html;
+    var names = resolved
+      .map(function (p) {
+        return A().displayNickname(p, nickBySteam);
+      })
+      .filter(function (n) {
+        return n && n !== "—";
+      });
+    if (!names.length) return "—";
+    if (names.length === 2) {
+      return names[0] + " " + QLDashboard.t("resultsVs") + " " + names[1];
+    }
+    return names.join(", ");
   }
 
   function stopPoll() {
@@ -177,10 +145,11 @@
         replay: "1",
         embedded: true,
       };
-      // Drop the pre-match countdown lead-in so the replay starts at the fight
-      // (cursor 0 == game 0) and its clock matches the match timeline 1:1.
-      if (matchStartWall != null && isFinite(matchStartWall)) {
-        mountOpts.replay_trim_start_ms = Math.round(matchStartWall);
+      // Drop the pre-match countdown lead-in (lifecycle countdown_start).
+      var trimWall = A().countdownStartWallMs(lastArchive);
+      if (trimWall == null) trimWall = matchStartWall;
+      if (trimWall != null && isFinite(trimWall)) {
+        mountOpts.replay_trim_start_ms = Math.round(trimWall);
       }
       MapWidget.mount(host, mountOpts);
       if (window.OverlayApp && typeof OverlayApp.setReplayCursorListener === "function") {
@@ -195,6 +164,10 @@
     if (panelSyncTimer) {
       clearTimeout(panelSyncTimer);
       panelSyncTimer = 0;
+    }
+    if (seekReplayTimer) {
+      clearTimeout(seekReplayTimer);
+      seekReplayTimer = 0;
     }
     if (window.OverlayApp && typeof OverlayApp.setReplayCursorListener === "function") {
       OverlayApp.setReplayCursorListener(null);
@@ -224,27 +197,9 @@
     return isNaN(t) ? null : t;
   }
 
-  // Median of (wall ts - game_time_ms) over combat events = wall epoch of game 0.
+  // Wall epoch of game-clock 0 from lifecycle match_start marker.
   function computeMatchStartWall(archive) {
-    if (!archive) return null;
-    var diffs = [];
-    // Deaths and accuracy carry exact game clocks; pickups get warmup-normalized
-    // server-side (unreliable as a wall/game anchor), so exclude them here.
-    ["deaths", "accuracy_timeline"].forEach(function (key) {
-      var rows = archive[key] || [];
-      for (var i = 0; i < rows.length; i++) {
-        var row = rows[i];
-        if (!row || row.game_time_ms == null) continue;
-        var w = parseTsMs(row.ts);
-        if (w == null) continue;
-        diffs.push(w - Number(row.game_time_ms));
-      }
-    });
-    if (!diffs.length) return null;
-    diffs.sort(function (a, b) {
-      return a - b;
-    });
-    return diffs[Math.floor(diffs.length / 2)];
+    return A().computeCombatClockAnchor(archive);
   }
 
   // Replay wall cursor -> match game time. Accurate via matchStartWall + replay
@@ -281,46 +236,12 @@
     panelSyncTimer = setTimeout(function () {
       panelSyncTimer = 0;
       refreshDetailAnalyticsPanels();
+      refreshScoreDisplay();
     }, 180);
   }
 
-  // Align the analytics timeline extent with the embedded 2D-map replay, which
-  // is the source of truth for match length. The replay scrubber's `gameMaxMs`
-  // spans the whole recording (it stops at match end), so it is correct in both
-  // failure modes of the event-derived `timeline_max_ms`:
-  //  - undershoot: combat events stop early (players idle until the time limit),
-  //    so the last kill reads 1:53 while the match really ran to 9:59;
-  //  - overshoot: older stats-hub left the warmup/countdown lead-in in the clock.
-  // Round up to a whole second so a time-limit finish reads e.g. 10:00, not
-  // 9:59. Applied once, when replay timing first becomes available.
-  function maybeCorrectTimelineMax(info) {
-    if (timelineCapped) return;
-    if (!lastArchive || !info || !info.durationMs) return;
-    var replayMaxMs = Number(info.gameMaxMs);
-    if (!isFinite(replayMaxMs) || replayMaxMs <= 1000) return;
-    timelineCapped = true;
-    var coverage = Math.ceil(replayMaxMs / 1000) * 1000;
-    var cur = gameMaxMs();
-    // Only override when the replay and the event-derived extent disagree by
-    // more than ~1.5s, so well-behaved matches keep their exact event clock.
-    if (cur && Math.abs(coverage - cur) <= 1500) return;
-    var wasAtEnd =
-      scrubGameTimeMs == null || (cur != null && scrubGameTimeMs >= cur - 500);
-    lastArchive.timeline_max_ms = coverage;
-    if (wasAtEnd || scrubGameTimeMs > coverage) {
-      scrubGameTimeMs = coverage;
-    }
-    refreshDetailAnalytics();
-  }
-
-  // Replay -> analytics: move the match timeline thumb live, throttle the heavier
-  // panel re-render so 60fps playback stays smooth. The replay bar keeps its own
-  // wall-clock readout (full recording incl. the ~10s countdown lead-in at the
-  // start); the match timeline shows game time. They stay positionally synced,
-  // but each reads its own honest clock so the countdown stays at the start.
   function onReplayCursor(info) {
     if (!info) return;
-    maybeCorrectTimelineMax(info);
     if (analyticsDragging) return;
     if (!syncEngaged) {
       // Ignore the replay's idle start position; engage only once the user
@@ -328,7 +249,10 @@
       if (!(info.playing || info.cursorMs > 0)) return;
       syncEngaged = true;
     }
-    var gameMs = cursorToGameMs(info);
+    var gameMs =
+      info.gameMs != null && isFinite(Number(info.gameMs))
+        ? Math.round(Number(info.gameMs))
+        : cursorToGameMs(info);
     if (gameMs == null) return;
     syncingFromReplay = true;
     scrubGameTimeMs = gameMs;
@@ -338,63 +262,225 @@
     if (label) label.textContent = A().formatGameTime(gameMs);
     syncingFromReplay = false;
     schedulePanelSync();
+    updateReplayControlUi();
   }
 
-  // Analytics -> replay: seek the embedded replay to the scrubbed game time.
-  function seekReplayToGameMs(gameMs) {
-    if (!window.OverlayApp || typeof OverlayApp.seekReplayMs !== "function") return;
+  function updateReplayControlUi() {
+    var playBtn = document.getElementById("match-timeline-play");
+    if (!playBtn) return;
+    var playing =
+      window.OverlayApp &&
+      typeof OverlayApp.isReplayPlaying === "function" &&
+      OverlayApp.isReplayPlaying();
+    var icon = document.getElementById("match-timeline-play-icon");
+    if (icon) {
+      icon.src = playing ? "icons/replay/pause.png" : "icons/replay/play.png";
+    }
+    playBtn.setAttribute(
+      "aria-label",
+      playing
+        ? QLDashboard.t("matchReplayPause")
+        : QLDashboard.t("matchReplayPlay"),
+    );
+    var speedSel = document.getElementById("match-timeline-speed");
     var info = replayInfo();
+    if (speedSel && info && info.speed != null) {
+      speedSel.value = String(info.speed);
+    }
+  }
+
+  function replaySeekOpts(resume, scrubPreview) {
+    return {
+      resume: !!resume,
+      gameMaxMs: gameMaxMs(),
+      scrubPreview: !!scrubPreview,
+    };
+  }
+
+  function seekReplayToGameMs(gameMs, resume) {
+    if (!window.OverlayApp) return Promise.resolve();
+    if (typeof OverlayApp.seekReplayGameMs === "function") {
+      return OverlayApp.seekReplayGameMs(gameMs, replaySeekOpts(resume, false));
+    }
+    if (typeof OverlayApp.seekReplayMs !== "function") return Promise.resolve();
+    var info = replayInfo();
+    if (!info) return Promise.resolve();
     var cursor = gameMsToCursor(gameMs, info);
-    if (cursor == null) return;
-    OverlayApp.seekReplayMs(cursor);
+    if (cursor == null) {
+      var gmax = gameMaxMs();
+      if (!gmax || !info.durationMs) return Promise.resolve();
+      cursor = Math.round((Number(gameMs) / gmax) * info.durationMs);
+    }
+    return OverlayApp.seekReplayMs(cursor, replaySeekOpts(resume, false));
+  }
+
+  function scheduleSeekReplayToGameMs(gameMs, resume, scrubPreview) {
+    if (
+      window.OverlayApp &&
+      typeof OverlayApp.scheduleSeekReplayGameMs === "function"
+    ) {
+      OverlayApp.scheduleSeekReplayGameMs(
+        gameMs,
+        replaySeekOpts(resume, scrubPreview),
+      );
+      return;
+    }
+    if (seekReplayTimer) clearTimeout(seekReplayTimer);
+    seekReplayTimer = setTimeout(function () {
+      seekReplayTimer = 0;
+      seekReplayToGameMs(gameMs, resume);
+    }, 40);
+  }
+
+  function scheduleScrubPanelSync() {
+    if (scrubPanelSyncTimer) return;
+    scrubPanelSyncTimer = setTimeout(function () {
+      scrubPanelSyncTimer = 0;
+      refreshDetailAnalyticsPanels();
+      refreshScoreDisplay();
+    }, 100);
+  }
+
+  function flushScrubPanelSync() {
+    if (scrubPanelSyncTimer) {
+      clearTimeout(scrubPanelSyncTimer);
+      scrubPanelSyncTimer = 0;
+    }
+    refreshDetailAnalyticsPanels();
+    refreshScoreDisplay();
+  }
+
+  function applyTimelineScrubValue(fromReplay) {
+    var scrub = document.getElementById("match-timeline-scrub");
+    if (!scrub) return;
+    scrubGameTimeMs = Number(scrub.value);
+    var label = document.getElementById("match-timeline-label");
+    if (label) label.textContent = A().formatGameTime(scrubGameTimeMs);
+    if (!fromReplay) {
+      syncEngaged = true;
+      scheduleSeekReplayToGameMs(scrubGameTimeMs, false, analyticsDragging);
+    }
+    if (analyticsDragging) {
+      scheduleScrubPanelSync();
+    } else {
+      flushScrubPanelSync();
+    }
   }
 
   function bindTimelineScrubber() {
     var scrub = document.getElementById("match-timeline-scrub");
     if (!scrub || scrub.dataset.qlBound) return;
     scrub.dataset.qlBound = "1";
-    var maxMs = A().computeTimelineMaxMs(lastArchive, null);
+
     scrub.addEventListener("pointerdown", function () {
+      syncEngaged = true;
       analyticsDragging = true;
+      replayScrubWasPlaying =
+        window.OverlayApp &&
+        typeof OverlayApp.isReplayPlaying === "function" &&
+        OverlayApp.isReplayPlaying();
+      if (window.OverlayApp && typeof OverlayApp.pauseReplay === "function") {
+        OverlayApp.pauseReplay();
+      }
+      if (
+        window.OverlayApp &&
+        typeof OverlayApp.cancelScheduledSeekReplay === "function"
+      ) {
+        OverlayApp.cancelScheduledSeekReplay();
+      }
+      if (seekReplayTimer) {
+        clearTimeout(seekReplayTimer);
+        seekReplayTimer = 0;
+      }
+      updateReplayControlUi();
     });
-    var endDrag = function () {
-      analyticsDragging = false;
-    };
-    scrub.addEventListener("pointerup", endDrag);
-    scrub.addEventListener("pointercancel", endDrag);
-    scrub.addEventListener("change", endDrag);
+
     scrub.addEventListener("input", function () {
+      applyTimelineScrubValue(false);
+    });
+
+    scrub.addEventListener("change", function () {
+      analyticsDragging = false;
       scrubGameTimeMs = Number(scrub.value);
       var label = document.getElementById("match-timeline-label");
       if (label) label.textContent = A().formatGameTime(scrubGameTimeMs);
-      refreshDetailAnalyticsPanels();
-      if (!syncingFromReplay) {
-        syncEngaged = true;
-        seekReplayToGameMs(scrubGameTimeMs);
+      if (
+        window.OverlayApp &&
+        typeof OverlayApp.cancelScheduledSeekReplay === "function"
+      ) {
+        OverlayApp.cancelScheduledSeekReplay();
       }
+      if (seekReplayTimer) {
+        clearTimeout(seekReplayTimer);
+        seekReplayTimer = 0;
+      }
+      syncEngaged = true;
+      var resume = replayScrubWasPlaying;
+      replayScrubWasPlaying = false;
+      seekReplayToGameMs(scrubGameTimeMs, resume);
+      flushScrubPanelSync();
+      updateReplayControlUi();
     });
+
+    scrub.addEventListener("pointercancel", function () {
+      analyticsDragging = false;
+    });
+
+    scrub.addEventListener("pointerup", function () {
+      analyticsDragging = false;
+    });
+    var playBtn = document.getElementById("match-timeline-play");
+    if (playBtn && !playBtn.dataset.qlBound) {
+      playBtn.dataset.qlBound = "1";
+      playBtn.addEventListener("click", function () {
+        if (!window.OverlayApp || typeof OverlayApp.toggleReplayPlayback !== "function") return;
+        syncEngaged = true;
+        OverlayApp.toggleReplayPlayback();
+        updateReplayControlUi();
+      });
+    }
+    var speedSel = document.getElementById("match-timeline-speed");
+    if (speedSel && !speedSel.dataset.qlBound) {
+      speedSel.dataset.qlBound = "1";
+      var info = replayInfo();
+      if (info && info.speed != null) speedSel.value = String(info.speed);
+      speedSel.addEventListener("change", function () {
+        if (window.OverlayApp && typeof OverlayApp.setReplaySpeed === "function") {
+          OverlayApp.setReplaySpeed(Number(speedSel.value));
+        }
+      });
+    }
     var liveBtn = document.getElementById("match-timeline-live");
     if (liveBtn && !liveBtn.dataset.qlBound) {
       liveBtn.dataset.qlBound = "1";
       liveBtn.addEventListener("click", function () {
-        maxMs = A().computeTimelineMaxMs(lastArchive, null);
+        var maxMs = A().computeTimelineMaxMs(lastArchive, null);
         scrubGameTimeMs = maxMs;
         scrub.value = String(maxMs);
         var label = document.getElementById("match-timeline-label");
         if (label) label.textContent = A().formatGameTime(maxMs);
         refreshDetailAnalyticsPanels();
+        refreshScoreDisplay();
         syncEngaged = true;
-        seekReplayToGameMs(maxMs);
+        var resume =
+          window.OverlayApp &&
+          typeof OverlayApp.isReplayPlaying === "function" &&
+          OverlayApp.isReplayPlaying();
+        seekReplayToGameMs(maxMs, resume);
+        updateReplayControlUi();
       });
     }
+    updateReplayControlUi();
   }
 
   function refreshDetailAnalyticsPanels() {
     var panels = document.getElementById("match-analytics-panels");
     if (!panels || !lastArchive) return;
-    panels.innerHTML = A().renderAnalyticsPanels(lastArchive, lastArchive.players, {
-      scrubMs: scrubGameTimeMs,
-      liveData: null,
+    A().preserveAnalyticsScroll(panels, function () {
+      panels.innerHTML = A().renderAnalyticsPanels(lastArchive, lastArchive.players, {
+        scrubMs: scrubGameTimeMs,
+        liveData: null,
+      });
     });
   }
 
@@ -404,6 +490,7 @@
     wrap.innerHTML = A().renderAnalytics(lastArchive, lastArchive.players, {
       scrubMs: scrubGameTimeMs,
       liveData: null,
+      replayControl: true,
     });
     bindTimelineScrubber();
   }
@@ -419,6 +506,8 @@
     var html =
       '<table class="data-table"><thead><tr><th>' +
       QLDashboard.escapeHtml(QLDashboard.t("colServer")) +
+      "</th><th>" +
+      QLDashboard.escapeHtml(QLDashboard.t("resultsColPlayers")) +
       "</th><th>" +
       QLDashboard.escapeHtml(QLDashboard.t("colMap")) +
       "</th><th>" +
@@ -446,6 +535,8 @@
         '">' +
         QLDashboard.escapeHtml(r.session_id || r.match_id || "—") +
         "</a></td><td>" +
+        QLDashboard.escapeHtml(formatMatchupLabel(r)) +
+        "</td><td>" +
         QLDashboard.escapeHtml([r.map_name, r.gametype].filter(Boolean).join(" · ") || "—") +
         "</td><td>" +
         QLDashboard.escapeHtml(A().formatWhen(r.ended_at || r.started_at)) +
@@ -543,10 +634,9 @@
       var archive = await QLDashboard.fetchStatsJson(
         "/api/stream/results/" + encodeURIComponent(recordingId),
       );
-      lastArchive = A().normalizeArchivePickupTimes(archive);
-      matchStartWall = computeMatchStartWall(lastArchive);
+      lastArchive = A().normalizeArchiveCombatClock(archive);
+      matchStartWall = computeMatchStartWall(archive);
       syncEngaged = false;
-      timelineCapped = false;
       scrubGameTimeMs = A().computeTimelineMaxMs(archive, null);
       var matchId = archive.session_id || archive.match_id || "";
       if (statusEl) {
@@ -591,22 +681,37 @@
         bindDeleteButtons(actionsEl);
         bindReplayWindowButtons(actionsEl);
       }
+      var matchupEl = document.getElementById("results-matchup");
+      if (matchupEl) {
+        matchupEl.innerHTML = A().renderMatchupBanner(lastArchive, scrubGameTimeMs);
+      }
       var scoreboardEl = document.getElementById("results-scoreboard");
       if (scoreboardEl) {
-        scoreboardEl.innerHTML = renderScoreboard(
-          archive.players || [],
-          archive.gametype,
-        );
+        scoreboardEl.innerHTML = A().renderScoreboard(lastArchive, scrubGameTimeMs);
       }
       if (analyticsEl) {
         analyticsEl.innerHTML = A().renderAnalytics(archive, archive.players, {
           scrubMs: scrubGameTimeMs,
           liveData: null,
+          replayControl: true,
         });
         bindTimelineScrubber();
       }
       if (archive.replay_available !== false && recordingId && matchId) {
         mountResultsMapWidget(matchId, recordingId);
+        if (scrubGameTimeMs != null) {
+          (function waitReplay(tries) {
+            if (replayInfo()) {
+              seekReplayToGameMs(scrubGameTimeMs, false);
+              return;
+            }
+            if (tries > 0) {
+              setTimeout(function () {
+                waitReplay(tries - 1);
+              }, 200);
+            }
+          })(40);
+        }
       }
     } catch (err) {
       if (statusEl) {
@@ -617,6 +722,8 @@
       if (analyticsEl) analyticsEl.innerHTML = "";
       if (actionsEl) actionsEl.innerHTML = "";
       if (metaEl) metaEl.textContent = "";
+      var matchupClear = document.getElementById("results-matchup");
+      if (matchupClear) matchupClear.innerHTML = "";
       var sbEl = document.getElementById("results-scoreboard");
       if (sbEl) sbEl.innerHTML = "";
     }
@@ -630,10 +737,11 @@
     scrubGameTimeMs = null;
     matchStartWall = null;
     syncEngaged = false;
-    timelineCapped = false;
 
     root.innerHTML =
-      '<section class="control-section">' +
+      '<section class="control-section results-detail-section">' +
+      '<div class="results-detail-hero">' +
+      '<div class="results-detail-hero-main">' +
       "<h2>" +
       QLDashboard.escapeHtml(QLDashboard.t("resultsDetailTitle")) +
       "</h2>" +
@@ -641,9 +749,14 @@
       QLDashboard.escapeHtml(QLDashboard.t("resultsLoading")) +
       "</p>" +
       '<p id="results-detail-meta" class="match-page-meta"></p>' +
-      '<div id="results-detail-actions" class="control-actions" style="margin:12px 0"></div>' +
-      '<div id="results-scoreboard"></div>' +
+      '<div id="results-detail-actions" class="control-actions"></div>' +
+      "</div>" +
+      '<div id="results-scoreboard" class="results-scoreboard-side"></div>' +
+      "</div>" +
+      '<div class="results-map-stack">' +
+      '<div id="results-matchup" class="results-matchup-above-map"></div>' +
       '<div id="results-map-widget" class="match-map-widget"></div>' +
+      "</div>" +
       '<div id="results-detail-analytics"></div>' +
       "</section>";
 
