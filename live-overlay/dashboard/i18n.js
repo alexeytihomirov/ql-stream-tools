@@ -97,6 +97,8 @@
       phaseCountdown: "Countdown",
       phaseLive: "Live",
       phaseEnded: "Ended",
+      lifecycleMatchStarted: "Match started",
+      lifecycleMatchEnded: "Match ended",
       matchSelectHint: "Pick a match from Dashboard or open #/match/MATCH_ID",
       matchOpenFull: "Open full match page",
       matchOpenMap: "Open map",
@@ -181,6 +183,9 @@
       serverRecentResults: "Recent results on this server",
       serverRecentResultsEmpty: "No saved results for this server yet.",
       serverAnalyticsLiveOnly: "Live analytics appear during an active game. Completed games are in Results.",
+      serverPlayersOnline: "Players on server",
+      serverPlayersEmpty: "No players on server right now.",
+      serverPlayersCount: "{n} player(s)",
     },
     ru: {
       pageTitle: "QL Stream Tools",
@@ -277,6 +282,8 @@
       phaseCountdown: "Отсчёт",
       phaseLive: "Live",
       phaseEnded: "Завершён",
+      lifecycleMatchStarted: "Матч начался",
+      lifecycleMatchEnded: "Матч завершён",
       matchSelectHint: "Выберите матч в Дашборде или откройте #/match/MATCH_ID",
       matchOpenFull: "Полная страница матча",
       matchOpenMap: "Открыть карту",
@@ -361,6 +368,9 @@
       serverRecentResults: "Недавние результаты на сервере",
       serverRecentResultsEmpty: "Сохранённых результатов для этого сервера пока нет.",
       serverAnalyticsLiveOnly: "Live-аналитика только во время активной игры. Завершённые игры — в Результатах.",
+      serverPlayersOnline: "Игроки на сервере",
+      serverPlayersEmpty: "На сервере сейчас никого нет.",
+      serverPlayersCount: "{n} игрок(ов)",
     },
   };
 

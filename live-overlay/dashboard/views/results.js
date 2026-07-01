@@ -260,6 +260,13 @@
     if (scrub) scrub.value = String(gameMs);
     var label = document.getElementById("match-timeline-label");
     if (label) label.textContent = A().formatGameTime(gameMs);
+    var replayWallMs =
+      info.startMs != null && info.cursorMs != null
+        ? Number(info.startMs) + Number(info.cursorMs)
+        : null;
+    A().updateLifecyclePhaseBadge(lastArchive, gameMs, null, {
+      replayWallMs: replayWallMs,
+    });
     syncingFromReplay = false;
     schedulePanelSync();
     updateReplayControlUi();
@@ -356,6 +363,7 @@
     scrubGameTimeMs = Number(scrub.value);
     var label = document.getElementById("match-timeline-label");
     if (label) label.textContent = A().formatGameTime(scrubGameTimeMs);
+    A().updateLifecyclePhaseBadge(lastArchive, scrubGameTimeMs, null);
     if (!fromReplay) {
       syncEngaged = true;
       scheduleSeekReplayToGameMs(scrubGameTimeMs, false, analyticsDragging);
@@ -696,6 +704,7 @@
           replayControl: true,
         });
         bindTimelineScrubber();
+        A().updateLifecyclePhaseBadge(lastArchive, scrubGameTimeMs, null);
       }
       if (archive.replay_available !== false && recordingId && matchId) {
         mountResultsMapWidget(matchId, recordingId);

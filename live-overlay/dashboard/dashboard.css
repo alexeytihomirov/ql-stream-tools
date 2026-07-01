@@ -639,6 +639,108 @@ a.control-btn {
   background: var(--accent);
 }
 
+.match-lifecycle-badge {
+  font-size: 11px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  padding: 2px 8px;
+  border-radius: 999px;
+  border: 1px solid var(--border);
+}
+
+.match-lifecycle-badge--hidden {
+  display: none;
+}
+
+.match-lifecycle-badge--countdown,
+.match-lifecycle-badge--warmup {
+  color: #fbbf24;
+  border-color: rgba(251, 191, 36, 0.45);
+  background: rgba(251, 191, 36, 0.12);
+}
+
+.match-lifecycle-badge--started,
+.match-lifecycle-badge--playing {
+  color: #4ade80;
+  border-color: rgba(74, 222, 128, 0.45);
+  background: rgba(74, 222, 128, 0.1);
+}
+
+.match-lifecycle-badge--ended {
+  color: #f87171;
+  border-color: rgba(248, 113, 113, 0.45);
+  background: rgba(248, 113, 113, 0.1);
+}
+
+.match-timeline-lifecycle {
+  position: absolute;
+  left: 8px;
+  right: 8px;
+  top: 18px;
+  height: 14px;
+  pointer-events: none;
+  z-index: 1;
+}
+
+.match-timeline-life {
+  position: absolute;
+  bottom: 0;
+  transform: translateX(-50%);
+}
+
+.match-timeline-life-mark {
+  display: block;
+  width: 2px;
+  height: 12px;
+  border-radius: 1px;
+}
+
+.match-timeline-life--countdown .match-timeline-life-mark {
+  background: #fbbf24;
+}
+
+.match-timeline-life--started .match-timeline-life-mark {
+  background: #4ade80;
+}
+
+.match-timeline-life--ended .match-timeline-life-mark {
+  background: #f87171;
+}
+
+.match-timeline-legend {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px 14px;
+  margin-top: 8px;
+  font-size: 11px;
+  color: var(--muted);
+}
+
+.match-timeline-legend-item {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.match-timeline-legend-dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+}
+
+.match-timeline-legend-item--countdown .match-timeline-legend-dot {
+  background: #fbbf24;
+}
+
+.match-timeline-legend-item--started .match-timeline-legend-dot {
+  background: #4ade80;
+}
+
+.match-timeline-legend-item--ended .match-timeline-legend-dot {
+  background: #f87171;
+}
+
 .match-timeline-ticks {
   position: absolute;
   left: 8px;
@@ -1208,4 +1310,49 @@ td .server-location-name {
   display: inline;
   margin-top: 0;
   margin-left: 2px;
+}
+
+.server-players-section {
+  margin-top: 16px;
+}
+
+.server-players-wrap {
+  margin-top: 8px;
+}
+
+.server-players-count {
+  margin: 0 0 8px;
+  font-size: 0.85rem;
+  color: var(--dash-muted, #9aa3b2);
+}
+
+.server-players-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.server-player-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 8px 12px;
+  border-radius: 8px;
+  background: rgba(255, 255, 255, 0.04);
+  border: 1px solid rgba(255, 255, 255, 0.06);
+}
+
+.server-player-name {
+  font-weight: 600;
+}
+
+.server-player-stats,
+.server-player-team {
+  font-size: 0.85rem;
+  color: var(--dash-muted, #9aa3b2);
+  white-space: nowrap;
 }

@@ -353,9 +353,15 @@
 
   function matchEndGameTimeMs(archive) {
     var row = lifecycleMarker(archive, "match_end");
-    if (!row || row.game_time_ms == null) return null;
+    if (!row) return null;
     var g = Number(row.game_time_ms);
-    return isNaN(g) || g < 0 ? null : g;
+    if (!isNaN(g) && g >= 0) return g;
+    var meta = row.meta || {};
+    if (String(meta.end_reason || "").toLowerCase() === "ended" && meta.timelimit_sec != null) {
+      var tl = Number(meta.timelimit_sec);
+      if (!isNaN(tl) && tl > 0) return Math.round(tl * 1000);
+    }
+    return null;
   }
 
   // Wall epoch of game-clock 0 from lifecycle match_start marker.
@@ -369,6 +375,192 @@
     var row = lifecycleMarker(archive, "countdown_start");
     if (!row) return null;
     return parseTsMs(row.ts);
+  }
+
+  function matchStartWallMs(archive) {
+    var row = lifecycleMarker(archive, "match_start");
+    if (!row) return null;
+    return parseTsMs(row.ts);
+  }
+
+  function matchEndWallMs(archive) {
+    var row = lifecycleMarker(archive, "match_end");
+    if (!row) return null;
+    return parseTsMs(row.ts);
+  }
+
+  function hasLifecycleMarkers(archive) {
+    return !!((archive && archive.markers) || []).some(function (row) {
+      var k = String((row && row.kind) || "").toLowerCase();
+      return k === "countdown_start" || k === "match_start" || k === "match_end";
+    });
+  }
+
+  function lifecycleMarkersOnTimeline(archive) {
+    var out = [];
+    if (lifecycleMarker(archive, "countdown_start")) {
+      out.push({
+        kind: "countdown_start",
+        gameMs: 0,
+        labelKey: "phaseCountdown",
+        css: "countdown",
+      });
+    }
+    if (lifecycleMarker(archive, "match_start")) {
+      out.push({
+        kind: "match_start",
+        gameMs: 0,
+        labelKey: "lifecycleMatchStarted",
+        css: "started",
+      });
+    }
+    var endMs = matchEndGameTimeMs(archive);
+    if (lifecycleMarker(archive, "match_end") && endMs != null) {
+      out.push({
+        kind: "match_end",
+        gameMs: endMs,
+        labelKey: "lifecycleMatchEnded",
+        css: "ended",
+      });
+    }
+    return out;
+  }
+
+  function resolveScrubLifecyclePhase(archive, scrubMs, liveData, opts) {
+    opts = opts || {};
+    if (liveData) {
+      if (QLDashboard.isWarmupPhase(liveData)) {
+        return { phase: "warmup", labelKey: "phaseWarmup" };
+      }
+      if (liveData.phase === "countdown" || liveData.countdown) {
+        return { phase: "countdown", labelKey: "phaseCountdown" };
+      }
+      if (
+        liveData.phase === "ended" ||
+        String(liveData.status || "").toLowerCase() === "ended"
+      ) {
+        return { phase: "ended", labelKey: "phaseEnded" };
+      }
+      if (liveData.phase === "playing" || liveData.phase == null) {
+        return { phase: "playing", labelKey: "phaseLive" };
+      }
+    }
+    if (!hasLifecycleMarkers(archive)) return null;
+
+    var replayWallMs = opts.replayWallMs;
+    if (replayWallMs != null && isFinite(Number(replayWallMs))) {
+      var wall = Number(replayWallMs);
+      var cdWall = countdownStartWallMs(archive);
+      var msWall = matchStartWallMs(archive);
+      var meWall = matchEndWallMs(archive);
+      if (meWall != null && wall >= meWall) {
+        return { phase: "ended", labelKey: "lifecycleMatchEnded" };
+      }
+      if (msWall != null && wall >= msWall) {
+        if (wall - msWall < 800) {
+          return { phase: "started", labelKey: "lifecycleMatchStarted" };
+        }
+        return { phase: "playing", labelKey: "phaseLive" };
+      }
+      if (cdWall != null && wall >= cdWall) {
+        return { phase: "countdown", labelKey: "phaseCountdown" };
+      }
+      return null;
+    }
+
+    var endMs = matchEndGameTimeMs(archive);
+    var ms = scrubMs != null ? Number(scrubMs) : null;
+    if (ms == null) return null;
+    if (endMs != null && ms >= endMs - 100) {
+      return { phase: "ended", labelKey: "lifecycleMatchEnded" };
+    }
+    if (ms <= 0 && lifecycleMarker(archive, "countdown_start")) {
+      return { phase: "countdown", labelKey: "phaseCountdown" };
+    }
+    if (lifecycleMarker(archive, "match_start")) {
+      if (ms < 800) {
+        return { phase: "started", labelKey: "lifecycleMatchStarted" };
+      }
+      return { phase: "playing", labelKey: "phaseLive" };
+    }
+    return null;
+  }
+
+  function renderLifecyclePhaseBadge(archive, scrubMs, liveData, opts) {
+    var info = resolveScrubLifecyclePhase(archive, scrubMs, liveData, opts);
+    if (!info) {
+      return (
+        '<span id="match-lifecycle-badge" class="match-lifecycle-badge match-lifecycle-badge--hidden" hidden></span>'
+      );
+    }
+    return (
+      '<span id="match-lifecycle-badge" class="match-lifecycle-badge match-lifecycle-badge--' +
+      info.phase +
+      '">' +
+      QLDashboard.escapeHtml(QLDashboard.t(info.labelKey)) +
+      "</span>"
+    );
+  }
+
+  function updateLifecyclePhaseBadge(archive, scrubMs, liveData, opts) {
+    var el = document.getElementById("match-lifecycle-badge");
+    if (!el) return;
+    var info = resolveScrubLifecyclePhase(archive, scrubMs, liveData, opts);
+    if (!info) {
+      el.hidden = true;
+      el.className = "match-lifecycle-badge match-lifecycle-badge--hidden";
+      el.textContent = "";
+      return;
+    }
+    el.hidden = false;
+    el.className = "match-lifecycle-badge match-lifecycle-badge--" + info.phase;
+    el.textContent = QLDashboard.t(info.labelKey);
+  }
+
+  function renderTimelineLifecycleMarkers(archive, minMs, maxMs) {
+    var rows = lifecycleMarkersOnTimeline(archive);
+    if (!rows.length) return "";
+    var span = maxMs - minMs;
+    if (span <= 0) return "";
+    var html = '<div class="match-timeline-lifecycle" aria-hidden="true">';
+    var atZero = 0;
+    for (var i = 0; i < rows.length; i++) {
+      var row = rows[i];
+      var displayMs = row.gameMs;
+      if (displayMs < minMs || displayMs > maxMs) continue;
+      var pct = ((displayMs - minMs) / span) * 100;
+      if (pct <= 1 && atZero) pct = Math.min(99, pct + atZero * 2.5);
+      if (pct <= 1) atZero++;
+      var label = QLDashboard.t(row.labelKey);
+      html +=
+        '<span class="match-timeline-life match-timeline-life--' +
+        row.css +
+        '" style="left:' +
+        pct.toFixed(2) +
+        '%" title="' +
+        QLDashboard.escapeHtml(label) +
+        '"><span class="match-timeline-life-mark"></span></span>';
+    }
+    html += "</div>";
+    return html;
+  }
+
+  function renderTimelineLifecycleLegend(archive) {
+    if (!hasLifecycleMarkers(archive)) return "";
+    var rows = lifecycleMarkersOnTimeline(archive);
+    if (!rows.length) return "";
+    var html = '<div class="match-timeline-legend" aria-hidden="true">';
+    for (var i = 0; i < rows.length; i++) {
+      var row = rows[i];
+      html +=
+        '<span class="match-timeline-legend-item match-timeline-legend-item--' +
+        row.css +
+        '"><span class="match-timeline-legend-dot"></span>' +
+        QLDashboard.escapeHtml(QLDashboard.t(row.labelKey)) +
+        "</span>";
+    }
+    html += "</div>";
+    return html;
   }
 
   function combatGameMsFromRow(row, anchorWall) {
@@ -1200,8 +1392,10 @@
         : '<span id="match-timeline-label" class="match-timeline-label">' +
           QLDashboard.escapeHtml(formatGameTime(currentMs)) +
           "</span>") +
+      renderLifecyclePhaseBadge(archive, currentMs, liveData, opts) +
       "</div>" +
       '<div class="match-timeline-track">' +
+      renderTimelineLifecycleMarkers(archive, minMs, maxMs) +
       renderTimelineKills(deaths, minMs, maxMs) +
       '<input type="range" id="match-timeline-scrub" class="match-timeline-scrub" min="' +
       minMs +
@@ -1212,6 +1406,7 @@
       '" />' +
       renderTimelineTicks(minMs, maxMs) +
       "</div>" +
+      renderTimelineLifecycleLegend(archive) +
       controlsHtml;
     if (!replayControl) {
       html +=
@@ -1375,15 +1570,16 @@
     }
   }
 
-  // Mirror stats-hub stream_player_dict: duel/ffa often report SCORE without
-  // KILLS, so use frags for both to keep K and net meaningful.
+  // Match score is authoritative; fall back to frags only when SCORE is missing.
   function scoreboardStats(p, duelLike) {
     var kills = Number(p.kills || 0);
     var score = Number(p.score || 0);
     var deaths = Number(p.deaths || 0);
-    if (duelLike) {
-      kills = Math.max(kills, score);
-      score = Math.max(score, kills);
+    if (duelLike && score <= 0) {
+      score = kills;
+    }
+    if (duelLike && kills <= 0 && score > 0) {
+      kills = score;
     }
     return { score: score, kills: kills, deaths: deaths, net: kills - deaths };
   }
@@ -1541,6 +1737,105 @@
     return value != null ? String(value) : "0";
   }
 
+  function playersFromPositionRows(rows) {
+    var out = [];
+    (rows || []).forEach(function (p) {
+      var steam = String((p && p.steam_id64) || "").trim();
+      if (!steam) return;
+      out.push({
+        steam_id64: steam,
+        nickname: p.nickname,
+        team: p.team,
+        score: Number(p.score) || 0,
+        kills: Number(p.kills) || 0,
+        deaths: Number(p.deaths) || 0,
+      });
+    });
+    return out;
+  }
+
+  function mergePlayerRosters(matchPlayers, positionPlayers) {
+    var bySteam = {};
+    function absorb(p) {
+      if (!p) return;
+      var steam = String(p.steam_id64 || "").trim();
+      if (!steam) return;
+      var existing = bySteam[steam];
+      if (!existing) {
+        bySteam[steam] = {
+          steam_id64: steam,
+          nickname: p.nickname,
+          team: p.team,
+          score: Number(p.score) || 0,
+          kills: Number(p.kills) || 0,
+          deaths: Number(p.deaths) || 0,
+        };
+        return;
+      }
+      if (p.nickname) existing.nickname = p.nickname;
+      if (p.team) existing.team = p.team;
+      existing.score = Math.max(existing.score, Number(p.score) || 0);
+      existing.kills = Math.max(existing.kills, Number(p.kills) || 0);
+      existing.deaths = Math.max(existing.deaths, Number(p.deaths) || 0);
+    }
+    (matchPlayers || []).forEach(absorb);
+    (positionPlayers || []).forEach(absorb);
+    return Object.keys(bySteam).map(function (k) {
+      return bySteam[k];
+    });
+  }
+
+  function renderOnlinePlayersPanel(players, liveData) {
+    if (!players || !players.length) {
+      return (
+        '<p class="match-analytics-empty">' +
+        QLDashboard.escapeHtml(QLDashboard.t("serverPlayersEmpty")) +
+        "</p>"
+      );
+    }
+    var warmup = liveData && QLDashboard.isWarmupPhase(liveData);
+    var nickBySteam = buildNicknameBySteam({ players: players }, players);
+    var sorted = players.slice().sort(function (a, b) {
+      if (!warmup) {
+        var sa = scoreboardStats(a, true).score;
+        var sb = scoreboardStats(b, true).score;
+        if (sb !== sa) return sb - sa;
+      }
+      return displayNickname(a, nickBySteam).localeCompare(displayNickname(b, nickBySteam));
+    });
+    var html =
+      '<p class="server-players-count">' +
+      QLDashboard.escapeHtml(QLDashboard.t("serverPlayersCount", { n: sorted.length })) +
+      '</p><ul class="server-players-list">';
+    for (var i = 0; i < sorted.length; i++) {
+      var p = sorted[i];
+      var name = displayNickname(p, nickBySteam);
+      var team = p.team ? String(p.team).trim() : "";
+      var meta = "";
+      if (!warmup) {
+        var st = scoreboardStats(p, true);
+        meta =
+          '<span class="server-player-stats">' +
+          QLDashboard.escapeHtml(String(st.score)) +
+          " · " +
+          st.kills +
+          "/" +
+          st.deaths +
+          "</span>";
+      } else if (team) {
+        meta = '<span class="server-player-team">' + QLDashboard.escapeHtml(team) + "</span>";
+      }
+      html +=
+        '<li class="server-player-row"><span class="server-player-name">' +
+        QLDashboard.escapeHtml(name) +
+        "</span>" +
+        meta +
+        "</li>";
+    }
+    html += "</ul>";
+    return html;
+  }
+
   function renderMatchupBanner(archive, scrubMs, livePlayers, liveData) {
     var players = resolveDisplayPlayers(archive, scrubMs, livePlayers);
     if (players.length !== 2) return "";
@@ -1633,6 +1928,13 @@
     lifecycleMarker: lifecycleMarker,
     matchEndGameTimeMs: matchEndGameTimeMs,
     countdownStartWallMs: countdownStartWallMs,
+    matchStartWallMs: matchStartWallMs,
+    matchEndWallMs: matchEndWallMs,
+    hasLifecycleMarkers: hasLifecycleMarkers,
+    resolveScrubLifecyclePhase: resolveScrubLifecyclePhase,
+    renderLifecyclePhaseBadge: renderLifecyclePhaseBadge,
+    updateLifecyclePhaseBadge: updateLifecyclePhaseBadge,
+    renderTimelineLifecycleMarkers: renderTimelineLifecycleMarkers,
     computeCombatClockAnchor: computeCombatClockAnchor,
     normalizeArchiveCombatClock: normalizeArchiveCombatClock,
     normalizeArchivePickupTimes: normalizeArchivePickupTimes,
@@ -1649,5 +1951,8 @@
     archiveForScore: archiveForScore,
     renderMatchupBanner: renderMatchupBanner,
     renderScoreboard: renderScoreboard,
+    playersFromPositionRows: playersFromPositionRows,
+    mergePlayerRosters: mergePlayerRosters,
+    renderOnlinePlayersPanel: renderOnlinePlayersPanel,
   };
 })(typeof window !== "undefined" ? window : globalThis);

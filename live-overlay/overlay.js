@@ -61,6 +61,7 @@
     lastMapContext.warmup = null;
     lastMapContext.phase = null;
     lastMapContext._overlay_map = null;
+    lastMapContext.players = [];
     mapSnapshotQueue = Promise.resolve();
   }
 
@@ -608,9 +609,10 @@
   function playerDisplayScore(p, gametype) {
     var score = Number(p && p.score) || 0;
     var kills = Number(p && p.kills) || 0;
+    if (score > 0) return score;
     var gt = String(gametype || (p && p.gametype) || "").toLowerCase();
     if (gt === "duel" || gt === "ffa" || gt === "deathmatch") {
-      return Math.max(score, kills);
+      return kills;
     }
     return score;
   }
@@ -699,23 +701,28 @@
     });
   }
 
-  function renderReplayScoreHud(targetT) {
+  function renderMapScoreHud(players, gametype) {
     var el = document.getElementById("map-score");
     if (!el) return;
-    if (!replayState || hudSettings().showMapScore === false) {
+    if (hudSettings().showMapScore === false) {
       el.classList.add("hidden");
-      if (!replayState) el.innerHTML = "";
       return;
     }
-    var players = replayScoresAtTime(targetT);
+    if (!replayState) {
+      var phase = mapLivePhase();
+      if (phase === "warmup" || phase === "countdown" || phase === "ended") {
+        el.classList.add("hidden");
+        el.innerHTML = "";
+        return;
+      }
+    }
+    players = players || [];
     if (!players.length) {
       el.classList.add("hidden");
       el.innerHTML = "";
       return;
     }
-    var gametype = String(
-      replayState.meta.gametype || lastMapContext.gametype || "",
-    ).toLowerCase();
+    gametype = String(gametype || lastMapContext.gametype || "").toLowerCase();
     el.classList.remove("hidden");
     if (players.length === 2) {
       var left = players[0];
@@ -749,6 +756,58 @@
         "</span></div>";
     }
     el.innerHTML = '<div class="map-score-list">' + rows + "</div>";
+  }
+
+  function renderReplayScoreHud(targetT) {
+    if (!replayState) return;
+    renderMapScoreHud(
+      replayScoresAtTime(targetT),
+      replayState.meta.gametype || lastMapContext.gametype,
+    );
+  }
+
+  var liveMapScoreFetchTimer = 0;
+  var liveMapScoreFetchInFlight = false;
+
+  function scheduleLiveMapScoreFetch() {
+    if (replayState) return;
+    if (liveMapScoreFetchTimer) return;
+    liveMapScoreFetchTimer = setTimeout(function () {
+      liveMapScoreFetchTimer = 0;
+      ensureLiveMapScoreFromHttp();
+    }, 400);
+  }
+
+  async function ensureLiveMapScoreFromHttp() {
+    if (replayState || liveMapScoreFetchInFlight) return;
+    if (lastMapContext.players && lastMapContext.players.length) return;
+    var id = lastMapContext.match_id || matchId();
+    if (!id) return;
+    try {
+      requireApiBase();
+    } catch (_e) {
+      return;
+    }
+    liveMapScoreFetchInFlight = true;
+    try {
+      var row = await fetchJson("/api/stream/matches/" + encodeURIComponent(id));
+      if (!row) return;
+      syncMapLivePhase(row);
+      if (Array.isArray(row.players) && row.players.length) {
+        lastMapContext.players = row.players;
+      }
+      if (row.gametype) lastMapContext.gametype = row.gametype;
+      renderLiveMapScoreHud();
+    } catch (_err) {
+      /* stream match optional until hub has roster */
+    } finally {
+      liveMapScoreFetchInFlight = false;
+    }
+  }
+
+  function renderLiveMapScoreHud() {
+    if (replayState) return;
+    renderMapScoreHud(lastMapContext.players, lastMapContext.gametype);
   }
 
   function renderPlayers(players, gametype) {
@@ -918,6 +977,7 @@
     if (!row) return "ended";
     if (row.phase) return String(row.phase).toLowerCase();
     if (isEndedStatus(row.status)) return "ended";
+    if (row.countdown) return "countdown";
     if (row.warmup) return "warmup";
     return "playing";
   }
@@ -932,6 +992,7 @@
   function matchPhaseLabel(row) {
     var phase = matchPhase(row);
     if (phase === "warmup") return operatorT("phaseWarmup");
+    if (phase === "countdown") return operatorT("phaseCountdown");
     if (phase === "playing") return operatorT("phaseLive");
     return operatorT("phaseEnded");
   }
@@ -974,6 +1035,11 @@
     var phase = matchPhase(row);
     if (phase === "warmup") {
       el.textContent = operatorT("phaseWarmup");
+      el.classList.remove("hidden");
+      return;
+    }
+    if (phase === "countdown") {
+      el.textContent = operatorT("phaseCountdown");
       el.classList.remove("hidden");
       return;
     }
@@ -1598,6 +1664,7 @@
     match_id: null,
     warmup: null,
     phase: null,
+    players: [],
   };
 
   function mapLivePhase() {
@@ -1626,6 +1693,124 @@
       : matchPhase(matchRow);
     lastMapContext.phase = phase;
     lastMapContext.warmup = phase === "warmup";
+    updateLiveLifecycleBanner();
+  }
+
+  function replayLifecycleLabels() {
+    if (typeof QLDashboard !== "undefined" && QLDashboard.t) {
+      return {
+        countdown: QLDashboard.t("phaseCountdown"),
+        started: QLDashboard.t("lifecycleMatchStarted"),
+        ended: QLDashboard.t("lifecycleMatchEnded"),
+        playing: QLDashboard.t("phaseLive"),
+        warmup: QLDashboard.t("phaseWarmup"),
+      };
+    }
+    return {
+      countdown: "Countdown",
+      started: "Match started",
+      ended: "Match ended",
+      playing: "Live",
+      warmup: "Warmup",
+    };
+  }
+
+  function updateLiveLifecycleBanner() {
+    if (replayState) return;
+    var banner = document.getElementById("map-lifecycle-banner");
+    if (!banner) return;
+    var phase = mapLivePhase();
+    var labels = replayLifecycleLabels();
+    var label = "";
+    if (phase === "countdown") label = labels.countdown;
+    else if (phase === "warmup") label = labels.warmup;
+    else if (phase === "ended") label = labels.ended;
+    else {
+      banner.classList.add("hidden");
+      banner.textContent = "";
+      return;
+    }
+    banner.classList.remove("hidden");
+    banner.className = "map-lifecycle-banner map-lifecycle-banner--" + phase;
+    banner.textContent = label;
+  }
+
+  function replayLifecycleCursorMs(wallT) {
+    if (!replayState || wallT == null || !isFinite(Number(wallT))) return null;
+    return Number(wallT) - replayState.startMs;
+  }
+
+  function buildReplayLifecycleMarkers() {
+    var layer = document.getElementById("map-replay-lifecycle");
+    if (!layer || !replayState) return;
+    var dur = replayState.durationMs || 0;
+    if (dur <= 0) {
+      layer.classList.add("hidden");
+      layer.innerHTML = "";
+      return;
+    }
+    var labels = replayLifecycleLabels();
+    var defs = [
+      { key: "countdownWallT", css: "countdown", label: labels.countdown },
+      { key: "matchStartWallT", css: "started", label: labels.started },
+      { key: "matchEndWallT", css: "ended", label: labels.ended },
+    ];
+    var html = "";
+    var any = false;
+    for (var i = 0; i < defs.length; i++) {
+      var wallT = replayState[defs[i].key];
+      if (wallT == null || !isFinite(Number(wallT))) continue;
+      var cursor = replayLifecycleCursorMs(wallT);
+      if (cursor == null || cursor < 0 || cursor > dur) continue;
+      any = true;
+      var pct = (cursor / dur) * 100;
+      html +=
+        '<span class="map-replay-life map-replay-life--' +
+        defs[i].css +
+        '" style="left:' +
+        pct.toFixed(2) +
+        '%" title="' +
+        escapeHtmlText(defs[i].label) +
+        '"><span class="map-replay-life-mark"></span></span>';
+    }
+    if (!any) {
+      layer.classList.add("hidden");
+      layer.innerHTML = "";
+      return;
+    }
+    layer.classList.remove("hidden");
+    layer.innerHTML = html;
+  }
+
+  function resolveReplayLifecyclePhase(wallT) {
+    if (!replayState || wallT == null || !isFinite(Number(wallT))) return null;
+    var labels = replayLifecycleLabels();
+    var w = Number(wallT);
+    var me = replayState.matchEndWallT;
+    var ms = replayState.matchStartWallT;
+    var cd = replayState.countdownWallT;
+    if (me != null && w >= me) return { phase: "ended", label: labels.ended };
+    if (ms != null && w >= ms) {
+      if (w - ms < 800) return { phase: "started", label: labels.started };
+      return { phase: "playing", label: labels.playing };
+    }
+    if (cd != null && w >= cd) return { phase: "countdown", label: labels.countdown };
+    return null;
+  }
+
+  function updateReplayLifecycleBanner() {
+    var banner = document.getElementById("map-lifecycle-banner");
+    if (!banner || !replayState) return;
+    var wallT = replayState.startMs + replayState.cursorMs;
+    var info = resolveReplayLifecyclePhase(wallT);
+    if (!info) {
+      banner.classList.add("hidden");
+      banner.textContent = "";
+      return;
+    }
+    banner.classList.remove("hidden");
+    banner.className = "map-lifecycle-banner map-lifecycle-banner--" + info.phase;
+    banner.textContent = info.label;
   }
 
   function clearLiveMapPlayers() {
@@ -2065,6 +2250,13 @@
     }
     if (matchRow.map_name) {
       lastMapContext.map_name = matchRow.map_name;
+    }
+    if (Array.isArray(matchRow.players) && matchRow.players.length) {
+      lastMapContext.players = matchRow.players;
+    }
+    renderLiveMapScoreHud();
+    if (!lastMapContext.players || !lastMapContext.players.length) {
+      scheduleLiveMapScoreFetch();
     }
   }
 
@@ -3568,6 +3760,13 @@
     }
 
     ensureMotionLoop();
+    if (!replayState) {
+      if (!lastMapContext.players || !lastMapContext.players.length) {
+        scheduleLiveMapScoreFetch();
+      } else {
+        renderLiveMapScoreHud();
+      }
+    }
   }
 
   function mapKey(payload) {
@@ -3746,7 +3945,19 @@
         var matchRow = await fetchJson(
           "/api/stream/matches/" + encodeURIComponent(id),
         );
-        if (matchRow) syncMapLivePhase(matchRow);
+        if (matchRow) {
+          syncMapLivePhase(matchRow);
+          if (Array.isArray(matchRow.players) && matchRow.players.length) {
+            lastMapContext.players = matchRow.players;
+          }
+          if (matchRow.gametype) {
+            lastMapContext.gametype = matchRow.gametype;
+          }
+          renderLiveMapScoreHud();
+          if (!lastMapContext.players || !lastMapContext.players.length) {
+            scheduleLiveMapScoreFetch();
+          }
+        }
       } catch (_matchErr) {
         /* phase optional */
       }
@@ -4482,6 +4693,13 @@
     if (positionsEndT != null) {
       durationMs = Math.min(durationMs, Math.max(0, positionsEndT - startMs));
     }
+    var countdownWallT = replayLifecycleWallT(events, "countdown_start");
+    var matchStartWallT =
+      replayLifecycleWallT(events, "match_start") || computeReplayGameStartWall(events);
+    var matchEndWallT = replayLifecycleWallT(events, "match_end");
+    if (matchEndWallT == null && positionsEndT != null) {
+      matchEndWallT = positionsEndT;
+    }
     var trimStartMs = replayTrimStartMs();
     if (trimStartMs != null) {
       var endT = startMs + durationMs;
@@ -4512,6 +4730,9 @@
       source: normalized.source,
       deathWindows: buildReplayDeathWindows(events),
       gameStartWall: computeReplayGameStartWall(events),
+      countdownWallT: countdownWallT,
+      matchStartWallT: matchStartWallT,
+      matchEndWallT: matchEndWallT,
     };
 
     var speedSel = document.getElementById("map-replay-speed");
@@ -4721,6 +4942,14 @@
     if (endRow && endRow.game_time_ms != null && isFinite(Number(endRow.game_time_ms))) {
       return Math.max(0, Number(endRow.game_time_ms));
     }
+    if (endRow && endRow.meta && String(endRow.meta.end_reason || "").toLowerCase() === "ended") {
+      var tl = Number(endRow.meta.timelimit_sec);
+      if (isFinite(tl) && tl > 0) return Math.round(tl * 1000);
+    }
+    if (endRow && endRow.timelimit_sec != null) {
+      var tl2 = Number(endRow.timelimit_sec);
+      if (isFinite(tl2) && tl2 > 0) return Math.round(tl2 * 1000);
+    }
     var fromCursor = replayCursorToGameMs(replayState.durationMs);
     if (fromCursor != null && fromCursor > 0) return fromCursor;
     var ext = Number(opts.gameMaxMs);
@@ -4801,6 +5030,8 @@
       if (replayState.matchId) bits.push(replayState.matchId);
       meta.textContent = bits.join(" · ");
     }
+    buildReplayLifecycleMarkers();
+    updateReplayLifecycleBanner();
     notifyReplayCursorListeners();
   }
 
@@ -4867,6 +5098,7 @@
     replayState.cursorMs = Math.max(0, Math.min(dur, Number(cursorMs) || 0));
     replayClock.cursorMs = replayState.cursorMs;
     applyReplayFramePositions();
+    updateReplayLifecycleBanner();
   }
 
   function applyReplayEventsIncremental() {
@@ -5187,6 +5419,7 @@
               recordClientMatchStatus(data);
               if (data.status === "ended" || data.status === "aborted") {
                 lastMapContext.phase = "ended";
+                renderLiveMapScoreHud();
                 resetMatchOverlayState("match_end", {
                   match_id: data.match_id,
                   map_name: lastMapContext.map_name,
@@ -5512,6 +5745,8 @@
       renderHeatmap(mapMotion.currentPlayers, mapMotion.currentGametype);
       if (replayState) {
         renderReplayScoreHud(replayState.startMs + replayState.cursorMs);
+      } else {
+        renderLiveMapScoreHud();
       }
     },
     clearHeatmap: clearHeatmap,

@@ -10,6 +10,7 @@
     '<div class="map-main">' +
     '<div class="map-stage">' +
     '<div id="map-stage-frame" class="map-stage-frame">' +
+    '<div id="map-lifecycle-banner" class="map-lifecycle-banner hidden" aria-live="polite"></div>' +
     '<div id="map-zoom-host" class="map-zoom-host">' +
     '<div id="map-wrap" class="map-wrap hidden">' +
     '<img id="map-image" alt="map" />' +
@@ -31,6 +32,7 @@
     '<div id="map-pickups" class="map-pickups" aria-live="polite"></div>' +
     "</div>" +
     "</div>" +
+    '<div id="map-score" class="map-score hidden" aria-live="polite"></div>' +
     "</div>" +
     "</div>" +
     '<div id="map-meta" class="map-meta"></div>' +
@@ -47,7 +49,10 @@
     "</label>" +
     '<div id="map-replay-playback" class="map-replay-playback hidden">' +
     '<button type="button" id="map-replay-play" class="map-replay-play">Play</button>' +
+    '<div class="map-replay-scrub-wrap">' +
+    '<div id="map-replay-lifecycle" class="map-replay-lifecycle hidden" aria-hidden="true"></div>' +
     '<input id="map-replay-scrub" class="map-replay-scrub" type="range" min="0" max="0" value="0" aria-label="Replay timeline" />' +
+    "</div>" +
     '<span id="map-replay-time" class="map-replay-time">0:00 / 0:00</span>' +
     '<label class="map-replay-speed-label">' +
     '<span class="sr-only">Playback speed</span>' +
@@ -76,7 +81,6 @@
     '<div id="map-toolbar" class="map-toolbar" role="toolbar" aria-label="Map overlay toolbar"></div>' +
     '<div id="map-killfeed" class="map-killfeed" aria-live="polite"></div>' +
     "</div>" +
-    '<div id="map-score" class="map-score hidden" aria-live="polite"></div>' +
     "</aside>" +
     '<div id="map-spawns-backdrop" class="map-spawns-backdrop hidden"></div>' +
     '<aside id="map-spawns-panel" class="map-spawns-panel map-spawns-modal hidden" role="dialog" aria-modal="true" aria-label="Map overlay settings"></aside>' +

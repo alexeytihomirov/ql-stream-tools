@@ -12,24 +12,42 @@
   var activeMatchId = null;
   var lastLiveData = null;
   var lastArchive = null;
+  var lastPositionPlayers = [];
   var scrubGameTimeMs = null;
   var scrubAtLive = true;
   var analyticsDragging = false;
   var scrubPanelSyncTimer = 0;
 
+  function rosterPlayers() {
+    return A().mergePlayerRosters(
+      lastLiveData && lastLiveData.players,
+      lastPositionPlayers,
+    );
+  }
+
   function livePlayersForDisplay() {
-    if (!scrubAtLive || !lastLiveData) return null;
-    var players = lastLiveData.players;
-    return players && players.length ? players : null;
+    if (!scrubAtLive) return null;
+    var merged = rosterPlayers();
+    return merged.length ? merged : null;
+  }
+
+  function refreshRosterDisplay() {
+    var players = rosterPlayers();
+    var wrap = document.getElementById("server-players-wrap");
+    if (wrap) {
+      wrap.innerHTML = A().renderOnlinePlayersPanel(players, lastLiveData);
+    }
+    refreshScoreDisplay();
   }
 
   function refreshScoreDisplay() {
     var livePlayers = livePlayersForDisplay();
-    if (
-      !lastArchive &&
-      !(livePlayers && livePlayers.length) &&
-      !(lastLiveData && lastLiveData.players && lastLiveData.players.length)
-    ) {
+    var roster = rosterPlayers();
+    if (!lastArchive && !roster.length) {
+      var matchupElEmpty = document.getElementById("server-matchup");
+      var scoreboardElEmpty = document.getElementById("server-scoreboard");
+      if (matchupElEmpty) matchupElEmpty.innerHTML = "";
+      if (scoreboardElEmpty) scoreboardElEmpty.innerHTML = "";
       return;
     }
     var scrubMs = scrubGameTimeMs;
@@ -211,8 +229,22 @@
         scheduleArchiveRefresh(100);
         return;
       }
+      if (event === "snapshot" || event === "positions") {
+        if (Array.isArray(msg.players)) {
+          lastPositionPlayers = A().playersFromPositionRows(msg.players);
+          refreshRosterDisplay();
+        }
+        return;
+      }
       if (event === "match_update") {
-        scheduleArchiveRefresh(400);
+        if (msg.match) {
+          lastLiveData = msg.match;
+          updateHeader(lastLiveData);
+          refreshRosterDisplay();
+        } else {
+          scheduleArchiveRefresh(400);
+        }
+        return;
       }
     };
     ws.onclose = function () {
@@ -347,6 +379,24 @@
         },
       ],
       timeline_max_ms: 180000,
+      duration_ms: 180000,
+      markers: [
+        {
+          kind: "countdown_start",
+          ts: "2026-07-01T14:38:50.000Z",
+          game_time_ms: 0,
+        },
+        {
+          kind: "match_start",
+          ts: "2026-07-01T14:39:00.000Z",
+          game_time_ms: 0,
+        },
+        {
+          kind: "match_end",
+          ts: "2026-07-01T14:42:00.000Z",
+          game_time_ms: 180000,
+        },
+      ],
     };
   }
 
@@ -396,6 +446,7 @@
       scrubAtLive = maxMs != null && Number(scrubGameTimeMs) >= maxMs - 500;
       var label = document.getElementById("match-timeline-label");
       if (label) label.textContent = A().formatGameTime(scrubGameTimeMs);
+      A().updateLifecyclePhaseBadge(lastArchive, scrubGameTimeMs, lastLiveData);
       if (analyticsDragging) {
         scheduleScrubPanelSync();
       } else {
@@ -426,6 +477,7 @@
         scrub.value = String(maxMs);
         var label = document.getElementById("match-timeline-label");
         if (label) label.textContent = A().formatGameTime(maxMs);
+        A().updateLifecyclePhaseBadge(lastArchive, maxMs, lastLiveData);
         flushScrubPanelSync();
       });
     }
@@ -443,6 +495,7 @@
       var label = document.getElementById("match-timeline-label");
       if (label) label.textContent = A().formatGameTime(maxMs);
     }
+    A().updateLifecyclePhaseBadge(lastArchive, scrubGameTimeMs, lastLiveData);
     refreshScoreDisplay();
   }
 
@@ -601,6 +654,7 @@
     scrubAtLive = true;
     lastLiveData = null;
     lastArchive = null;
+    lastPositionPlayers = [];
     var matchId = route.param;
     if (!matchId) {
       renderServerPicker(root);
@@ -667,6 +721,13 @@
       "</div></div>" +
       '<div id="server-scoreboard" class="results-scoreboard-side"></div>' +
       "</div>" +
+      '<section class="server-players-section">' +
+      '<h2 class="match-section-title">' +
+      QLDashboard.escapeHtml(QLDashboard.t("serverPlayersOnline")) +
+      "</h2>" +
+      '<div id="server-players-wrap" class="server-players-wrap">' +
+      QLDashboard.escapeHtml(QLDashboard.t("serverLoading")) +
+      "</div></section>" +
       '<div class="results-map-stack">' +
       '<div id="server-matchup" class="results-matchup-above-map"></div>' +
       '<div id="server-map-widget" class="match-map-widget"></div>' +
@@ -698,6 +759,20 @@
         QLDashboard.escapeHtml(QLDashboard.t("serverRecentResultsEmpty")) +
         "</p>";
     }
+  }
+
+  async function fetchPositionRoster(matchId) {
+    try {
+      var data = await QLDashboard.fetchStatsJson(
+        "/api/matches/" + encodeURIComponent(matchId) + "/positions?players_only=1",
+      );
+      if (data && Array.isArray(data.players)) {
+        return A().playersFromPositionRows(data.players);
+      }
+    } catch (_e) {
+      /* positions optional when telemetry off */
+    }
+    return [];
   }
 
   async function refreshArchive(matchId) {
@@ -741,6 +816,7 @@
       }
       lastLiveData = liveData;
       updateHeader(liveData);
+      A().updateLifecyclePhaseBadge(lastArchive, scrubGameTimeMs, liveData);
       if (statusEl) {
         statusEl.textContent = "";
         statusEl.classList.remove("error");
@@ -754,8 +830,6 @@
 
     var analyticsHint = document.getElementById("server-analytics-hint");
     var analyticsWrap = document.getElementById("server-analytics-wrap");
-    var matchupEl = document.getElementById("server-matchup");
-    var scoreboardEl = document.getElementById("server-scoreboard");
     var archive = null;
     if (!debug) {
       archive = await QLDashboard.fetchArchiveSummary(matchId);
@@ -802,28 +876,31 @@
           liveData: liveData,
         });
         bindTimelineScrubber(archive, liveData);
+        A().updateLifecyclePhaseBadge(archive, scrubGameTimeMs, liveData);
       }
     }
 
-    if (lastArchive || (liveData && liveData.players && liveData.players.length)) {
-      if (!lastArchive && archive) {
+    lastPositionPlayers = await fetchPositionRoster(matchId);
+
+    if (!lastArchive) {
+      if (archive && (archive.deaths || archive.pickups || archive.accuracy_summary)) {
         lastArchive = A().normalizeArchiveCombatClock(archive);
-      } else if (!lastArchive && liveData) {
+      } else if (liveData || lastPositionPlayers.length) {
         lastArchive = {
-          gametype: liveData.gametype,
-          map_name: liveData.map_name,
-          players: liveData.players || [],
+          gametype: liveData && liveData.gametype,
+          map_name: liveData && liveData.map_name,
+          players: rosterPlayers(),
           deaths: [],
           pickups: [],
           accuracy_summary: [],
           accuracy_timeline: [],
         };
       }
-      refreshScoreDisplay();
-    } else {
-      if (matchupEl) matchupEl.innerHTML = "";
-      if (scoreboardEl) scoreboardEl.innerHTML = "";
+    } else if (scrubAtLive && rosterPlayers().length) {
+      lastArchive = Object.assign({}, lastArchive, { players: rosterPlayers() });
     }
+
+    refreshRosterDisplay();
 
     await loadRecentResults(matchId);
   }
