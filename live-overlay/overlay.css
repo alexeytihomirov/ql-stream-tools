@@ -1101,9 +1101,48 @@ body.map-debug-mode .status {
   background: #f87171;
 }
 
-.map-lifecycle-banner {
+.map-match-timer {
   position: absolute;
   top: 10px;
+  left: 50%;
+  transform: translateX(-50%);
+  z-index: 13;
+  padding: 6px 14px;
+  border-radius: 8px;
+  font-size: 22px;
+  font-weight: 700;
+  font-variant-numeric: tabular-nums;
+  letter-spacing: 0.02em;
+  pointer-events: none;
+  border: 1px solid rgba(148, 163, 184, 0.35);
+  background: rgba(15, 23, 42, 0.9);
+  color: #e2e8f0;
+  box-shadow: 0 4px 16px rgba(0, 0, 0, 0.35);
+  line-height: 1.1;
+}
+
+.map-match-timer.hidden {
+  display: none;
+}
+
+.map-match-timer--countdown {
+  color: #fbbf24;
+  border-color: rgba(251, 191, 36, 0.5);
+}
+
+.map-match-timer--playing {
+  color: #e2e8f0;
+}
+
+.map-match-timer--paused {
+  color: #94a3b8;
+  border-color: rgba(148, 163, 184, 0.45);
+  font-size: 16px;
+}
+
+.map-lifecycle-banner {
+  position: absolute;
+  top: 52px;
   left: 50%;
   transform: translateX(-50%);
   z-index: 12;

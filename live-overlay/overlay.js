@@ -62,6 +62,13 @@
     lastMapContext.phase = null;
     lastMapContext._overlay_map = null;
     lastMapContext.players = [];
+    mapLiveMatchRow = null;
+    mapLifecycleWalls.countdownWallT = null;
+    mapLifecycleWalls.matchStartWallT = null;
+    mapLifecycleWalls.countdownLeadMs = null;
+    mapArchiveMarkers = null;
+    mapArchiveFetchPromise = null;
+    stopMapTimerTicker();
     mapSnapshotQueue = Promise.resolve();
   }
 
@@ -1006,26 +1013,38 @@
 
   function computeMatchElapsedSec(row) {
     if (!row || matchPhase(row) !== "playing") return null;
+    if (typeof QLDashboard !== "undefined" && QLDashboard.computeMatchElapsedSec) {
+      return QLDashboard.computeMatchElapsedSec(row);
+    }
+    if (row.paused && row.elapsed_sec != null) return row.elapsed_sec;
     var now = Date.now();
+    if (row.elapsed_sec != null && row.clock_at) {
+      var atElapsed = Date.parse(row.clock_at);
+      if (!isNaN(atElapsed)) {
+        return row.elapsed_sec + Math.floor((now - atElapsed) / 1000);
+      }
+      return row.elapsed_sec;
+    }
+    if (row.started_at) {
+      var startedAt = Date.parse(row.started_at);
+      if (!isNaN(startedAt)) {
+        var wallSec = Math.max(0, Math.floor((now - startedAt) / 1000));
+        var pauseMs = Number(row.pause_accumulated_ms) || 0;
+        if (row.paused && row.pause_started_at) {
+          var pauseStart = Date.parse(row.pause_started_at);
+          if (!isNaN(pauseStart)) {
+            pauseMs += Math.max(0, now - pauseStart);
+          }
+        }
+        return Math.max(0, wallSec - Math.floor(pauseMs / 1000));
+      }
+    }
     if (row.game_time_ms != null && row.game_time_ms > 0 && row.clock_at) {
       var at = Date.parse(row.clock_at);
       if (!isNaN(at)) {
         return Math.floor((row.game_time_ms + (now - at)) / 1000);
       }
       return Math.floor(row.game_time_ms / 1000);
-    }
-    if (row.elapsed_sec != null && row.clock_at) {
-      var at2 = Date.parse(row.clock_at);
-      if (!isNaN(at2)) {
-        return row.elapsed_sec + Math.floor((now - at2) / 1000);
-      }
-      return row.elapsed_sec;
-    }
-    if (row.started_at) {
-      var started = Date.parse(row.started_at);
-      if (!isNaN(started)) {
-        return Math.max(0, Math.floor((now - started) / 1000));
-      }
     }
     return null;
   }
@@ -1147,6 +1166,9 @@
   }
 
   function operatorT(key) {
+    if (typeof QLDashboard !== "undefined" && QLDashboard.t) {
+      return QLDashboard.t(key);
+    }
     if (typeof QLOperatorI18n !== "undefined") return QLOperatorI18n.t(key);
     return key;
   }
@@ -1666,6 +1688,15 @@
     phase: null,
     players: [],
   };
+  var mapLiveMatchRow = null;
+  var mapLifecycleWalls = {
+    countdownWallT: null,
+    matchStartWallT: null,
+    countdownLeadMs: null,
+  };
+  var mapArchiveMarkers = null;
+  var mapArchiveFetchPromise = null;
+  var mapTimerTicker = null;
 
   function mapLivePhase() {
     if (lastMapContext.phase) return lastMapContext.phase;
@@ -1688,12 +1719,315 @@
 
   function syncMapLivePhase(matchRow) {
     if (!matchRow) return;
+    mapLiveMatchRow = matchRow;
     var phase = matchRow.phase
       ? String(matchRow.phase).toLowerCase()
       : matchPhase(matchRow);
     lastMapContext.phase = phase;
     lastMapContext.warmup = phase === "warmup";
+    if (phase === "countdown" || matchRow.countdown) {
+      ensureMapArchiveMarkers(matchRow.match_id || lastMapContext.match_id);
+    }
     updateLiveLifecycleBanner();
+    ensureMapTimerTicker();
+  }
+
+  function mapClockFormatSec(sec) {
+    if (typeof QLDashboard !== "undefined" && QLDashboard.formatClockSec) {
+      return QLDashboard.formatClockSec(sec);
+    }
+    return formatClockSec(sec);
+  }
+
+  function mapClockElapsedSec(row) {
+    if (typeof QLDashboard !== "undefined" && QLDashboard.computeMatchElapsedSec) {
+      return QLDashboard.computeMatchElapsedSec(row);
+    }
+    return computeMatchElapsedSec(row);
+  }
+
+  function parseLifecycleTsMs(ts) {
+    if (!ts) return null;
+    var t = Date.parse(ts);
+    return isNaN(t) ? null : t;
+  }
+
+  function syncMapLifecycleWallsFromMarkers(markers) {
+    if (!markers || !markers.length) return;
+    var A =
+      typeof QLDashboardAnalytics !== "undefined" ? QLDashboardAnalytics : null;
+    var cd = A ? A.countdownStartWallMs({ markers: markers }) : null;
+    var ms = A ? A.matchStartWallMs({ markers: markers }) : null;
+    if (cd == null || ms == null) {
+      for (var i = markers.length - 1; i >= 0; i--) {
+        var row = markers[i];
+        if (!row) continue;
+        var kind = String(row.kind || "").toLowerCase();
+        var ts = parseLifecycleTsMs(row.ts);
+        if (kind === "countdown_start" && cd == null && ts != null) cd = ts;
+        if (kind === "match_start" && ms == null && ts != null) ms = ts;
+      }
+    }
+    if (cd != null) mapLifecycleWalls.countdownWallT = cd;
+    if (ms != null) mapLifecycleWalls.matchStartWallT = ms;
+    if (cd != null && ms != null) {
+      mapLifecycleWalls.countdownLeadMs = Math.max(0, Math.round(ms - cd));
+    }
+  }
+
+  function ensureMapArchiveMarkers(matchId) {
+    if (mapArchiveMarkers || !matchId) return mapArchiveFetchPromise;
+    if (mapArchiveFetchPromise) return mapArchiveFetchPromise;
+    mapArchiveFetchPromise = fetchJson(
+      "/api/stream/matches/" + encodeURIComponent(matchId) + "/archive-summary",
+    )
+      .then(function (arch) {
+        mapArchiveMarkers = (arch && arch.markers) || [];
+        syncMapLifecycleWallsFromMarkers(mapArchiveMarkers);
+        updateMapMatchTimer();
+      })
+      .catch(function () {
+        mapArchiveMarkers = [];
+      })
+      .finally(function () {
+        mapArchiveFetchPromise = null;
+      });
+    return mapArchiveFetchPromise;
+  }
+
+  function noteMapLifecycleFromSession(ev) {
+    if (!ev) return;
+    var kind = String(ev.kind || "").toLowerCase();
+    var ts = parseLifecycleTsMs(ev.ts) || Date.now();
+    if (kind === "countdown_start") {
+      mapLifecycleWalls.countdownWallT = ts;
+    } else if (kind === "match_start") {
+      mapLifecycleWalls.matchStartWallT = ts;
+      if (mapLifecycleWalls.countdownWallT != null) {
+        mapLifecycleWalls.countdownLeadMs = Math.max(
+          0,
+          ts - mapLifecycleWalls.countdownWallT,
+        );
+      }
+    }
+  }
+
+  function countdownRemainingMsLive(nowMs) {
+    var cd = mapLifecycleWalls.countdownWallT;
+    var ms = mapLifecycleWalls.matchStartWallT;
+    if (ms != null && nowMs < ms) {
+      return Math.max(0, ms - nowMs);
+    }
+    if (cd != null && mapLifecycleWalls.countdownLeadMs != null) {
+      return Math.max(0, mapLifecycleWalls.countdownLeadMs - (nowMs - cd));
+    }
+    return null;
+  }
+
+  function buildReplayPauseIntervals(events) {
+    var out = [];
+    var open = null;
+    for (var i = 0; i < events.length; i++) {
+      var ev = events[i];
+      var kind = String(ev.event || "").toLowerCase();
+      if (kind === "pause_start") {
+        open = {
+          wallStart: ev.t || 0,
+          gameMs: replayGameTimeFieldMs(ev),
+        };
+      } else if (kind === "pause_end" && open) {
+        out.push({
+          wallStart: open.wallStart,
+          wallEnd: ev.t || open.wallStart,
+          gameMs: open.gameMs,
+        });
+        open = null;
+      }
+    }
+    return out;
+  }
+
+  function replayPausedAtWall(wallT) {
+    if (!replayState) return null;
+    if (!replayState.pauseIntervals) {
+      replayState.pauseIntervals = buildReplayPauseIntervals(replayState.events || []);
+    }
+    var rows = replayState.pauseIntervals;
+    for (var i = 0; i < rows.length; i++) {
+      var iv = rows[i];
+      if (wallT >= iv.wallStart && wallT < iv.wallEnd) return iv;
+    }
+    return null;
+  }
+
+  function replayGameClockMsAtWall(wallT) {
+    if (!replayState) return null;
+    var paused = replayPausedAtWall(wallT);
+    if (paused && paused.gameMs != null) return Math.max(0, paused.gameMs);
+    var events = replayState.events || [];
+    var best = null;
+    for (var i = 0; i < events.length; i++) {
+      var ev = events[i];
+      if ((ev.t || 0) > wallT) break;
+      var g = replayGameTimeFieldMs(ev);
+      if (g != null) best = g;
+    }
+    if (best != null) return best;
+    if (replayState.gameStartWall != null && wallT >= replayState.gameStartWall) {
+      return Math.max(0, wallT - replayState.gameStartWall);
+    }
+    return null;
+  }
+
+  function replayTimelimitSec() {
+    if (!replayState) return null;
+    var events = replayState.events || [];
+    for (var i = events.length - 1; i >= 0; i--) {
+      var ev = events[i];
+      if (ev.event === "match_start" && ev.meta && ev.meta.timelimit_sec != null) {
+        var tl = Number(ev.meta.timelimit_sec);
+        if (!isNaN(tl) && tl > 0) return tl;
+      }
+      if (ev.event === "match_end" && ev.meta && ev.meta.timelimit_sec != null) {
+        var tl2 = Number(ev.meta.timelimit_sec);
+        if (!isNaN(tl2) && tl2 > 0) return tl2;
+      }
+    }
+    if (replayState.meta && replayState.meta.timelimit_sec != null) {
+      var tl3 = Number(replayState.meta.timelimit_sec);
+      if (!isNaN(tl3) && tl3 > 0) return tl3;
+    }
+    return null;
+  }
+
+  function resolveLiveMapTimerState() {
+    var row = mapLiveMatchRow;
+    if (!row) return null;
+    var phase = mapLivePhase() || matchPhase(row);
+    if (phase === "warmup" || phase === "ended") return null;
+    if (phase === "countdown" || row.countdown) {
+      var remMs = countdownRemainingMsLive(Date.now());
+      if (remMs == null) return null;
+      return {
+        show: true,
+        phase: "countdown",
+        text: mapClockFormatSec(Math.ceil(remMs / 1000)),
+        paused: false,
+      };
+    }
+    if (phase === "playing" || phase == null) {
+      if (row.paused) {
+        var pausedElapsed = mapClockElapsedSec(row);
+        var pausedLabel =
+          pausedElapsed != null ? mapClockFormatSec(pausedElapsed) : "—";
+        pausedLabel += " · " + operatorT("phasePaused");
+        return {
+          show: true,
+          phase: "paused",
+          text: pausedLabel,
+          paused: true,
+        };
+      }
+      var elapsed = mapClockElapsedSec(row);
+      if (elapsed == null) return null;
+      var label = mapClockFormatSec(elapsed);
+      return { show: true, phase: "playing", text: label, paused: false };
+    }
+    return null;
+  }
+
+  function resolveReplayMapTimerState() {
+    if (!replayState) return null;
+    var wallT = replayState.startMs + replayState.cursorMs;
+    var info = resolveReplayLifecyclePhase(wallT);
+    var cd = replayState.countdownWallT;
+    var ms = replayState.matchStartWallT;
+    var me = replayState.matchEndWallT;
+    if (info && info.phase === "ended") return null;
+    if (ms != null && cd != null && wallT >= cd && wallT < ms) {
+      var rem = Math.max(0, ms - wallT);
+      return {
+        show: true,
+        phase: "countdown",
+        text: mapClockFormatSec(Math.ceil(rem / 1000)),
+        paused: false,
+      };
+    }
+    if (info && info.phase === "countdown") {
+      var lead =
+        cd != null && ms != null ? Math.max(0, ms - cd) : mapLifecycleWalls.countdownLeadMs;
+      if (lead != null && cd != null) {
+        var elapsed = wallT - cd;
+        var rem2 = Math.max(0, lead - elapsed);
+        return {
+          show: true,
+          phase: "countdown",
+          text: mapClockFormatSec(Math.ceil(rem2 / 1000)),
+          paused: false,
+        };
+      }
+    }
+    if (ms != null && wallT >= ms && (me == null || wallT < me)) {
+      var pausedIv = replayPausedAtWall(wallT);
+      var gameMs = replayGameClockMsAtWall(wallT);
+      if (gameMs == null) return null;
+      var gameLabel = mapClockFormatSec(Math.floor(gameMs / 1000));
+      var tl = replayTimelimitSec();
+      if (tl != null) gameLabel += " / " + mapClockFormatSec(tl);
+      if (pausedIv) gameLabel += " · " + operatorT("phasePaused");
+      return {
+        show: true,
+        phase: pausedIv ? "paused" : "playing",
+        text: gameLabel,
+        paused: !!pausedIv,
+      };
+    }
+    return null;
+  }
+
+  function resolveMapTimerState() {
+    if (replayState) return resolveReplayMapTimerState();
+    return resolveLiveMapTimerState();
+  }
+
+  function updateMapMatchTimer() {
+    var el = document.getElementById("map-match-timer");
+    if (!el) return;
+    var state = resolveMapTimerState();
+    if (!state || !state.show) {
+      el.classList.add("hidden");
+      el.textContent = "";
+      el.className = "map-match-timer hidden";
+      return;
+    }
+    el.classList.remove("hidden");
+    el.className =
+      "map-match-timer map-match-timer--" +
+      state.phase +
+      (state.paused ? " map-match-timer--paused" : "");
+    el.textContent = state.text;
+  }
+
+  function tickMapMatchTimer() {
+    updateMapMatchTimer();
+  }
+
+  function ensureMapTimerTicker() {
+    if (mapTimerTicker) return;
+    mapTimerTicker = setInterval(tickMapMatchTimer, 1000);
+    registerMapCleanup(function () {
+      if (mapTimerTicker) {
+        clearInterval(mapTimerTicker);
+        mapTimerTicker = null;
+      }
+    });
+  }
+
+  function stopMapTimerTicker() {
+    if (mapTimerTicker) {
+      clearInterval(mapTimerTicker);
+      mapTimerTicker = null;
+    }
   }
 
   function replayLifecycleLabels() {
@@ -1718,7 +2052,10 @@
   function updateLiveLifecycleBanner() {
     if (replayState) return;
     var banner = document.getElementById("map-lifecycle-banner");
-    if (!banner) return;
+    if (!banner) {
+      updateMapMatchTimer();
+      return;
+    }
     var phase = mapLivePhase();
     var labels = replayLifecycleLabels();
     var label = "";
@@ -1728,11 +2065,13 @@
     else {
       banner.classList.add("hidden");
       banner.textContent = "";
+      updateMapMatchTimer();
       return;
     }
     banner.classList.remove("hidden");
     banner.className = "map-lifecycle-banner map-lifecycle-banner--" + phase;
     banner.textContent = label;
+    updateMapMatchTimer();
   }
 
   function replayLifecycleCursorMs(wallT) {
@@ -1800,17 +2139,22 @@
 
   function updateReplayLifecycleBanner() {
     var banner = document.getElementById("map-lifecycle-banner");
-    if (!banner || !replayState) return;
+    if (!banner || !replayState) {
+      updateMapMatchTimer();
+      return;
+    }
     var wallT = replayState.startMs + replayState.cursorMs;
     var info = resolveReplayLifecyclePhase(wallT);
     if (!info) {
       banner.classList.add("hidden");
       banner.textContent = "";
+      updateMapMatchTimer();
       return;
     }
     banner.classList.remove("hidden");
     banner.className = "map-lifecycle-banner map-lifecycle-banner--" + info.phase;
     banner.textContent = info.label;
+    updateMapMatchTimer();
   }
 
   function clearLiveMapPlayers() {
@@ -4735,6 +5079,13 @@
       matchEndWallT: matchEndWallT,
     };
 
+    if (countdownWallT != null) mapLifecycleWalls.countdownWallT = countdownWallT;
+    if (matchStartWallT != null) mapLifecycleWalls.matchStartWallT = matchStartWallT;
+    if (countdownWallT != null && matchStartWallT != null) {
+      mapLifecycleWalls.countdownLeadMs = Math.max(0, matchStartWallT - countdownWallT);
+    }
+    replayState.pauseIntervals = null;
+
     var speedSel = document.getElementById("map-replay-speed");
     if (speedSel) speedSel.value = String(replayState.speed);
 
@@ -5435,6 +5786,13 @@
               }
             } else if (data.event === "game_started") {
               lastMapContext.phase = "playing";
+              mapLifecycleWalls.matchStartWallT = Date.now();
+              if (mapLifecycleWalls.countdownWallT != null) {
+                mapLifecycleWalls.countdownLeadMs = Math.max(
+                  0,
+                  mapLifecycleWalls.matchStartWallT - mapLifecycleWalls.countdownWallT,
+                );
+              }
               handleGameStartedEvent(data);
             } else if (data.event === "match_update") {
               handleMatchUpdateEvent(data);
@@ -5442,6 +5800,9 @@
               if (matchRow && matchRow.gametype) {
                 lastMapContext.gametype = matchRow.gametype;
               }
+            } else if (data.event === "session_event" && data.session_event) {
+              noteMapLifecycleFromSession(data.session_event);
+              updateLiveLifecycleBanner();
             } else if (data.event === "death") {
               handleDeathEvent(data);
             } else if (data.event === "pickup") {
@@ -5624,6 +5985,7 @@
           return loadPickupSpriteImage(resolveDeathSpriteUrl());
         });
         initPickupLogUi();
+        ensureMapTimerTicker();
         if (replayMode()) {
           initMapReplay();
         } else {

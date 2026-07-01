@@ -202,12 +202,16 @@
     return A().computeCombatClockAnchor(archive);
   }
 
-  // Replay wall cursor -> match game time. Accurate via matchStartWall + replay
-  // startMs (slope 1); proportional fallback only when the archive has no combat
-  // events to anchor the wall/game offset.
-  function cursorToGameMs(info) {
+  // Replay wall cursor -> dashboard timeline ms (negative = pre-match countdown).
+  function cursorToTimelineMs(info) {
     if (!info) return null;
+    var minMs = A().computeTimelineMinMs(lastArchive);
     var gmax = gameMaxMs();
+    if (minMs < 0 && info.startMs != null) {
+      var t = minMs + Number(info.cursorMs || 0);
+      if (gmax && t > gmax) t = gmax;
+      return Math.round(t);
+    }
     if (matchStartWall != null && info.startMs != null) {
       var g = info.startMs + info.cursorMs - matchStartWall;
       if (g < 0) g = 0;
@@ -218,17 +222,24 @@
     return Math.round((info.cursorMs / info.durationMs) * gmax);
   }
 
-  function gameMsToCursor(gameMs, info) {
+  function timelineMsToCursor(timelineMs, info) {
     if (!info) return null;
-    if (matchStartWall != null && info.startMs != null) {
-      var c = matchStartWall + gameMs - info.startMs;
+    var minMs = A().computeTimelineMinMs(lastArchive);
+    if (minMs < 0 && info.startMs != null) {
+      var c = Number(timelineMs) - minMs;
       if (c < 0) c = 0;
       if (info.durationMs && c > info.durationMs) c = info.durationMs;
       return Math.round(c);
     }
+    if (matchStartWall != null && info.startMs != null) {
+      var c2 = matchStartWall + Number(timelineMs) - info.startMs;
+      if (c2 < 0) c2 = 0;
+      if (info.durationMs && c2 > info.durationMs) c2 = info.durationMs;
+      return Math.round(c2);
+    }
     var gmax = gameMaxMs();
     if (!info.durationMs || !gmax) return null;
-    return Math.round((gameMs / gmax) * info.durationMs);
+    return Math.round((Number(timelineMs) / gmax) * info.durationMs);
   }
 
   function schedulePanelSync() {
@@ -249,22 +260,19 @@
       if (!(info.playing || info.cursorMs > 0)) return;
       syncEngaged = true;
     }
-    var gameMs =
-      info.gameMs != null && isFinite(Number(info.gameMs))
-        ? Math.round(Number(info.gameMs))
-        : cursorToGameMs(info);
-    if (gameMs == null) return;
+    var timelineMs = cursorToTimelineMs(info);
+    if (timelineMs == null) return;
     syncingFromReplay = true;
-    scrubGameTimeMs = gameMs;
+    scrubGameTimeMs = timelineMs;
     var scrub = document.getElementById("match-timeline-scrub");
-    if (scrub) scrub.value = String(gameMs);
+    if (scrub) scrub.value = String(timelineMs);
     var label = document.getElementById("match-timeline-label");
-    if (label) label.textContent = A().formatGameTime(gameMs);
+    if (label) label.textContent = A().formatTimelineScrubTime(timelineMs, lastArchive);
     var replayWallMs =
       info.startMs != null && info.cursorMs != null
         ? Number(info.startMs) + Number(info.cursorMs)
         : null;
-    A().updateLifecyclePhaseBadge(lastArchive, gameMs, null, {
+    A().updateLifecyclePhaseBadge(lastArchive, timelineMs, null, {
       replayWallMs: replayWallMs,
     });
     syncingFromReplay = false;
@@ -304,21 +312,23 @@
     };
   }
 
-  function seekReplayToGameMs(gameMs, resume) {
+  function seekReplayToGameMs(timelineMs, resume) {
     if (!window.OverlayApp) return Promise.resolve();
-    if (typeof OverlayApp.seekReplayGameMs === "function") {
-      return OverlayApp.seekReplayGameMs(gameMs, replaySeekOpts(resume, false));
-    }
-    if (typeof OverlayApp.seekReplayMs !== "function") return Promise.resolve();
     var info = replayInfo();
-    if (!info) return Promise.resolve();
-    var cursor = gameMsToCursor(gameMs, info);
-    if (cursor == null) {
-      var gmax = gameMaxMs();
-      if (!gmax || !info.durationMs) return Promise.resolve();
-      cursor = Math.round((Number(gameMs) / gmax) * info.durationMs);
+    if (typeof OverlayApp.seekReplayMs === "function") {
+      var cursor = timelineMsToCursor(timelineMs, info);
+      if (cursor == null) {
+        var gmax = gameMaxMs();
+        if (!gmax || !info || !info.durationMs) return Promise.resolve();
+        cursor = Math.round((Number(timelineMs) / gmax) * info.durationMs);
+      }
+      return OverlayApp.seekReplayMs(cursor, replaySeekOpts(resume, false));
     }
-    return OverlayApp.seekReplayMs(cursor, replaySeekOpts(resume, false));
+    if (typeof OverlayApp.seekReplayGameMs !== "function") return Promise.resolve();
+    return OverlayApp.seekReplayGameMs(
+      Math.max(0, Number(timelineMs) || 0),
+      replaySeekOpts(resume, false),
+    );
   }
 
   function scheduleSeekReplayToGameMs(gameMs, resume, scrubPreview) {
@@ -362,7 +372,7 @@
     if (!scrub) return;
     scrubGameTimeMs = Number(scrub.value);
     var label = document.getElementById("match-timeline-label");
-    if (label) label.textContent = A().formatGameTime(scrubGameTimeMs);
+    if (label) label.textContent = A().formatTimelineScrubTime(scrubGameTimeMs, lastArchive);
     A().updateLifecyclePhaseBadge(lastArchive, scrubGameTimeMs, null);
     if (!fromReplay) {
       syncEngaged = true;
@@ -411,7 +421,7 @@
       analyticsDragging = false;
       scrubGameTimeMs = Number(scrub.value);
       var label = document.getElementById("match-timeline-label");
-      if (label) label.textContent = A().formatGameTime(scrubGameTimeMs);
+      if (label) label.textContent = A().formatTimelineScrubTime(scrubGameTimeMs, lastArchive);
       if (
         window.OverlayApp &&
         typeof OverlayApp.cancelScheduledSeekReplay === "function"

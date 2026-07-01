@@ -10,6 +10,7 @@
     '<div class="map-main">' +
     '<div class="map-stage">' +
     '<div id="map-stage-frame" class="map-stage-frame">' +
+    '<div id="map-match-timer" class="map-match-timer hidden" aria-live="polite"></div>' +
     '<div id="map-lifecycle-banner" class="map-lifecycle-banner hidden" aria-live="polite"></div>' +
     '<div id="map-zoom-host" class="map-zoom-host">' +
     '<div id="map-wrap" class="map-wrap hidden">' +

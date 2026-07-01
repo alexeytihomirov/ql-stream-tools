@@ -561,6 +561,59 @@ a.control-btn {
   color: #facc15;
 }
 
+.match-page-clock-paused {
+  color: #93c5fd;
+}
+
+.match-page-paused-badge {
+  display: inline-block;
+  margin-left: 8px;
+  font-size: 11px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  color: #93c5fd;
+  border: 1px solid rgba(147, 197, 253, 0.45);
+  background: rgba(147, 197, 253, 0.12);
+  border-radius: 999px;
+  padding: 2px 8px;
+  vertical-align: middle;
+}
+
+.match-timeline-pauses {
+  position: absolute;
+  left: 8px;
+  right: 8px;
+  top: 0;
+  height: 16px;
+  pointer-events: none;
+  z-index: 0;
+}
+
+.match-timeline-pause-band {
+  position: absolute;
+  top: 0;
+  height: 100%;
+  border-radius: 3px;
+  background: rgba(147, 197, 253, 0.22);
+  border: 1px solid rgba(147, 197, 253, 0.35);
+}
+
+.match-timeline-pause-band--live {
+  background: rgba(147, 197, 253, 0.32);
+  border-style: dashed;
+}
+
+.match-lifecycle-badge--paused {
+  color: #93c5fd;
+  border-color: rgba(147, 197, 253, 0.45);
+  background: rgba(147, 197, 253, 0.12);
+}
+
+.match-timeline-legend-item--pause .match-timeline-legend-dot {
+  background: #93c5fd;
+}
+
 .match-timeline-panel {
   margin-bottom: 12px;
   padding: 12px;
@@ -1312,47 +1365,65 @@ td .server-location-name {
   margin-left: 2px;
 }
 
-.server-players-section {
-  margin-top: 16px;
+.server-hero-players {
+  margin-top: 10px;
+  min-height: 0;
 }
 
-.server-players-wrap {
-  margin-top: 8px;
-}
-
-.server-players-count {
-  margin: 0 0 8px;
-  font-size: 0.85rem;
-  color: var(--dash-muted, #9aa3b2);
-}
-
-.server-players-list {
-  list-style: none;
-  margin: 0;
-  padding: 0;
-  display: flex;
-  flex-direction: column;
-  gap: 6px;
-}
-
-.server-player-row {
-  display: flex;
+.server-hero-matchup {
+  display: grid;
+  grid-template-columns: 1fr auto 1fr;
   align-items: center;
-  justify-content: space-between;
-  gap: 12px;
-  padding: 8px 12px;
+  gap: 8px;
+  padding: 8px 10px;
   border-radius: 8px;
-  background: rgba(255, 255, 255, 0.04);
-  border: 1px solid rgba(255, 255, 255, 0.06);
+  background: var(--surface);
+  border: 1px solid var(--border);
 }
 
-.server-player-name {
+.server-hero-matchup-name {
+  font-size: 14px;
+  font-weight: 600;
+  line-height: 1.25;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.server-hero-matchup-left {
+  text-align: right;
+}
+
+.server-hero-matchup-right {
+  text-align: left;
+}
+
+.server-hero-matchup-score {
+  font-size: 16px;
+  font-weight: 700;
+  font-variant-numeric: tabular-nums;
+  color: var(--accent);
+  white-space: nowrap;
+}
+
+.server-hero-players-line {
+  font-size: 13px;
+  line-height: 1.4;
+  color: var(--text);
+}
+
+.server-hero-player {
   font-weight: 600;
 }
 
-.server-player-stats,
-.server-player-team {
-  font-size: 0.85rem;
-  color: var(--dash-muted, #9aa3b2);
-  white-space: nowrap;
+.server-hero-sep {
+  color: var(--muted);
+  font-weight: 400;
+}
+
+.server-hero-player-meta {
+  margin-left: 4px;
+  font-weight: 500;
+  color: var(--muted);
+  font-size: 0.92em;
 }

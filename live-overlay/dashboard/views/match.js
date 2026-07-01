@@ -33,9 +33,9 @@
 
   function refreshRosterDisplay() {
     var players = rosterPlayers();
-    var wrap = document.getElementById("server-players-wrap");
-    if (wrap) {
-      wrap.innerHTML = A().renderOnlinePlayersPanel(players, lastLiveData);
+    var heroPlayers = document.getElementById("server-hero-players");
+    if (heroPlayers) {
+      heroPlayers.innerHTML = A().renderHeroPlayers(players, lastLiveData);
     }
     refreshScoreDisplay();
   }
@@ -44,9 +44,7 @@
     var livePlayers = livePlayersForDisplay();
     var roster = rosterPlayers();
     if (!lastArchive && !roster.length) {
-      var matchupElEmpty = document.getElementById("server-matchup");
       var scoreboardElEmpty = document.getElementById("server-scoreboard");
-      if (matchupElEmpty) matchupElEmpty.innerHTML = "";
       if (scoreboardElEmpty) scoreboardElEmpty.innerHTML = "";
       return;
     }
@@ -65,10 +63,6 @@
     var view = livePlayers
       ? Object.assign({}, baseArchive, { players: livePlayers })
       : A().archiveForScore(baseArchive, scrubMs);
-    var matchupEl = document.getElementById("server-matchup");
-    if (matchupEl) {
-      matchupEl.innerHTML = A().renderMatchupBanner(view, scrubMs, livePlayers, lastLiveData);
-    }
     var scoreboardEl = document.getElementById("server-scoreboard");
     if (scoreboardEl) {
       scoreboardEl.innerHTML = A().renderScoreboard(view, scrubMs, livePlayers, lastLiveData);
@@ -415,12 +409,20 @@
     if (liveData.phase === "ended" || String(liveData.status || "").toLowerCase() === "ended") {
       return "";
     }
+    if (liveData.paused) {
+      var pausedElapsed = QLDashboard.computeMatchElapsedSec(liveData);
+      var pausedLabel = pausedElapsed != null ? QLDashboard.formatClockSec(pausedElapsed) : "";
+      return (
+        '<span class="match-page-clock match-page-clock-paused">' +
+        QLDashboard.escapeHtml(pausedLabel) +
+        '</span> <span class="match-page-paused-badge">' +
+        QLDashboard.escapeHtml(QLDashboard.t("phasePaused")) +
+        "</span>"
+      );
+    }
     var elapsed = QLDashboard.computeMatchElapsedSec(liveData);
     if (elapsed == null) return "";
     var label = QLDashboard.formatClockSec(elapsed);
-    if (liveData.timelimit_sec) {
-      label += " / " + QLDashboard.formatClockSec(liveData.timelimit_sec);
-    }
     return '<span class="match-page-clock">' + QLDashboard.escapeHtml(label) + "</span>";
   }
 
@@ -434,7 +436,9 @@
     var scrub = document.getElementById("match-timeline-scrub");
     if (!scrub || scrub.dataset.qlBound) return;
     scrub.dataset.qlBound = "1";
+    var minMs = A().computeTimelineMinMs(archive);
     var maxMs = A().computeTimelineMaxMs(archive, liveData);
+    if (minMs != null) scrub.min = String(minMs);
 
     scrub.addEventListener("pointerdown", function () {
       analyticsDragging = true;
@@ -445,7 +449,9 @@
       maxMs = A().computeTimelineMaxMs(lastArchive, lastLiveData);
       scrubAtLive = maxMs != null && Number(scrubGameTimeMs) >= maxMs - 500;
       var label = document.getElementById("match-timeline-label");
-      if (label) label.textContent = A().formatGameTime(scrubGameTimeMs);
+      if (label) {
+        label.textContent = A().formatTimelineScrubTime(scrubGameTimeMs, lastArchive);
+      }
       A().updateLifecyclePhaseBadge(lastArchive, scrubGameTimeMs, lastLiveData);
       if (analyticsDragging) {
         scheduleScrubPanelSync();
@@ -476,7 +482,7 @@
         scrubGameTimeMs = maxMs;
         scrub.value = String(maxMs);
         var label = document.getElementById("match-timeline-label");
-        if (label) label.textContent = A().formatGameTime(maxMs);
+        if (label) label.textContent = A().formatTimelineScrubTime(maxMs, lastArchive);
         A().updateLifecyclePhaseBadge(lastArchive, maxMs, lastLiveData);
         flushScrubPanelSync();
       });
@@ -486,14 +492,19 @@
   function updateTimelineScrubberBounds() {
     var scrub = document.getElementById("match-timeline-scrub");
     if (!scrub || !lastArchive) return;
+    var minMs = A().computeTimelineMinMs(lastArchive);
     var maxMs = A().computeTimelineMaxMs(lastArchive, lastLiveData);
     if (maxMs == null) return;
+    scrub.min = String(minMs);
     scrub.max = String(maxMs);
     if (scrubAtLive) {
       scrubGameTimeMs = maxMs;
       scrub.value = String(maxMs);
       var label = document.getElementById("match-timeline-label");
-      if (label) label.textContent = A().formatGameTime(maxMs);
+      if (label) label.textContent = A().formatTimelineScrubTime(maxMs, lastArchive);
+    } else if (scrubGameTimeMs != null && scrubGameTimeMs < minMs) {
+      scrubGameTimeMs = minMs;
+      scrub.value = String(minMs);
     }
     A().updateLifecyclePhaseBadge(lastArchive, scrubGameTimeMs, lastLiveData);
     refreshScoreDisplay();
@@ -706,6 +717,7 @@
       '<p id="server-meta" class="match-page-meta"></p>' +
       '<p id="server-clock" class="match-page-clock-row"></p>' +
       '<p><span id="server-badge" class="badge"></span></p>' +
+      '<div id="server-hero-players" class="server-hero-players"></div>' +
       "</header>" +
       '<div class="control-actions" style="margin-top:12px">' +
       '<a id="server-btn-full" class="control-btn control-btn-primary" href="' +
@@ -721,15 +733,7 @@
       "</div></div>" +
       '<div id="server-scoreboard" class="results-scoreboard-side"></div>' +
       "</div>" +
-      '<section class="server-players-section">' +
-      '<h2 class="match-section-title">' +
-      QLDashboard.escapeHtml(QLDashboard.t("serverPlayersOnline")) +
-      "</h2>" +
-      '<div id="server-players-wrap" class="server-players-wrap">' +
-      QLDashboard.escapeHtml(QLDashboard.t("serverLoading")) +
-      "</div></section>" +
       '<div class="results-map-stack">' +
-      '<div id="server-matchup" class="results-matchup-above-map"></div>' +
       '<div id="server-map-widget" class="match-map-widget"></div>' +
       "</div>" +
       '<div id="server-analytics-wrap"></div>' +
