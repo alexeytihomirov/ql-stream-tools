@@ -1,19 +1,18 @@
 # ql-stream-tools
 
-Streamer dashboard + OBS/browser overlays for casters.
+**Frontier Gaming Panel** — streamer dashboard for live matches, tournament data, and match analytics.
 
 ## Packages
 
 | Path | Purpose |
 |------|---------|
-| `live-overlay/dashboard/` | **Streamer dashboard** — matches, tournament, match detail, overlay setup |
-| `stream-overlay/` | Tournament popup (logo, live match card) — **WebSocket** to ql-stats-hub + CDN meta |
-| `live-overlay/` | OBS pages: scoreboard, map positions, match list |
+| `live-overlay/dashboard/` | **Frontier Gaming Panel** — matches, tournament, results, server analytics |
+| `live-overlay/` | Map viewer and legacy OBS pages (scoreboard, matches list) |
 | `player-guide/` | Tournament regulations + network settings (HTML for players / stream link) |
 
-## Streamer dashboard
+## Frontier Gaming Panel
 
-Central tool (connection, tournaments from ql-public-data, live matches, overlay URLs):
+Central tool (connection, tournaments from ql-public-data, live matches, results):
 
 ```
 # CDN
@@ -23,36 +22,19 @@ https://cdn.jsdelivr.net/gh/owner/ql-stream-tools@main/live-overlay/dashboard/in
 http://127.0.0.1:8787/live-overlay/dashboard/index.html?base=http://STATS_HOST:8090
 ```
 
-Hash routes: `#/` (dashboard), `#/tournament`, `#/match/{id}`, `#/overlays`, `#/settings`.
+Hash routes: `#/` (dashboard), `#/results`, `#/tournament`, `#/server/{id}`, `#/settings`.
 
 Legacy `live-overlay/control/` and `viewer.html` redirect to `dashboard/`.
 
-## Documentation (overlays)
+## Live map (`live-overlay/`)
 
-HTML guide for casters/operators (stream + live overlays, map calibration, smooth):
-
-```
-stream-overlay/docs.html
-```
-
-CDN: `https://cdn.jsdelivr.net/gh/alexeytihomirov/ql-stream-tools@main/stream-overlay/docs.html`
-
-## Tournament popup (`stream-overlay/`)
-
-1. Open `stream-overlay/index.html` in OBS Browser Source.
-2. Set **public data base** (jsDelivr URL for ql-public-data) and **tournament slug**.
-3. Set **stats hub URL** for live scores via WebSocket (`/api/ws/live`).
-4. See `stream-overlay/README.md`.
-
-## Live match overlays (`live-overlay/`)
-
-Scoreboard / map / matches — require `?base=http://STATS_HOST:8090` (ql-stats-hub).
+Map page for live/replay — require `?base=http://STATS_HOST:8090` (ql-stats-hub).
 
 ```
 https://cdn.jsdelivr.net/gh/alexeytihomirov/ql-stream-tools@main/live-overlay/map.html?base=http://HOST:8090&match=MATCH_ID
 ```
 
-See `live-overlay/README.md`. Hub Statistics tab copies ready-made URLs.
+See `live-overlay/README.md`.
 
 ## Player guide (regulations)
 
@@ -68,5 +50,5 @@ Operator source: `docs/TOURNAMENT-REGULATIONS.md`. See `player-guide/README.md`.
 
 ## AI / project requirements
 
-- `docs/BUSINESS.md` (RU) — dashboard + overlay rules, WebSocket policy
+- `docs/BUSINESS.md` (RU) — dashboard rules, WebSocket policy
 - `docs/DEVELOPMENT.md` (EN) — layout, hash router, development conventions

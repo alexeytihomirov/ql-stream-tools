@@ -47,13 +47,6 @@ a {
   color: var(--accent);
 }
 
-.app-subtitle {
-  margin: 6px 0 0;
-  font-size: 14px;
-  color: var(--muted);
-  line-height: 1.45;
-}
-
 .app-header-actions {
   display: flex;
   flex-wrap: wrap;
@@ -306,65 +299,6 @@ a.control-btn {
   gap: 4px;
 }
 
-.overlay-grid {
-  display: grid;
-  gap: 10px;
-}
-
-@media (min-width: 640px) {
-  .overlay-grid {
-    grid-template-columns: 1fr 1fr;
-  }
-}
-
-.overlay-card {
-  padding: 12px;
-  border-radius: 8px;
-  background: var(--surface);
-  border: 1px solid var(--border);
-}
-
-.overlay-card h3 {
-  margin: 0 0 4px;
-  font-size: 14px;
-}
-
-.overlay-card p {
-  margin: 0 0 10px;
-  font-size: 12px;
-  color: var(--muted);
-  line-height: 1.4;
-}
-
-.overlay-card-actions {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 6px;
-}
-
-.links-list {
-  display: flex;
-  flex-direction: column;
-  gap: 8px;
-}
-
-.link-row {
-  padding: 10px 12px;
-  border-radius: 8px;
-  background: var(--surface);
-  border: 1px solid var(--border);
-}
-
-.link-row-title {
-  font-size: 14px;
-  font-weight: 500;
-}
-
-.link-row-hint {
-  font-size: 12px;
-  color: var(--muted);
-}
-
 .control-section-head {
   display: flex;
   flex-wrap: wrap;
@@ -376,69 +310,6 @@ a.control-btn {
 
 .control-section-head h2 {
   margin: 0;
-}
-
-.preview-controls {
-  display: grid;
-  gap: 10px;
-  margin-bottom: 12px;
-}
-
-@media (min-width: 640px) {
-  .preview-controls {
-    grid-template-columns: 1fr 1fr 1fr auto;
-    align-items: end;
-  }
-}
-
-.preview-frame-wrap {
-  border-radius: 10px;
-  padding: 16px;
-  min-height: 280px;
-  overflow: hidden;
-  border: 1px solid var(--border);
-}
-
-.preview-bg-transparent {
-  background: repeating-conic-gradient(
-      rgba(255, 255, 255, 0.04) 0% 25%,
-      transparent 0% 50%
-    )
-    50% / 16px 16px #0b0d14;
-}
-
-.preview-bg-chroma {
-  background: #00ff00;
-}
-
-.preview-bg-checkerboard {
-  background: repeating-conic-gradient(
-      rgba(255, 255, 255, 0.08) 0% 25%,
-      transparent 0% 50%
-    )
-    50% / 20px 20px #1a1a2e;
-}
-
-.preview-frame-inner {
-  transform-origin: top left;
-  width: 640px;
-  max-width: 100%;
-}
-
-.preview-frame {
-  width: 640px;
-  height: 360px;
-  max-width: 100%;
-  border: 0;
-  border-radius: 6px;
-  background: transparent;
-}
-
-.app-footer {
-  margin-top: 16px;
-  font-size: 12px;
-  color: var(--muted);
-  line-height: 1.45;
 }
 
 .data-table {

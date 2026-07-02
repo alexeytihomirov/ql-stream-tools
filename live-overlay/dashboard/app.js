@@ -8,8 +8,6 @@
   var DEFAULT_PUBLIC_DATA_BASE =
     "https://cdn.jsdelivr.net/gh/alexeytihomirov/ql-public-data@main";
   var MATCH_POLL_MS = 3000;
-  var OVERLAYS_POLL_MS = 15000;
-  var PREVIEW_POLL_MS = 10000;
   var HEALTH_PROBE_EVERY = 10;
   var DEFAULT_OVERLAY_ASSETS =
     "https://cdn.jsdelivr.net/gh/alexeytihomirov/ql-stream-tools@main/live-overlay/";
@@ -51,8 +49,6 @@
       }
     }
     var tournamentSlug = trim(raw.tournamentSlug || "").toLowerCase();
-    var defaultBg = trim(raw.defaultBg || "transparent") || "transparent";
-    var defaultMatchId = trim(raw.defaultMatchId || "");
     var pickedLang = trim(raw.lang || "en").toLowerCase();
     if (pickedLang !== "ru") pickedLang = "en";
 
@@ -63,8 +59,6 @@
       assetsBase: assetsBase,
       statsHubApiToken: trim(raw.statsHubApiToken || ""),
       tournamentSlug: tournamentSlug,
-      defaultBg: defaultBg,
-      defaultMatchId: defaultMatchId,
       lang: pickedLang,
     };
   }
@@ -463,9 +457,6 @@
     if (settings.statsHubBase) params.base = settings.statsHubBase;
     params.assets = effectiveAssetsBase();
     if (matchId) params.match = matchId;
-    if (settings.defaultBg && settings.defaultBg !== "transparent") {
-      params.bg = settings.defaultBg;
-    }
     return params;
   }
 
@@ -478,19 +469,6 @@
     }
     var file = page.indexOf(".html") >= 0 ? page : page + ".html";
     return applyParamsToUrl(new URL(file, resolveLiveOverlayRoot()), params);
-  }
-
-  function liveOverlayPreviewUrl(page, matchId, extra) {
-    var previewExtra = Object.assign({ poll: String(PREVIEW_POLL_MS) }, extra || {});
-    return liveOverlayUrl(page, matchId, previewExtra);
-  }
-
-  function streamOverlayUrl() {
-    return new URL("../stream-overlay/index.html", resolveLiveOverlayRoot()).href;
-  }
-
-  function docsUrl() {
-    return new URL("../stream-overlay/docs.html", resolveLiveOverlayRoot()).href;
   }
 
   function playerGuideUrl() {
@@ -534,16 +512,6 @@
     } catch (_e) {
       return "";
     }
-  }
-
-  function resolveOverlayMatchId(preferred) {
-    var id = trim(preferred || "");
-    if (id) return id;
-    id = lastVisitedServerId();
-    if (id) return id;
-    id = trim(settings.defaultMatchId || "");
-    if (id) return id;
-    return matches[0] && matches[0].match_id ? String(matches[0].match_id) : "";
   }
 
   function setStatus(text, kind) {
@@ -676,13 +644,6 @@
       pollTimer = setInterval(function () {
         refreshMatches({ probeHealth: false, notify: false });
       }, MATCH_POLL_MS);
-      return;
-    }
-
-    if (viewName === "overlays") {
-      pollTimer = setInterval(function () {
-        refreshMatches({ probeHealth: false, notify: false });
-      }, OVERLAYS_POLL_MS);
     }
   }
 
@@ -703,6 +664,7 @@
     var view = parts[0] || "home";
     if (view === "dashboard") view = "home";
     if (view === "match") view = "server";
+    if (view === "overlays") view = "home";
     var param = null;
     if (parts.length > 1) {
       param = parts
@@ -872,15 +834,11 @@
     computeMatchElapsedSec: computeMatchElapsedSec,
     statsHubWsUrl: statsHubWsUrl,
     liveOverlayUrl: liveOverlayUrl,
-    liveOverlayPreviewUrl: liveOverlayPreviewUrl,
-    streamOverlayUrl: streamOverlayUrl,
-    docsUrl: docsUrl,
     playerGuideUrl: playerGuideUrl,
     openWindow: openWindow,
     copyText: copyText,
     makeActionBtn: makeActionBtn,
     lastVisitedServerId: lastVisitedServerId,
-    resolveOverlayMatchId: resolveOverlayMatchId,
     overlayQueryParams: overlayQueryParams,
     buildUrl: buildUrl,
     fetchStatsJson: fetchStatsJson,

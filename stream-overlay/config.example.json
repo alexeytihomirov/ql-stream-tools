@@ -1,9 +1,0 @@
-{
-  "publicDataBase": "https://cdn.jsdelivr.net/gh/alexeytihomirov/ql-public-data@main",
-  "tournamentSlug": "spring-cup-2026",
-  "pollIntervalMs": 2000,
-  "logoId": "ql-hub-default",
-  "logoUrl": "https://cdn.jsdelivr.net/gh/alexeytihomirov/ql-public-data@main/assets/overlay-logos/ql-hub-default.svg",
-  "showConnect": true,
-  "popupAutoHideMs": 0
-}

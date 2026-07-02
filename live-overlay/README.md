@@ -2,11 +2,9 @@
 
 Scoreboard, map positions, and match list — **presentation layer** for ql-stats-hub API.
 
-**Full documentation:** [`../stream-overlay/docs.html`](../stream-overlay/docs.html) (map calibration, smooth, hub, troubleshooting).
+## Frontier Gaming Panel
 
-## Operator control panel
-
-Central **streamer dashboard** (connection, tournaments from ql-public-data, live matches, overlay URLs):
+Central streamer dashboard (connection, tournaments from ql-public-data, live matches, results):
 
 ```
 # CDN
@@ -16,7 +14,7 @@ https://cdn.jsdelivr.net/gh/owner/ql-stream-tools@main/live-overlay/dashboard/in
 http://127.0.0.1:8787/live-overlay/dashboard/index.html?base=http://STATS_HOST:8090
 ```
 
-Hash routes: `#/` · `#/tournament` · `#/match/{id}` · `#/overlays` · `#/settings`.
+Hash routes: `#/` · `#/results` · `#/tournament` · `#/server/{id}` · `#/settings`.
 
 Legacy `control/` and `viewer.html` redirect to `dashboard/`. Operator pages: `match.html`, `matches.html?mode=operator`.
 

@@ -4,11 +4,9 @@
 
 | Path | Purpose |
 |------|---------|
-| `live-overlay/dashboard/` | **Streamer dashboard** — hash router, settings, views |
+| `live-overlay/dashboard/` | **Frontier Gaming Panel** — hash router, settings, views |
 | `live-overlay/control/` | Legacy redirect → `dashboard/` |
-| `stream-overlay/` | Tournament popup (CDN config today; target WS) |
-| `live-overlay/` | OBS pages: scoreboard, map, matches, match.html |
-| `stream-overlay/docs.html` | Operator documentation |
+| `live-overlay/` | Map viewer and OBS pages: scoreboard, map, matches, match.html |
 | `player-guide/` | Public HTML: tournament regulations, network cvars |
 | `docs/TOURNAMENT-REGULATIONS.md` | Generic technical rules + pointer to event SoT |
 | `docs/tournaments/*.md` | Links to `ql-public-data/tournaments/{slug}/regulations.md` |
@@ -24,10 +22,9 @@ Entry: `live-overlay/dashboard/index.html`
 | `#/match/{match_id}` | Match detail (summary, killfeed, pickups, accuracy) | `views/match.js` |
 
 Match analytics: `GET /api/stream/matches/{id}/archive-summary` on stats-hub. Preview layout with sample data: add `?debug=1` to dashboard URL (e.g. `index.html?base=…&debug=1#/match/server-1`).
-| `#/overlays` | OBS overlay cards + preview | `views/overlays.js` |
 | `#/settings` | Connection form | `views/settings.js` |
 
-Shared: `app.js` (settings, fetch, router, overlay URL builders), `i18n.js`, `dashboard.css`.
+Shared: `app.js` (settings, fetch, router), `i18n.js`, `dashboard.css`.
 
 Settings key: `ql-dashboard-settings` (falls back to legacy `ql-control-settings`).
 
@@ -52,13 +49,13 @@ Query params on load (merged into settings): `base`, `tournament` / `slug`.
 
 ## Config
 
-- Dashboard: `localStorage` `ql-dashboard-settings` — public data base, stats-hub URL, tournament slug, default OBS bg.
-- Overlay pages: `?base=` stats-hub URL, optional stream token.
+- Dashboard: `localStorage` `ql-dashboard-settings` — public data base, stats-hub URL, tournament slug.
+- Map pages: `?base=` stats-hub URL, optional `?assets=` for local map PNG/transforms (auto-detected from page origin or jsDelivr).
 - No hub API token in dashboard or overlay config.
 
 ## CDN popup (transitional)
 
-`stream-overlay/` polls `ql-public-data` `overlay-live.json` — **migrate to WS** per BUSINESS.md. Until migrated, keep poll interval ≥ 2000 ms and do not reload logos each tick.
+Removed from dashboard (2026-07); OBS overlay setup will be rebuilt separately.
 
 ## Match replay and archive
 

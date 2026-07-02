@@ -18,10 +18,9 @@ Dashboard и overlays **разделены**: аналитика матча не
 | **Dashboard** (home) | Текущие матчи, серверы | stats-hub WS + `/api/stream/matches` |
 | **Tournament** | Участники, сетка, демки, статистика | ql-public-data CDN |
 | **Match** | Summary, map, killfeed, pickups | WS live; replay `/api/replays/{id}` для ended |
-| **Overlays** | URL и preview OBS-страниц | localStorage settings |
 | **Settings** | stats-hub URL, public data base, турнир | localStorage |
 
-Маршрутизация: hash (`#/`, `#/tournament`, `#/match/{id}`, `#/overlays`, `#/settings`).
+Маршрутизация: hash (`#/`, `#/results`, `#/tournament`, `#/server/{id}`, `#/settings`).
 
 ## Классы overlay (OBS)
 

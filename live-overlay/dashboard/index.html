@@ -3,7 +3,7 @@
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <title>QL Stream Tools</title>
+    <title>Frontier Gaming Panel</title>
     <!-- overlay.css first so dashboard.css wins for shared :root / .hidden;
          provides .map-* styles for the embedded map widget. -->
     <link rel="stylesheet" href="../overlay.css" />
@@ -13,10 +13,7 @@
     <div class="app-shell">
       <header class="app-header">
         <div>
-          <h1 class="app-title" data-i18n="pageTitle">QL Stream Tools</h1>
-          <p class="app-subtitle" data-i18n="subtitle">
-            Streamer dashboard — matches, tournament, overlays.
-          </p>
+          <h1 class="app-title" data-i18n="pageTitle">Frontier Gaming Panel</h1>
         </div>
         <div class="app-header-actions">
           <div class="lang-switch" aria-label="Language">
@@ -31,7 +28,6 @@
         <a href="#/" data-route="home" data-i18n="navDashboard">Dashboard</a>
         <a href="#/results" data-route="results" data-i18n="navResults">Results</a>
         <a href="#/tournament" data-route="tournament" data-i18n="navTournament">Tournament</a>
-        <a href="#/overlays" data-route="overlays" data-i18n="navOverlays">Overlays</a>
         <a href="#/settings" data-route="settings" data-i18n="navSettings">Settings</a>
       </nav>
 
@@ -52,7 +48,6 @@
     <script src="views/tournament.js"></script>
     <script src="views/match.js"></script>
     <script src="views/results.js"></script>
-    <script src="views/overlays.js"></script>
     <script src="views/settings.js"></script>
     <script>
       QLDashboard.init();

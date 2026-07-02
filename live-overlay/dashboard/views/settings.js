@@ -34,26 +34,6 @@
       '" /><span class="control-field-hint">' +
       QLDashboard.t("statsHubApiTokenHint") +
       "</span></label>" +
-      '<label class="control-field"><span>' +
-      QLDashboard.t("assetsBase") +
-      '</span><input id="set-assets" type="url" placeholder="http://127.0.0.1:8787/live-overlay/" value="' +
-      QLDashboard.escapeHtml(QLDashboard.settings.assetsBase) +
-      '" /><span class="control-field-hint">' +
-      QLDashboard.t("assetsHint") +
-      "</span></label>" +
-      '<label class="control-field"><span>' +
-      QLDashboard.t("defaultBg") +
-      '</span><select id="set-default-bg">' +
-      '<option value="transparent">' +
-      QLDashboard.t("bgTransparent") +
-      "</option>" +
-      '<option value="chroma">' +
-      QLDashboard.t("bgChroma") +
-      "</option>" +
-      '<option value="checkerboard">' +
-      QLDashboard.t("bgChecker") +
-      "</option>" +
-      "</select></label>" +
       '<div class="control-actions">' +
       '<button type="submit" class="control-btn control-btn-primary">' +
       QLDashboard.t("saveConnect") +
@@ -63,8 +43,6 @@
       "</section>";
 
     renderTournamentSelect();
-    var bgSel = document.getElementById("set-default-bg");
-    if (bgSel) bgSel.value = QLDashboard.settings.defaultBg || "transparent";
 
     document.getElementById("settings-form").addEventListener("submit", function (ev) {
       ev.preventDefault();
@@ -72,11 +50,8 @@
         publicDataBase: document.getElementById("set-public-data").value,
         statsHubBase: document.getElementById("set-stats-hub").value,
         statsHubApiToken: document.getElementById("set-stats-api-token").value,
-        assetsBase: document.getElementById("set-assets").value,
         tournamentSlug: document.getElementById("set-tournament").value,
-        defaultBg: document.getElementById("set-default-bg").value,
         lang: QLDashboard.settings.lang,
-        defaultMatchId: QLDashboard.settings.defaultMatchId,
       };
       QLDashboard.saveSettings(next);
       var st = document.getElementById("settings-status");
