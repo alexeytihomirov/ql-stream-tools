@@ -361,7 +361,7 @@
     if (row.phase === "ended") return null;
     if (row.paused && row.elapsed_sec != null) return row.elapsed_sec;
     var now = Date.now();
-    if (row.elapsed_sec != null && row.clock_at) {
+    if (!row.paused && row.elapsed_sec != null && row.clock_at) {
       var atElapsed = Date.parse(row.clock_at);
       if (!isNaN(atElapsed)) return row.elapsed_sec + Math.floor((now - atElapsed) / 1000);
       return row.elapsed_sec;
@@ -371,10 +371,16 @@
       if (!isNaN(startedAt)) {
         var wallSec = Math.max(0, Math.floor((now - startedAt) / 1000));
         var pauseMs = Number(row.pause_accumulated_ms) || 0;
+        if (row.paused && row.pause_started_at) {
+          var pauseStart = Date.parse(row.pause_started_at);
+          if (!isNaN(pauseStart)) {
+            pauseMs += Math.max(0, now - pauseStart);
+          }
+        }
         return Math.max(0, wallSec - Math.floor(pauseMs / 1000));
       }
     }
-    if (row.game_time_ms != null && row.game_time_ms > 0 && row.clock_at) {
+    if (!row.paused && row.game_time_ms != null && row.game_time_ms > 0 && row.clock_at) {
       var at = Date.parse(row.clock_at);
       if (!isNaN(at)) return Math.floor((row.game_time_ms + (now - at)) / 1000);
       return Math.floor(row.game_time_ms / 1000);

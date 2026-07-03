@@ -13,6 +13,7 @@
   var lastLiveData = null;
   var lastArchive = null;
   var lastPositionPlayers = [];
+  var lastPositionRowsRaw = [];
   var scrubGameTimeMs = null;
   var scrubAtLive = true;
   var analyticsDragging = false;
@@ -31,6 +32,40 @@
     return merged.length ? merged : null;
   }
 
+  function refreshRestoreLabStrip() {
+    var wrap = document.getElementById("server-restore-lab");
+    if (!wrap) return;
+    var rows = lastPositionRowsRaw || [];
+    if (!rows.length) {
+      wrap.hidden = true;
+      wrap.innerHTML = "";
+      return;
+    }
+    wrap.hidden = false;
+    var nickBySteam = A().buildNicknameBySteam(lastArchive, lastLiveData && lastLiveData.players);
+    wrap.innerHTML = A().renderRestoreLabStrip(rows, nickBySteam);
+    wrap.querySelectorAll(".restore-lab-copy").forEach(function (btn) {
+      if (btn.dataset.qlBound) return;
+      btn.dataset.qlBound = "1";
+      btn.addEventListener("click", function () {
+        var idx = Number(btn.getAttribute("data-row-index"));
+        var row = rows[idx];
+        if (!row) return;
+        A()
+          .copyRestorePlayerCommand(null, row)
+          .then(function () {
+            btn.textContent = "Copied";
+            setTimeout(function () {
+              btn.textContent = "Copy restore: " + (A().displayNickname(row, nickBySteam) || row.steam_id64);
+            }, 1500);
+          })
+          .catch(function () {
+            window.prompt("Copy restore command:", A().formatRestorePlayerCommand(null, row));
+          });
+      });
+    });
+  }
+
   function refreshRosterDisplay() {
     var players = rosterPlayers();
     var heroPlayers = document.getElementById("server-hero-players");
@@ -38,6 +73,7 @@
       heroPlayers.innerHTML = A().renderHeroPlayers(players, lastLiveData);
     }
     refreshScoreDisplay();
+    refreshRestoreLabStrip();
   }
 
   function refreshScoreDisplay() {
@@ -225,6 +261,7 @@
       }
       if (event === "snapshot" || event === "positions") {
         if (Array.isArray(msg.players)) {
+          lastPositionRowsRaw = msg.players.slice();
           lastPositionPlayers = A().playersFromPositionRows(msg.players);
           refreshRosterDisplay();
         }
@@ -666,6 +703,7 @@
     lastLiveData = null;
     lastArchive = null;
     lastPositionPlayers = [];
+    lastPositionRowsRaw = [];
     var matchId = route.param;
     if (!matchId) {
       renderServerPicker(root);
@@ -730,6 +768,8 @@
       '" target="_blank" rel="noopener noreferrer">' +
       QLDashboard.escapeHtml(QLDashboard.t("matchOpenMap")) +
       "</a>" +
+      "</div>" +
+      '<div id="server-restore-lab" class="restore-lab-strip" style="margin-top:8px" hidden></div>' +
       "</div></div>" +
       '<div id="server-scoreboard" class="results-scoreboard-side"></div>' +
       "</div>" +
@@ -771,6 +811,7 @@
         "/api/matches/" + encodeURIComponent(matchId) + "/positions?players_only=1",
       );
       if (data && Array.isArray(data.players)) {
+        lastPositionRowsRaw = data.players.slice();
         return A().playersFromPositionRows(data.players);
       }
     } catch (_e) {

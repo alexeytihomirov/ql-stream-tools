@@ -336,12 +336,13 @@
     return formatGameTime(Math.max(0, -Number(ms)));
   }
 
-  // Scrub label: negative timeline ms = elapsed since countdown_start; >= 0 = game clock.
+  // Scrub label: negative timeline ms = countdown remaining; >= 0 = game clock.
   function formatTimelineScrubTime(ms, archive) {
     if (ms == null || isNaN(ms)) return "—";
     var minMs = computeTimelineMinMs(archive);
     if (minMs < 0 && Number(ms) < 0) {
-      return formatGameTime(Number(ms) - minMs);
+      var remaining = formatCountdownRemainingMs(ms);
+      if (remaining != null) return remaining;
     }
     return formatGameTime(Math.max(0, Number(ms)));
   }
@@ -1895,9 +1896,99 @@
         score: Number(p.score) || 0,
         kills: Number(p.kills) || 0,
         deaths: Number(p.deaths) || 0,
+        x: p.x,
+        y: p.y,
+        z: p.z,
+        health: p.health,
+        armor: p.armor,
       });
     });
     return out;
+  }
+
+  function roundRestoreNum(value) {
+    var n = Number(value);
+    if (!isFinite(n)) return null;
+    return Math.round(n * 100) / 100;
+  }
+
+  function buildRestoreLabPayload(row) {
+    if (!row) return null;
+    var payload = {};
+    var x = roundRestoreNum(row.x);
+    var y = roundRestoreNum(row.y);
+    var z = roundRestoreNum(row.z);
+    if (x != null && y != null && z != null) {
+      payload.x = x;
+      payload.y = y;
+      payload.z = z;
+    }
+    var vx = roundRestoreNum(row.vx != null ? row.vx : row.velocity && row.velocity[0]);
+    var vy = roundRestoreNum(row.vy != null ? row.vy : row.velocity && row.velocity[1]);
+    var vz = roundRestoreNum(row.vz != null ? row.vz : row.velocity && row.velocity[2]);
+    if (vx != null && vy != null && vz != null) {
+      payload.vx = vx;
+      payload.vy = vy;
+      payload.vz = vz;
+    }
+    if (row.health != null) payload.h = Number(row.health);
+    if (row.armor != null) payload.a = Number(row.armor);
+    if (row.weapon != null) payload.w = row.weapon;
+    if (row.active_weapon != null) payload.w = row.active_weapon;
+    if (row.loadout) payload.loadout = row.loadout;
+    if (row.ammo) payload.ammo = row.ammo;
+    return Object.keys(payload).length ? payload : null;
+  }
+
+  function encodeRestoreLabPayload(payload) {
+    var json = JSON.stringify(payload);
+    var b64 = btoa(
+      unescape(encodeURIComponent(json)),
+    );
+    return b64.replace(/\+/g, "-").replace(/\//g, "_").replace(/=+$/, "");
+  }
+
+  function formatRestorePlayerCommand(clientId, row) {
+    var payload = buildRestoreLabPayload(row);
+    if (!payload) return "";
+    var token = encodeRestoreLabPayload(payload);
+    var target =
+      clientId == null || clientId === "" ? "CLIENT_ID" : String(clientId);
+    return "!restoreplayer " + target + " #" + token + "#";
+  }
+
+  function copyRestorePlayerCommand(clientId, row) {
+    var cmd = formatRestorePlayerCommand(clientId, row);
+    if (!cmd) return Promise.reject(new Error("empty payload"));
+    if (navigator.clipboard && navigator.clipboard.writeText) {
+      return navigator.clipboard.writeText(cmd);
+    }
+    return Promise.reject(new Error("clipboard unavailable"));
+  }
+
+  function renderRestoreLabStrip(rows, nickBySteam) {
+    var list = rows || [];
+    if (!list.length) {
+      return (
+        '<p class="control-field-hint">Restore lab: no position rows yet (need live telemetry).</p>'
+      );
+    }
+    var html =
+      '<p class="control-field-hint"><strong>Restore lab</strong> — copy ' +
+      '<code>!restoreplayer</code> for QLDS with <code>match_restore_lab</code> plugin. ' +
+      "Paste in console if chat truncates. Replace <code>CLIENT_ID</code> with <code>!id</code> target (bot slot).</p><div class=\"control-actions\">";
+    for (var i = 0; i < list.length; i++) {
+      var row = list[i];
+      var label = displayNickname(row, nickBySteam) || row.steam_id64 || "player";
+      html +=
+        '<button type="button" class="control-btn control-btn-sm restore-lab-copy" data-row-index="' +
+        String(i) +
+        '">Copy restore: ' +
+        QLDashboard.escapeHtml(label) +
+        "</button> ";
+    }
+    html += "</div>";
+    return html;
   }
 
   function mergePlayerRosters(matchPlayers, positionPlayers) {
@@ -2133,5 +2224,9 @@
     playersFromPositionRows: playersFromPositionRows,
     mergePlayerRosters: mergePlayerRosters,
     renderHeroPlayers: renderHeroPlayers,
+    buildRestoreLabPayload: buildRestoreLabPayload,
+    formatRestorePlayerCommand: formatRestorePlayerCommand,
+    copyRestorePlayerCommand: copyRestorePlayerCommand,
+    renderRestoreLabStrip: renderRestoreLabStrip,
   };
 })(typeof window !== "undefined" ? window : globalThis);

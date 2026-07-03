@@ -63,6 +63,8 @@
     lastMapContext._overlay_map = null;
     lastMapContext.players = [];
     mapLiveMatchRow = null;
+    mapPauseStartedWallMs = null;
+    mapPauseFrozenOverlayMs = null;
     mapLifecycleWalls.countdownWallT = null;
     mapLifecycleWalls.matchStartWallT = null;
     mapLifecycleWalls.countdownLeadMs = null;
@@ -413,10 +415,93 @@
   var recordControlsBound = false;
 
   var replayClock = { active: false, epochMs: 0, cursorMs: 0 };
+  var mapPauseStartedWallMs = null;
+  var mapPauseFrozenOverlayMs = null;
+
+  function livePauseAccumulatedMs() {
+    return Number(mapLiveMatchRow && mapLiveMatchRow.pause_accumulated_ms) || 0;
+  }
+
+  function livePauseOffsetMs() {
+    if (replayClock.active) return 0;
+    var row = mapLiveMatchRow;
+    if (!row) return 0;
+    var pauseMs = livePauseAccumulatedMs();
+    if (!row.paused) return pauseMs;
+    var segmentStart = null;
+    if (row.pause_started_at) {
+      var parsed = Date.parse(row.pause_started_at);
+      if (!isNaN(parsed)) segmentStart = parsed;
+    }
+    if (segmentStart == null && mapPauseStartedWallMs != null) {
+      segmentStart = mapPauseStartedWallMs;
+    }
+    if (segmentStart != null) {
+      pauseMs += Math.max(0, Date.now() - segmentStart);
+    }
+    return pauseMs;
+  }
 
   function overlayNowMs() {
     if (replayClock.active) return replayClock.epochMs + replayClock.cursorMs;
-    return Date.now();
+    if (mapPauseFrozenOverlayMs != null) return mapPauseFrozenOverlayMs;
+    return Date.now() - livePauseOffsetMs();
+  }
+
+  function refreshPauseSensitiveOverlays() {
+    updateMapMatchTimer();
+    if (
+      window.MapSpawns &&
+      typeof MapSpawns.refreshItemRespawnOverlays === "function"
+    ) {
+      MapSpawns.refreshItemRespawnOverlays();
+    }
+  }
+
+  function syncPauseOverlayClock(isPaused) {
+    if (isPaused) {
+      if (mapPauseFrozenOverlayMs == null) {
+        mapPauseFrozenOverlayMs = Date.now() - livePauseAccumulatedMs();
+      }
+    } else {
+      mapPauseFrozenOverlayMs = null;
+    }
+  }
+
+  function applyMapPauseFields(source, opts) {
+    opts = opts || {};
+    if (!source) return;
+    var authoritative = opts.authoritative !== false;
+    if (source.paused == null && source.pause_accumulated_ms == null) return;
+    if (!mapLiveMatchRow) mapLiveMatchRow = {};
+    var wasPaused = !!mapLiveMatchRow.paused;
+    if (source.paused != null) {
+      var nextPaused = !!source.paused;
+      if (!authoritative && !nextPaused && wasPaused) {
+        /* positions can lag match_update — ignore stale unpauses */
+      } else {
+        mapLiveMatchRow.paused = nextPaused;
+      }
+    }
+    if (source.pause_accumulated_ms != null) {
+      mapLiveMatchRow.pause_accumulated_ms = Number(source.pause_accumulated_ms) || 0;
+    }
+    if (source.pause_started_at) {
+      mapLiveMatchRow.pause_started_at = source.pause_started_at;
+    }
+    var isPaused = !!mapLiveMatchRow.paused;
+    if (isPaused && !wasPaused) {
+      mapPauseStartedWallMs = Date.now();
+      syncPauseOverlayClock(true);
+    } else if (!isPaused && wasPaused) {
+      mapPauseStartedWallMs = null;
+      syncPauseOverlayClock(false);
+    } else if (isPaused && mapPauseFrozenOverlayMs == null) {
+      syncPauseOverlayClock(true);
+    }
+    if (isPaused !== wasPaused) {
+      refreshPauseSensitiveOverlays();
+    }
   }
 
   function debugPickups() {
@@ -1018,7 +1103,7 @@
     }
     if (row.paused && row.elapsed_sec != null) return row.elapsed_sec;
     var now = Date.now();
-    if (row.elapsed_sec != null && row.clock_at) {
+    if (!row.paused && row.elapsed_sec != null && row.clock_at) {
       var atElapsed = Date.parse(row.clock_at);
       if (!isNaN(atElapsed)) {
         return row.elapsed_sec + Math.floor((now - atElapsed) / 1000);
@@ -1030,16 +1115,23 @@
       if (!isNaN(startedAt)) {
         var wallSec = Math.max(0, Math.floor((now - startedAt) / 1000));
         var pauseMs = Number(row.pause_accumulated_ms) || 0;
-        if (row.paused && row.pause_started_at) {
-          var pauseStart = Date.parse(row.pause_started_at);
-          if (!isNaN(pauseStart)) {
+        if (row.paused) {
+          var pauseStart = null;
+          if (row.pause_started_at) {
+            pauseStart = Date.parse(row.pause_started_at);
+            if (isNaN(pauseStart)) pauseStart = null;
+          }
+          if (pauseStart == null && mapPauseStartedWallMs != null) {
+            pauseStart = mapPauseStartedWallMs;
+          }
+          if (pauseStart != null) {
             pauseMs += Math.max(0, now - pauseStart);
           }
         }
         return Math.max(0, wallSec - Math.floor(pauseMs / 1000));
       }
     }
-    if (row.game_time_ms != null && row.game_time_ms > 0 && row.clock_at) {
+    if (!row.paused && row.game_time_ms != null && row.game_time_ms > 0 && row.clock_at) {
       var at = Date.parse(row.clock_at);
       if (!isNaN(at)) {
         return Math.floor((row.game_time_ms + (now - at)) / 1000);
@@ -1719,7 +1811,11 @@
 
   function syncMapLivePhase(matchRow) {
     if (!matchRow) return;
-    mapLiveMatchRow = matchRow;
+    applyMapPauseFields(matchRow, { authoritative: true });
+    mapLiveMatchRow = Object.assign({}, mapLiveMatchRow || {}, matchRow);
+    if (mapLiveMatchRow.paused) {
+      syncPauseOverlayClock(true);
+    }
     var phase = matchRow.phase
       ? String(matchRow.phase).toLowerCase()
       : matchPhase(matchRow);
@@ -1809,6 +1905,27 @@
           ts - mapLifecycleWalls.countdownWallT,
         );
       }
+    } else if (kind === "pause_start") {
+      applyMapPauseFields(
+        {
+          paused: true,
+          pause_accumulated_ms: livePauseAccumulatedMs(),
+        },
+        { authoritative: true },
+      );
+    } else if (kind === "pause_end") {
+      var meta = ev.meta && typeof ev.meta === "object" ? ev.meta : {};
+      var acc = livePauseAccumulatedMs();
+      if (meta.duration_ms != null && isFinite(Number(meta.duration_ms))) {
+        acc += Math.max(0, Number(meta.duration_ms));
+      }
+      applyMapPauseFields(
+        {
+          paused: false,
+          pause_accumulated_ms: acc,
+        },
+        { authoritative: true },
+      );
     }
   }
 
@@ -1972,8 +2089,6 @@
       var gameMs = replayGameClockMsAtWall(wallT);
       if (gameMs == null) return null;
       var gameLabel = mapClockFormatSec(Math.floor(gameMs / 1000));
-      var tl = replayTimelimitSec();
-      if (tl != null) gameLabel += " / " + mapClockFormatSec(tl);
       if (pausedIv) gameLabel += " · " + operatorT("phasePaused");
       return {
         show: true,
@@ -5765,6 +5880,7 @@
             mapDebugState.lastWsEvent = data.event || null;
             mapDebugState.wsFrameCount += 1;
             if (data.event === "positions" || data.event === "snapshot") {
+              applyMapPauseFields(data, { authoritative: false });
               scheduleMapSnapshot(data);
             } else if (data.event === "match_status") {
               recordClientMatchStatus(data);
