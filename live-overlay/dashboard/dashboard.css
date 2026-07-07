@@ -1298,3 +1298,261 @@ td .server-location-name {
   color: var(--muted);
   font-size: 0.92em;
 }
+
+.restore-checkpoint-panel {
+  margin-top: 16px;
+}
+
+.restore-checkpoint-meta {
+  font-size: 12px;
+  color: var(--muted);
+  margin: 8px 0;
+}
+
+.restore-checkpoint-json {
+  width: 100%;
+  min-height: 220px;
+  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  font-size: 12px;
+  line-height: 1.4;
+  padding: 10px;
+  border: 1px solid var(--border);
+  border-radius: var(--hub-radius, 0);
+  background: var(--panel, #111);
+  color: var(--text);
+  resize: vertical;
+  box-sizing: border-box;
+}
+
+.restore-checkpoint-actions {
+  margin-top: 10px;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.restore-checkpoint-paste {
+  margin-top: 10px;
+  padding: 10px;
+  font-size: 11px;
+  line-height: 1.35;
+  white-space: pre-wrap;
+  word-break: break-all;
+  border: 1px solid var(--border);
+  background: rgba(0, 0, 0, 0.2);
+  max-height: 160px;
+  overflow: auto;
+}
+
+.ql-restore-editor-body {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+}
+
+.ql-restore-global {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+  gap: 12px;
+}
+
+.ql-restore-field {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  font-size: 12px;
+}
+
+.ql-restore-field > span:first-child {
+  color: var(--muted);
+  font-weight: 600;
+}
+
+.ql-restore-field input,
+.ql-restore-field select,
+.ql-restore-w-select {
+  font: inherit;
+  padding: 6px 8px;
+  border: 1px solid var(--border);
+  border-radius: var(--hub-radius, 0);
+  background: var(--surface);
+  color: var(--text);
+}
+
+.ql-restore-field-hint {
+  font-size: 11px;
+  color: var(--muted);
+}
+
+.ql-restore-players {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(320px, 1fr));
+  gap: 12px;
+}
+
+.ql-restore-player {
+  border: 1px solid var(--border);
+  border-radius: var(--hub-radius, 0);
+  background: var(--surface);
+  padding: 12px;
+}
+
+.ql-restore-player-head {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 8px;
+  margin-bottom: 10px;
+}
+
+.ql-restore-player-head h4 {
+  margin: 0;
+  font-size: 14px;
+}
+
+.ql-restore-player-slot {
+  font-size: 11px;
+  color: var(--muted);
+}
+
+.ql-restore-player-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(120px, 1fr));
+  gap: 8px;
+  margin-bottom: 10px;
+}
+
+.ql-restore-pos-row {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 10px;
+}
+
+.ql-restore-pos-label,
+.ql-restore-section-label {
+  font-size: 11px;
+  font-weight: 600;
+  color: var(--muted);
+  width: 100%;
+}
+
+.ql-restore-pos-field {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  font-size: 11px;
+}
+
+.ql-restore-pos-field input {
+  width: 72px;
+  padding: 4px 6px;
+  border: 1px solid var(--border);
+  background: var(--panel, #111);
+  color: var(--text);
+}
+
+.ql-restore-lo-grid {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin-top: 6px;
+}
+
+.ql-restore-lo-item {
+  display: inline-flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 2px;
+  padding: 4px 6px;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  cursor: pointer;
+  min-width: 44px;
+  background: rgba(0, 0, 0, 0.15);
+  user-select: none;
+}
+
+.ql-restore-lo-item:has(input:checked) {
+  border-color: var(--accent);
+  background: rgba(255, 200, 0, 0.08);
+}
+
+.ql-restore-lo-item input {
+  position: absolute;
+  opacity: 0;
+  width: 0;
+  height: 0;
+}
+
+.ql-restore-lo-label {
+  font-size: 10px;
+  font-weight: 600;
+  color: var(--muted);
+}
+
+.ql-restore-wpn-icon,
+.ql-restore-lo-icon,
+.ql-restore-ammo-icon {
+  width: 24px;
+  height: 24px;
+  image-rendering: pixelated;
+  object-fit: contain;
+}
+
+.ql-restore-wpn-abbr {
+  font-size: 11px;
+  font-weight: 700;
+}
+
+.ql-restore-ammo-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(88px, 1fr));
+  gap: 6px;
+  margin-top: 6px;
+}
+
+.ql-restore-ammo-item {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 2px;
+  padding: 6px 4px;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  background: rgba(0, 0, 0, 0.12);
+}
+
+.ql-restore-ammo-key {
+  font-size: 10px;
+  font-weight: 700;
+  color: var(--muted);
+}
+
+.ql-restore-ammo-input {
+  width: 100%;
+  max-width: 64px;
+  text-align: center;
+  padding: 2px 4px;
+  font-size: 12px;
+  border: 1px solid var(--border);
+  background: var(--panel, #111);
+  color: var(--text);
+}
+
+.ql-restore-output-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  margin-bottom: 8px;
+}
+
+.ql-restore-output-head h4 {
+  margin: 0;
+  font-size: 13px;
+}
+
+.ql-restore-encode-status {
+  font-size: 11px;
+}

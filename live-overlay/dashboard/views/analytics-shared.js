@@ -1906,88 +1906,72 @@
     return out;
   }
 
-  function roundRestoreNum(value) {
-    var n = Number(value);
-    if (!isFinite(n)) return null;
-    return Math.round(n * 100) / 100;
-  }
-
-  function buildRestoreLabPayload(row) {
-    if (!row) return null;
-    var payload = {};
-    var x = roundRestoreNum(row.x);
-    var y = roundRestoreNum(row.y);
-    var z = roundRestoreNum(row.z);
-    if (x != null && y != null && z != null) {
-      payload.x = x;
-      payload.y = y;
-      payload.z = z;
-    }
-    var vx = roundRestoreNum(row.vx != null ? row.vx : row.velocity && row.velocity[0]);
-    var vy = roundRestoreNum(row.vy != null ? row.vy : row.velocity && row.velocity[1]);
-    var vz = roundRestoreNum(row.vz != null ? row.vz : row.velocity && row.velocity[2]);
-    if (vx != null && vy != null && vz != null) {
-      payload.vx = vx;
-      payload.vy = vy;
-      payload.vz = vz;
-    }
-    if (row.health != null) payload.h = Number(row.health);
-    if (row.armor != null) payload.a = Number(row.armor);
-    if (row.weapon != null) payload.w = row.weapon;
-    if (row.active_weapon != null) payload.w = row.active_weapon;
-    if (row.loadout) payload.loadout = row.loadout;
-    if (row.ammo) payload.ammo = row.ammo;
-    return Object.keys(payload).length ? payload : null;
-  }
-
-  function encodeRestoreLabPayload(payload) {
-    var json = JSON.stringify(payload);
-    var b64 = btoa(
-      unescape(encodeURIComponent(json)),
-    );
-    return b64.replace(/\+/g, "-").replace(/\//g, "_").replace(/=+$/, "");
-  }
-
-  function formatRestorePlayerCommand(clientId, row) {
-    var payload = buildRestoreLabPayload(row);
+  function pickCfgText(payload) {
     if (!payload) return "";
-    var token = encodeRestoreLabPayload(payload);
-    var target =
-      clientId == null || clientId === "" ? "CLIENT_ID" : String(clientId);
-    return "!restoreplayer " + target + " #" + token + "#";
+    if (payload.cfg_client_text) return String(payload.cfg_client_text);
+    if (Array.isArray(payload.cfg_client_lines) && payload.cfg_client_lines.length) {
+      return payload.cfg_client_lines.join("\n") + "\n";
+    }
+    if (payload.cfg_text) return String(payload.cfg_text);
+    if (Array.isArray(payload.cfg_lines) && payload.cfg_lines.length) {
+      return payload.cfg_lines.join("\n") + "\n";
+    }
+    return "";
   }
 
-  function copyRestorePlayerCommand(clientId, row) {
-    var cmd = formatRestorePlayerCommand(clientId, row);
-    if (!cmd) return Promise.reject(new Error("empty payload"));
-    if (navigator.clipboard && navigator.clipboard.writeText) {
-      return navigator.clipboard.writeText(cmd);
-    }
-    return Promise.reject(new Error("clipboard unavailable"));
-  }
-
-  function renderRestoreLabStrip(rows, nickBySteam) {
-    var list = rows || [];
-    if (!list.length) {
-      return (
-        '<p class="control-field-hint">Restore lab: no position rows yet (need live telemetry).</p>'
-      );
-    }
+  function renderCheckpointRestorePanel(state) {
+    state = state || {};
+    var status = state.status || "idle";
+    var payload = state.payload;
+    var err = state.error || "";
+    var tMs = state.tMs;
     var html =
-      '<p class="control-field-hint"><strong>Restore lab</strong> — copy ' +
-      '<code>!restoreplayer</code> for QLDS with <code>match_restore_lab</code> plugin. ' +
-      "Paste in console if chat truncates. Replace <code>CLIENT_ID</code> with <code>!id</code> target (bot slot).</p><div class=\"control-actions\">";
-    for (var i = 0; i < list.length; i++) {
-      var row = list[i];
-      var label = displayNickname(row, nickBySteam) || row.steam_id64 || "player";
+      '<section class="control-section restore-checkpoint-panel" id="restore-checkpoint-panel">' +
+      "<h3>" +
+      QLDashboard.escapeHtml(QLDashboard.t("restoreCheckpointTitle")) +
+      "</h3>" +
+      '<p class="control-field-hint">' +
+      QLDashboard.escapeHtml(QLDashboard.t("restoreCheckpointHint")) +
+      "</p>";
+    if (status === "unavailable") {
       html +=
-        '<button type="button" class="control-btn control-btn-sm restore-lab-copy" data-row-index="' +
-        String(i) +
-        '">Copy restore: ' +
-        QLDashboard.escapeHtml(label) +
-        "</button> ";
+        '<p class="match-analytics-empty">' +
+        QLDashboard.escapeHtml(QLDashboard.t("restoreCheckpointNoReplay")) +
+        "</p>";
+    } else if (status === "loading") {
+      html +=
+        '<p class="control-status">' +
+        QLDashboard.escapeHtml(QLDashboard.t("restoreCheckpointLoading")) +
+        "</p>";
+    } else if (status === "error") {
+      html +=
+        '<p class="control-status error">' +
+        QLDashboard.escapeHtml(QLDashboard.t("restoreCheckpointError")) +
+        ": " +
+        QLDashboard.escapeHtml(err) +
+        "</p>";
+    } else if (payload && payload.checkpoint) {
+      var cfgText = pickCfgText(payload);
+      var meta =
+        QLDashboard.t("restoreCheckpointAt") +
+        ": " +
+        formatGameTime(tMs != null ? tMs : payload.checkpoint.t_ms) +
+        " · " +
+        QLDashboard.t("restoreCheckpointMap") +
+        ": " +
+        String(payload.checkpoint.map || "—");
+      html +=
+        '<p class="restore-checkpoint-meta">' + QLDashboard.escapeHtml(meta) + "</p>" +
+        '<textarea id="restore-checkpoint-cfg" class="restore-checkpoint-json" spellcheck="false" readonly>' +
+        QLDashboard.escapeHtml(cfgText) +
+        "</textarea>" +
+        '<div class="control-actions restore-checkpoint-actions">' +
+        '<button type="button" class="control-btn control-btn-sm control-btn-primary" id="restore-checkpoint-copy-cfg">' +
+        QLDashboard.escapeHtml(QLDashboard.t("restoreCheckpointCopyCfg")) +
+        "</button>" +
+        "</div>";
     }
-    html += "</div>";
+    html += "</section>";
     return html;
   }
 
@@ -2188,6 +2172,9 @@
     buildNicknameBySteam: buildNicknameBySteam,
     displayNickname: displayNickname,
     formatGameTime: formatGameTime,
+    iconImg: iconImg,
+    weaponInfo: weaponInfo,
+    itemInfo: itemInfo,
     formatTimelineScrubTime: formatTimelineScrubTime,
     formatCountdownRemainingMs: formatCountdownRemainingMs,
     countdownLeadInMs: countdownLeadInMs,
@@ -2224,9 +2211,7 @@
     playersFromPositionRows: playersFromPositionRows,
     mergePlayerRosters: mergePlayerRosters,
     renderHeroPlayers: renderHeroPlayers,
-    buildRestoreLabPayload: buildRestoreLabPayload,
-    formatRestorePlayerCommand: formatRestorePlayerCommand,
-    copyRestorePlayerCommand: copyRestorePlayerCommand,
-    renderRestoreLabStrip: renderRestoreLabStrip,
+    renderCheckpointRestorePanel: renderCheckpointRestorePanel,
+    pickCfgText: pickCfgText,
   };
 })(typeof window !== "undefined" ? window : globalThis);

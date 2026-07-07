@@ -32,40 +32,6 @@
     return merged.length ? merged : null;
   }
 
-  function refreshRestoreLabStrip() {
-    var wrap = document.getElementById("server-restore-lab");
-    if (!wrap) return;
-    var rows = lastPositionRowsRaw || [];
-    if (!rows.length) {
-      wrap.hidden = true;
-      wrap.innerHTML = "";
-      return;
-    }
-    wrap.hidden = false;
-    var nickBySteam = A().buildNicknameBySteam(lastArchive, lastLiveData && lastLiveData.players);
-    wrap.innerHTML = A().renderRestoreLabStrip(rows, nickBySteam);
-    wrap.querySelectorAll(".restore-lab-copy").forEach(function (btn) {
-      if (btn.dataset.qlBound) return;
-      btn.dataset.qlBound = "1";
-      btn.addEventListener("click", function () {
-        var idx = Number(btn.getAttribute("data-row-index"));
-        var row = rows[idx];
-        if (!row) return;
-        A()
-          .copyRestorePlayerCommand(null, row)
-          .then(function () {
-            btn.textContent = "Copied";
-            setTimeout(function () {
-              btn.textContent = "Copy restore: " + (A().displayNickname(row, nickBySteam) || row.steam_id64);
-            }, 1500);
-          })
-          .catch(function () {
-            window.prompt("Copy restore command:", A().formatRestorePlayerCommand(null, row));
-          });
-      });
-    });
-  }
-
   function refreshRosterDisplay() {
     var players = rosterPlayers();
     var heroPlayers = document.getElementById("server-hero-players");
@@ -73,7 +39,6 @@
       heroPlayers.innerHTML = A().renderHeroPlayers(players, lastLiveData);
     }
     refreshScoreDisplay();
-    refreshRestoreLabStrip();
   }
 
   function refreshScoreDisplay() {
@@ -264,6 +229,16 @@
           lastPositionRowsRaw = msg.players.slice();
           lastPositionPlayers = A().playersFromPositionRows(msg.players);
           refreshRosterDisplay();
+        }
+        if (msg.paused != null) {
+          lastLiveData = Object.assign({}, lastLiveData || {}, {
+            paused: !!msg.paused,
+            pause_accumulated_ms:
+              msg.pause_accumulated_ms != null
+                ? Number(msg.pause_accumulated_ms) || 0
+                : lastLiveData && lastLiveData.pause_accumulated_ms,
+          });
+          updateHeader(lastLiveData);
         }
         return;
       }
@@ -769,7 +744,6 @@
       QLDashboard.escapeHtml(QLDashboard.t("matchOpenMap")) +
       "</a>" +
       "</div>" +
-      '<div id="server-restore-lab" class="restore-lab-strip" style="margin-top:8px" hidden></div>' +
       "</div></div>" +
       '<div id="server-scoreboard" class="results-scoreboard-side"></div>' +
       "</div>" +

@@ -19,6 +19,74 @@
   var replayScrubWasPlaying = false;
   var seekReplayTimer = 0;
   var scrubPanelSyncTimer = 0;
+  var checkpointFetchTimer = 0;
+  var checkpointPayload = null;
+  var checkpointStatus = "idle";
+  var checkpointError = "";
+  var checkpointReplayAvailable = false;
+
+  function stopCheckpointFetch() {
+    if (checkpointFetchTimer) {
+      clearTimeout(checkpointFetchTimer);
+      checkpointFetchTimer = 0;
+    }
+  }
+
+  function scheduleCheckpointFetch(recordingId, tMs) {
+    if (!checkpointReplayAvailable || !recordingId || tMs == null || isNaN(tMs)) return;
+    stopCheckpointFetch();
+    checkpointFetchTimer = setTimeout(function () {
+      checkpointFetchTimer = 0;
+      fetchCheckpoint(recordingId, Math.max(0, Math.round(Number(tMs))));
+    }, 320);
+  }
+
+  async function fetchCheckpoint(recordingId, tMs) {
+    if (!recordingId || tMs == null) return;
+    checkpointStatus = "loading";
+    checkpointError = "";
+    refreshCheckpointPanel(tMs);
+    try {
+      var data = await QLDashboard.fetchStatsJson(
+        "/api/replays/" +
+          encodeURIComponent(recordingId) +
+          "/checkpoint?t_ms=" +
+          encodeURIComponent(String(tMs)),
+      );
+      checkpointPayload = data;
+      checkpointStatus = "ready";
+      checkpointError = "";
+    } catch (err) {
+      checkpointPayload = null;
+      checkpointStatus = "error";
+      checkpointError = String((err && err.message) || err);
+    }
+    refreshCheckpointPanel(tMs);
+  }
+
+  function copyText(text) {
+    if (navigator.clipboard && navigator.clipboard.writeText) {
+      return navigator.clipboard.writeText(text);
+    }
+    return Promise.reject(new Error("clipboard unavailable"));
+  }
+
+  function refreshCheckpointPanel(tMs) {
+    var host = document.getElementById("restore-checkpoint-host");
+    if (!host || typeof QLRestoreEditor === "undefined") return;
+    QLRestoreEditor.mount(host, {
+      status: checkpointStatus,
+      payload: checkpointPayload,
+      error: checkpointError,
+      tMs: tMs != null ? tMs : scrubGameTimeMs,
+      archive: lastArchive,
+      onPayload: function (payload) {
+        checkpointPayload = payload;
+        checkpointStatus = "ready";
+        checkpointError = "";
+      },
+    });
+  }
 
   function serverFilter() {
     return QLDashboard.qsParam("server") || "";
@@ -161,6 +229,7 @@
   }
 
   function destroyResultsMapWidget() {
+    stopCheckpointFetch();
     if (panelSyncTimer) {
       clearTimeout(panelSyncTimer);
       panelSyncTimer = 0;
@@ -278,6 +347,7 @@
     syncingFromReplay = false;
     schedulePanelSync();
     updateReplayControlUi();
+    scheduleCheckpointFetch(activeRecordingId, timelineMs);
   }
 
   function updateReplayControlUi() {
@@ -383,6 +453,7 @@
     } else {
       flushScrubPanelSync();
     }
+    scheduleCheckpointFetch(activeRecordingId, scrubGameTimeMs);
   }
 
   function bindTimelineScrubber() {
@@ -438,6 +509,7 @@
       seekReplayToGameMs(scrubGameTimeMs, resume);
       flushScrubPanelSync();
       updateReplayControlUi();
+      scheduleCheckpointFetch(activeRecordingId, scrubGameTimeMs);
     });
 
     scrub.addEventListener("pointercancel", function () {
@@ -689,6 +761,13 @@
               QLDashboard.escapeHtml(QLDashboard.t("resultsReplayWindow")) +
               "</button> "
             : "") +
+          (recordingId
+            ? '<a class="control-btn control-btn-sm" href="#/restore/' +
+              encodeURIComponent(recordingId) +
+              '">' +
+              QLDashboard.escapeHtml(QLDashboard.t("navRestore")) +
+              "</a> "
+            : "") +
           (QLDashboard.hasStatsApiToken() && recordingId
             ? '<button type="button" class="control-btn control-btn-danger" data-ql-delete-result="' +
               QLDashboard.escapeHtml(recordingId) +
@@ -717,6 +796,8 @@
         A().updateLifecyclePhaseBadge(lastArchive, scrubGameTimeMs, null);
       }
       if (archive.replay_available !== false && recordingId && matchId) {
+        checkpointReplayAvailable = true;
+        scheduleCheckpointFetch(recordingId, scrubGameTimeMs);
         mountResultsMapWidget(matchId, recordingId);
         if (scrubGameTimeMs != null) {
           (function waitReplay(tries) {
@@ -731,8 +812,17 @@
             }
           })(40);
         }
+      } else {
+        checkpointReplayAvailable = false;
+        checkpointPayload = null;
+        checkpointStatus = "unavailable";
+        refreshCheckpointPanel(scrubGameTimeMs);
       }
     } catch (err) {
+      checkpointReplayAvailable = false;
+      checkpointPayload = null;
+      checkpointStatus = "unavailable";
+      refreshCheckpointPanel(null);
       if (statusEl) {
         statusEl.textContent = QLDashboard.t("resultsNotFound");
         statusEl.classList.add("error");
@@ -756,6 +846,11 @@
     scrubGameTimeMs = null;
     matchStartWall = null;
     syncEngaged = false;
+    checkpointPayload = null;
+    checkpointStatus = "idle";
+    checkpointError = "";
+    checkpointReplayAvailable = false;
+    stopCheckpointFetch();
 
     root.innerHTML =
       '<section class="control-section results-detail-section">' +
@@ -777,6 +872,7 @@
       '<div id="results-map-widget" class="match-map-widget"></div>' +
       "</div>" +
       '<div id="results-detail-analytics"></div>' +
+      '<div id="restore-checkpoint-host"></div>' +
       "</section>";
 
     loadResultDetail(root, recordingId);

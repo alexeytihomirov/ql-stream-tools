@@ -155,6 +155,29 @@
     return fetchPublicJson(settings.statsHubBase + path);
   }
 
+  async function postStatsJson(path, body) {
+    if (!settings.statsHubBase) throw new Error(t("errorMissingBase"));
+    var res = await fetch(settings.statsHubBase + path, {
+      method: "POST",
+      headers: {
+        Accept: "application/json",
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify(body == null ? {} : body),
+    });
+    if (!res.ok) {
+      var detail = "HTTP " + res.status;
+      try {
+        var errBody = await res.json();
+        if (errBody && errBody.detail) detail = String(errBody.detail);
+      } catch (_e) {
+        /* ignore */
+      }
+      throw new Error(detail);
+    }
+    return res.json();
+  }
+
   function hasStatsApiToken() {
     return !!trim(settings.statsHubApiToken);
   }
@@ -848,6 +871,7 @@
     overlayQueryParams: overlayQueryParams,
     buildUrl: buildUrl,
     fetchStatsJson: fetchStatsJson,
+    postStatsJson: postStatsJson,
     fetchArchiveSummary: fetchArchiveSummary,
     hasStatsApiToken: hasStatsApiToken,
     deleteStatsResult: deleteStatsResult,
