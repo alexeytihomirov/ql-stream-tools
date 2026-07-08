@@ -753,6 +753,64 @@
     return Object.assign({}, archive, { pickups: pickups });
   }
 
+  function replayPickupToArchiveRow(ev, anchorWall, levelBaseMs) {
+    var gt;
+    if (anchorWall != null) {
+      gt = combatGameMsFromRow(
+        { ts: ev.time || ev.ts, game_time_ms: ev.game_time_ms },
+        anchorWall,
+      );
+    } else if (levelBaseMs != null && ev.game_time_ms != null) {
+      gt = Math.max(0, Number(ev.game_time_ms) - levelBaseMs);
+    } else {
+      gt = Number(ev.game_time_ms);
+      if (isNaN(gt)) gt = 0;
+    }
+    return {
+      ts: ev.time || ev.ts || null,
+      kind: "pickup",
+      game_time_ms: gt,
+      item: ev.item,
+      nickname: ev.nickname || ev.player,
+      steam_id64: ev.steam_id64,
+      x: ev.x,
+      y: ev.y,
+    };
+  }
+
+  /** Saved result snapshots may omit pickups when level.time was never rebased. */
+  function enrichArchivePickupsFromReplay(archive, replayPayload) {
+    if (!archive || (archive.pickups && archive.pickups.length)) return archive;
+    var events = (replayPayload && replayPayload.events) || [];
+    var pickupEv = events.filter(function (e) {
+      return e && String(e.event || "").toLowerCase() === "pickup";
+    });
+    if (!pickupEv.length) return archive;
+    var anchor = computeCombatClockAnchor(archive);
+    var combatMax = matchEndGameTimeMs(archive) || computeTimelineMaxMs(archive, null);
+    var maxRaw = 0;
+    pickupEv.forEach(function (e) {
+      var g = Number(e.game_time_ms);
+      if (!isNaN(g) && g > maxRaw) maxRaw = g;
+    });
+    var needsRebase = combatMax != null && combatMax > 0 && maxRaw > combatMax;
+    var levelBaseMs = null;
+    if (needsRebase && anchor == null) {
+      var mins = pickupEv
+        .map(function (e) {
+          return Number(e.game_time_ms);
+        })
+        .filter(function (g) {
+          return !isNaN(g);
+        });
+      if (mins.length) levelBaseMs = Math.min.apply(null, mins);
+    }
+    var pickups = pickupEv.map(function (e) {
+      return replayPickupToArchiveRow(e, anchor, levelBaseMs);
+    });
+    return normalizeArchivePickupTimes(Object.assign({}, archive, { pickups: pickups }));
+  }
+
   function accuracyAtScrub(timeline, summary, scrubMs) {
     if (scrubMs == null) {
       return summary || [];
@@ -1906,15 +1964,33 @@
     return out;
   }
 
+  var RESTORECP_CLIENT_PREFIX = "say !restorecp ";
+
+  function toClientRestoreCfg(text) {
+    if (!text) return "";
+    return String(text)
+      .split("\n")
+      .map(function (line) {
+        var trimmed = line.trimStart();
+        if (!trimmed || trimmed.indexOf("//") === 0) return line;
+        if (trimmed.indexOf(RESTORECP_CLIENT_PREFIX) === 0) return line;
+        if (trimmed.indexOf("qlx restorecp ") === 0) {
+          return RESTORECP_CLIENT_PREFIX + trimmed.slice("qlx restorecp ".length);
+        }
+        return line;
+      })
+      .join("\n");
+  }
+
   function pickCfgText(payload) {
     if (!payload) return "";
     if (payload.cfg_client_text) return String(payload.cfg_client_text);
     if (Array.isArray(payload.cfg_client_lines) && payload.cfg_client_lines.length) {
       return payload.cfg_client_lines.join("\n") + "\n";
     }
-    if (payload.cfg_text) return String(payload.cfg_text);
+    if (payload.cfg_text) return toClientRestoreCfg(String(payload.cfg_text));
     if (Array.isArray(payload.cfg_lines) && payload.cfg_lines.length) {
-      return payload.cfg_lines.join("\n") + "\n";
+      return toClientRestoreCfg(payload.cfg_lines.join("\n") + "\n");
     }
     return "";
   }
@@ -2195,6 +2271,7 @@
     computeCombatClockAnchor: computeCombatClockAnchor,
     normalizeArchiveCombatClock: normalizeArchiveCombatClock,
     normalizeArchivePickupTimes: normalizeArchivePickupTimes,
+    enrichArchivePickupsFromReplay: enrichArchivePickupsFromReplay,
     renderAnalytics: renderAnalytics,
     renderAnalyticsPanels: renderAnalyticsPanels,
     renderTimelineScrubber: renderTimelineScrubber,
@@ -2213,5 +2290,7 @@
     renderHeroPlayers: renderHeroPlayers,
     renderCheckpointRestorePanel: renderCheckpointRestorePanel,
     pickCfgText: pickCfgText,
+    toClientRestoreCfg: toClientRestoreCfg,
+    RESTORECP_CLIENT_PREFIX: RESTORECP_CLIENT_PREFIX,
   };
 })(typeof window !== "undefined" ? window : globalThis);

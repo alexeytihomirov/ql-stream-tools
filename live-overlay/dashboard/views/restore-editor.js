@@ -194,7 +194,12 @@
     }
     return {
       v: 2,
-      t_ms: cp.t_ms != null ? clampInt(cp.t_ms, 0, 86400000) : clampInt(tMs, 0, 86400000),
+      t_ms:
+        tMs != null
+          ? clampInt(tMs, 0, 86400000)
+          : cp.t_ms != null
+            ? clampInt(cp.t_ms, 0, 86400000)
+            : 0,
       map: normalizeMapKey(cp.map || cp.map_name || (archive && archive.map_name) || ""),
       players: players,
       items: Array.isArray(cp.items) ? cp.items.slice() : [],
@@ -508,7 +513,10 @@
       '<div class="ql-restore-output-head">' +
       "<h4>" +
       esc(t("restoreEditorCfgTitle")) +
-      '</h4><span class="control-status ql-restore-encode-status" data-ql-restore-encode-status">' +
+      '</h4><span class="ql-restore-cfg-prefix">' +
+      esc(t("restoreEditorCfgPrefix")) +
+      "</span>" +
+      '<span class="control-status ql-restore-encode-status" data-ql-restore-encode-status">' +
       esc(payload ? t("restoreEditorReady") : t("restoreEditorEncoding")) +
       "</span></div>" +
       '<textarea class="restore-checkpoint-json" data-ql-restore-cfg spellcheck="false" readonly>' +
@@ -550,7 +558,7 @@
     if (status === "unavailable") {
       html +=
         '<p class="match-analytics-empty">' + esc(t("restoreCheckpointNoReplay")) + "</p>";
-    } else if (status === "loading") {
+    } else if (status === "loading" && !(payload && payload.checkpoint)) {
       html += '<p class="control-status">' + esc(t("restoreCheckpointLoading")) + "</p>";
     } else if (status === "error") {
       html +=

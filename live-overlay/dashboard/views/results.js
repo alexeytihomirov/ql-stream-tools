@@ -43,9 +43,14 @@
 
   async function fetchCheckpoint(recordingId, tMs) {
     if (!recordingId || tMs == null) return;
-    checkpointStatus = "loading";
-    checkpointError = "";
-    refreshCheckpointPanel(tMs);
+    var hadPayload = checkpointStatus === "ready" && checkpointPayload;
+    if (!hadPayload) {
+      checkpointStatus = "loading";
+      checkpointError = "";
+      refreshCheckpointPanel(tMs);
+    } else {
+      refreshCheckpointPanel(tMs);
+    }
     try {
       var data = await QLDashboard.fetchStatsJson(
         "/api/replays/" +
@@ -724,6 +729,19 @@
       var archive = await QLDashboard.fetchStatsJson(
         "/api/stream/results/" + encodeURIComponent(recordingId),
       );
+      if (
+        archive.replay_available !== false &&
+        (!archive.pickups || !archive.pickups.length)
+      ) {
+        try {
+          var replayPayload = await QLDashboard.fetchStatsJson(
+            "/api/replays/" + encodeURIComponent(recordingId) + "?limit=10000",
+          );
+          archive = A().enrichArchivePickupsFromReplay(archive, replayPayload);
+        } catch (_replayErr) {
+          /* keep archive without pickups */
+        }
+      }
       lastArchive = A().normalizeArchiveCombatClock(archive);
       matchStartWall = computeMatchStartWall(archive);
       syncEngaged = false;
