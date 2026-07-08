@@ -202,7 +202,10 @@
             : 0,
       map: normalizeMapKey(cp.map || cp.map_name || (archive && archive.map_name) || ""),
       players: players,
-      items: Array.isArray(cp.items) ? cp.items.slice() : [],
+      items: filterCheckpointItemsForScrub(
+        Array.isArray(cp.items) ? cp.items.slice() : [],
+        tMs != null ? tMs : cp.t_ms,
+      ),
     };
   }
 
@@ -238,6 +241,31 @@
       players: players,
       items: state.items || [],
     };
+  }
+
+  function scrubMsValue(value) {
+    var n = parseInt(String(value), 10);
+    return isNaN(n) ? null : n;
+  }
+
+  function filterCheckpointItemsForScrub(items, tMs) {
+    var t = scrubMsValue(tMs);
+    if (t == null) return Array.isArray(items) ? items.slice() : [];
+    return (items || []).filter(function (row) {
+      if (!row || Number(row.s) !== 2) return false;
+      var at = Number(row.at_ms);
+      if (!isNaN(at)) return at > t;
+      var remain = Number(row.in);
+      return !isNaN(remain) && remain > 0;
+    });
+  }
+
+  function payloadAlignedWithScrub(payload, tMs) {
+    if (!payload || tMs == null) return false;
+    var pt = scrubMsValue(payload.t_ms);
+    var t = scrubMsValue(tMs);
+    if (pt == null || t == null) return false;
+    return Math.abs(pt - t) <= 500;
   }
 
   function setRestoreItemsCache(host, items) {
@@ -317,7 +345,9 @@
     opts = opts || {};
     var statusEl = root.querySelector("[data-ql-restore-encode-status]");
     var cfgEl = root.querySelector("[data-ql-restore-cfg]");
-    var checkpoint = checkpointFromState(readStateFromRoot(root));
+    var state = readStateFromRoot(root);
+    state.items = filterCheckpointItemsForScrub(state.items, state.t_ms);
+    var checkpoint = checkpointFromState(state);
     setRestoreItemsCache(root, checkpoint.items);
     if (statusEl) {
       statusEl.textContent = t("restoreEditorEncoding");
@@ -485,7 +515,8 @@
 
   function renderEditorBody(state, payload, opts) {
     opts = opts || {};
-    var cfgText = pickCfgText(payload);
+    var aligned = payloadAlignedWithScrub(payload, opts.tMs != null ? opts.tMs : state.t_ms);
+    var cfgText = aligned ? pickCfgText(payload) : "";
     var playersHtml = "";
     if (state.players.length) {
       for (var i = 0; i < state.players.length; i++) {
@@ -555,6 +586,9 @@
     var payload = opts.payload;
     var err = opts.error || "";
     var cp = payload && payload.checkpoint ? payload.checkpoint : opts.checkpoint || null;
+    if (cp && !payloadAlignedWithScrub(payload, opts.tMs)) {
+      cp = Object.assign({}, cp, { items: [] });
+    }
     var state = stateFromCheckpoint(cp, opts.archive, opts.tMs);
 
     var html =
@@ -652,7 +686,16 @@
     });
 
     if (host.querySelector(".ql-restore-editor-body")) {
-      encodeFromRoot(host, opts);
+      var tEl = host.querySelector("[data-ql-restore-t-ms]");
+      var tMs =
+        tEl != null
+          ? clampInt(tEl.value, 0, 86400000)
+          : opts.tMs != null
+            ? opts.tMs
+            : null;
+      if (payloadAlignedWithScrub(opts.payload, tMs)) {
+        encodeFromRoot(host, opts);
+      }
     }
   }
 
@@ -662,7 +705,10 @@
     opts = opts || {};
     var cp =
       (opts.payload && opts.payload.checkpoint) || opts.checkpoint || null;
-    setRestoreItemsCache(hostEl, cp && cp.items);
+    var tMs = opts.tMs != null ? opts.tMs : cp && cp.t_ms;
+    var items =
+      cp && payloadAlignedWithScrub(opts.payload, tMs) ? cp.items : [];
+    setRestoreItemsCache(hostEl, filterCheckpointItemsForScrub(items, tMs));
     hostEl.innerHTML = render(opts);
     bindHost(hostEl, opts);
   }
