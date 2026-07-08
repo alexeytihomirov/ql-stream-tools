@@ -240,12 +240,22 @@
     };
   }
 
+  function setRestoreItemsCache(host, items) {
+    if (!host) return;
+    host._qlRestoreCheckpointItems = Array.isArray(items) ? items.slice() : [];
+  }
+
+  function restoreItemsFromHost(host) {
+    if (!host || !host._qlRestoreCheckpointItems) return [];
+    return host._qlRestoreCheckpointItems.slice();
+  }
+
   function readStateFromRoot(root) {
     var state = {
       t_ms: 0,
       map: "",
       players: [],
-      items: [],
+      items: restoreItemsFromHost(root),
     };
     var tEl = root.querySelector("[data-ql-restore-t-ms]");
     var mapEl = root.querySelector("[data-ql-restore-map]");
@@ -308,6 +318,7 @@
     var statusEl = root.querySelector("[data-ql-restore-encode-status]");
     var cfgEl = root.querySelector("[data-ql-restore-cfg]");
     var checkpoint = checkpointFromState(readStateFromRoot(root));
+    setRestoreItemsCache(root, checkpoint.items);
     if (statusEl) {
       statusEl.textContent = t("restoreEditorEncoding");
       statusEl.classList.remove("error");
@@ -648,8 +659,12 @@
   function mount(hostEl, opts) {
     if (!hostEl) return;
     delete hostEl.dataset.qlRestoreBound;
-    hostEl.innerHTML = render(opts || {});
-    bindHost(hostEl, opts || {});
+    opts = opts || {};
+    var cp =
+      (opts.payload && opts.payload.checkpoint) || opts.checkpoint || null;
+    setRestoreItemsCache(hostEl, cp && cp.items);
+    hostEl.innerHTML = render(opts);
+    bindHost(hostEl, opts);
   }
 
   function remount(hostEl, opts) {
