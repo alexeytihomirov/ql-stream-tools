@@ -180,24 +180,153 @@
     };
   }
 
+  function cfgCommandPrefix() {
+    return "!restorecp ";
+  }
+
+  function cfgLine(sub) {
+    return cfgCommandPrefix() + sub;
+  }
+
+  function parseCfgSubcommand(sub) {
+    return String(sub || "")
+      .trim()
+      .split(/\s+/)
+      .filter(function (t) {
+        return t !== "";
+      });
+  }
+
+  function parseCfgTextToDraft(cfgText, defaultTMs) {
+    var draft = { t_ms: defaultTMs || 0, map: "", players: {}, items: [] };
+    var lines = String(cfgText || "").split(/\r?\n/);
+    for (var i = 0; i < lines.length; i++) {
+      var line = lines[i].trim();
+      if (!line || line.indexOf("//") === 0) continue;
+      var sub = null;
+      var m1 = line.match(/^(?:say\s+)?!restorecp\s+(.+)$/i);
+      var m2 = line.match(/^qlx\s+restorecp\s+(.+)$/i);
+      if (m1) sub = m1[1];
+      else if (m2) sub = m2[1];
+      if (!sub) continue;
+      var tok = parseCfgSubcommand(sub);
+      if (!tok.length) continue;
+      var head = tok[0].toLowerCase();
+      if (head === "time" && tok[1] != null) {
+        draft.t_ms = clampInt(tok[1], 0, 86400000);
+      } else if (head === "map" && tok[1]) {
+        draft.map = normalizeMapKey(tok[1]);
+      } else if (head === "player" && tok.length >= 3) {
+        var slot = clampInt(tok[1], 0, 255);
+        var field = tok[2].toLowerCase();
+        var row = draft.players[slot] || { cid: slot };
+        draft.players[slot] = row;
+        if (field === "sid" && tok[3]) row.sid = String(tok[3]).trim();
+        else if (field === "pos" && tok.length >= 6) {
+          row.x = clampFloat(tok[3]);
+          row.y = clampFloat(tok[4]);
+          row.z = clampFloat(tok[5]);
+        } else if (field === "vel" && tok.length >= 6) {
+          row.vx = clampInt(tok[3], -9999, 9999);
+          row.vy = clampInt(tok[4], -9999, 9999);
+          row.vz = clampInt(tok[5], -9999, 9999);
+        } else if (field === "vit") {
+          row.h = clampInt(tok[3], 0, 999);
+          row.a = clampInt(tok[4], 0, 999);
+          if (tok[5] != null) row.w = clampInt(tok[5], 0, 255);
+          if (tok[6] != null) row.lo = clampInt(tok[6], 0, 65535);
+          if (tok[7] != null) row.sc = clampInt(tok[7], 0, 255);
+        } else if (field === "w" && tok[3] != null) row.w = clampInt(tok[3], 0, 255);
+        else if (field === "lo" && tok[3] != null) row.lo = clampInt(tok[3], 0, 65535);
+        else if (field === "sc" && tok[3] != null) row.sc = clampInt(tok[3], 0, 255);
+        else if (field === "ammo" && tok.length >= 5) {
+          row.am = row.am || {};
+          row.am[String(tok[3]).toLowerCase()] = clampInt(tok[4], 0, 255);
+        }
+      } else if (head === "item" && tok.length >= 2) {
+        var item = {};
+        var idx = 1;
+        var cn = String(tok[idx] || "");
+        if (cn.indexOf("item_") === 0 || cn.indexOf("weapon_") === 0) {
+          item.cn = cn;
+          idx += 1;
+          if (tok[idx] && tok[idx].toLowerCase() === "pos" && tok.length >= idx + 4) {
+            idx += 1;
+            item.x = clampFloat(tok[idx++]);
+            item.y = clampFloat(tok[idx++]);
+            item.z = clampFloat(tok[idx++]);
+          }
+        } else if (cn.indexOf("e") === 0 && /^e\d+$/i.test(cn)) {
+          item.k = cn.toLowerCase();
+          item.eid = parseInt(cn.slice(1), 10);
+          idx += 1;
+        } else {
+          item.k = cn.toLowerCase();
+          idx += 1;
+        }
+        var stateTok = String(tok[idx] || "").toLowerCase();
+        if (stateTok === "hidden" || stateTok === "hide" || stateTok === "0") {
+          item.s = 0;
+          draft.items.push(item);
+        } else if (stateTok === "pending") {
+          item.s = 2;
+          if (tok[idx + 1] && tok[idx + 1].toLowerCase() === "at" && tok[idx + 2] != null) {
+            item.at_ms = clampInt(tok[idx + 2], 0, 86400000);
+          } else if (tok[idx + 1] && tok[idx + 1].toLowerCase() === "in" && tok[idx + 2] != null) {
+            item.in = parseFloat(tok[idx + 2]);
+            item.at_ms = clampInt(draft.t_ms + item.in * 1000, 0, 86400000);
+          }
+          draft.items.push(item);
+        }
+      }
+    }
+    return draft;
+  }
+
+  function editorStateFromCfgText(cfgText, fallback) {
+    fallback = fallback || { t_ms: 0, map: "", players: [], items: [] };
+    var draft = parseCfgTextToDraft(cfgText, fallback.t_ms);
+    var slots = Object.keys(draft.players)
+      .map(function (k) {
+        return parseInt(k, 10);
+      })
+      .sort(function (a, b) {
+        return a - b;
+      });
+    var players = slots.map(function (slot) {
+      return playerRowFromCheckpoint(draft.players[slot], slot);
+    });
+    return {
+      v: 2,
+      t_ms: draft.t_ms || fallback.t_ms,
+      map: draft.map || fallback.map,
+      players: players.length ? players : (fallback.players || []).map(clonePlayerRow),
+      items: draft.items.length
+        ? draft.items.map(cloneCheckpointItem)
+        : (fallback.items || []).map(cloneCheckpointItem),
+    };
+  }
+
   function resolveCfgText(host, state, opts) {
+    opts = opts || {};
+    if (!host || !host._qlRestoreCfgDirty) {
+      var fromPayload = opts.payload ? pickCfgText(opts.payload) : "";
+      if (fromPayload) return fromPayload;
+    }
     return buildCfgTextFromState(state);
   }
 
   function buildCfgTextFromState(state) {
     var t = clampInt(state.t_ms, 0, 86400000);
     var map = normalizeMapKey(state.map);
-    function line(sub) {
-      return "say !restorecp " + sub;
-    }
     var lines = [
       "// Match restore cfg — t_ms=" + t + " map=" + map,
-      "// Client exec: say !restorecp … (perm 5). First line enables quiet mode.",
-      line("quiet"),
+      "// Client exec: !restorecp … (perm 5). Do not prefix with say.",
+      cfgLine("quiet"),
       "",
-      line("clear"),
-      line("time " + t),
-      line("map " + map),
+      cfgLine("clear"),
+      cfgLine("time " + t),
+      cfgLine("map " + map),
       "",
     ];
     var players = (state.players || []).slice().sort(function (a, b) {
@@ -207,9 +336,9 @@
       var p = players[i];
       var slot = p.cid != null ? clampInt(p.cid, 0, 255) : i;
       var sid = String(p.sid || "").trim();
-      if (sid) lines.push(line("player " + slot + " sid " + sid));
+      if (sid) lines.push(cfgLine("player " + slot + " sid " + sid));
       lines.push(
-        line(
+        cfgLine(
           "player " +
             slot +
             " pos " +
@@ -220,11 +349,25 @@
             fmtCfgNum(p.z),
         ),
       );
-      lines.push(line("player " + slot + " vit " + fmtPlayerVit(p)));
+      if (p.vx != null && p.vy != null && p.vz != null) {
+        lines.push(
+          cfgLine(
+            "player " +
+              slot +
+              " vel " +
+              clampInt(p.vx, -9999, 9999) +
+              " " +
+              clampInt(p.vy, -9999, 9999) +
+              " " +
+              clampInt(p.vz, -9999, 9999),
+          ),
+        );
+      }
+      lines.push(cfgLine("player " + slot + " vit " + fmtPlayerVit(p)));
       AMMO_KEYS.forEach(function (key) {
         if (p.am && p.am[key] != null && String(p.am[key]) !== "") {
           var val = clampInt(p.am[key], 0, 255);
-          if (val > 0) lines.push(line("player " + slot + " ammo " + key + " " + val));
+          if (val > 0) lines.push(cfgLine("player " + slot + " ammo " + key + " " + val));
         }
       });
       lines.push("");
@@ -239,16 +382,16 @@
       if (!identity) continue;
       var st = parseInt(item.s, 10);
       if (st === 0) {
-        lines.push(line("item " + identity + " hidden"));
+        lines.push(cfgLine("item " + identity + " hidden"));
       } else if (st === 2) {
         if (item.at_ms != null) {
-          lines.push(line("item " + identity + " pending at " + parseInt(item.at_ms, 10)));
+          lines.push(cfgLine("item " + identity + " pending at " + parseInt(item.at_ms, 10)));
         } else if (item.in != null) {
-          lines.push(line("item " + identity + " pending in " + item.in));
+          lines.push(cfgLine("item " + identity + " pending in " + item.in));
         }
       }
     }
-    lines.push("", line("apply"));
+    lines.push("", cfgLine("apply"));
     return lines.join("\n") + "\n";
   }
 
@@ -282,6 +425,9 @@
       x: row.x != null ? clampFloat(row.x) : 0,
       y: row.y != null ? clampFloat(row.y) : 0,
       z: row.z != null ? clampFloat(row.z) : 0,
+      vx: row.vx != null ? clampInt(row.vx, -9999, 9999) : null,
+      vy: row.vy != null ? clampInt(row.vy, -9999, 9999) : null,
+      vz: row.vz != null ? clampInt(row.vz, -9999, 9999) : null,
       h: clampInt(row.h != null ? row.h : row.health, 0, 999),
       a: clampInt(row.a != null ? row.a : row.armor, 0, 999),
       w: clampInt(row.w != null ? row.w : row.weapon, 0, 255),
@@ -561,6 +707,12 @@
         var el = card.querySelector('[data-ql-restore-pos="' + axis + '"]');
         if (el && p[axis] != null) setInputValue(el, p[axis]);
       });
+      ["vx", "vy", "vz"].forEach(function (axis) {
+        var el = card.querySelector('[data-ql-restore-vel="' + axis + '"]');
+        if (el) {
+          el.value = p[axis] != null && p[axis] !== "" ? String(p[axis]) : "";
+        }
+      });
       var loadoutSet = {};
       (p.loadoutKeys || []).forEach(function (k) {
         loadoutSet[k] = true;
@@ -582,9 +734,10 @@
   function applyCfgFromState(host, state, opts) {
     var cfgEl = host.querySelector("[data-ql-restore-cfg]");
     if (!cfgEl || !state) return;
-    var cfg = resolveCfgText(host, state, opts);
+    var cfg = resolveCfgText(host, state, opts || currentBindOpts(host));
     cfgEl.value = cfg;
     host._qlRestoreLastCfg = cfg;
+    host._qlRestoreCfgDirty = false;
   }
 
   function buildEditorState(opts, host) {
@@ -645,6 +798,9 @@
       x: p.x,
       y: p.y,
       z: p.z,
+      vx: p.vx,
+      vy: p.vy,
+      vz: p.vz,
       h: p.h,
       a: p.a,
       w: p.w,
@@ -726,6 +882,9 @@
         w: 0,
         loadoutKeys: [],
         am: {},
+        vx: null,
+        vy: null,
+        vz: null,
       };
       var sidEl = card.querySelector("[data-ql-restore-sid]");
       if (sidEl) p.sid = String(sidEl.value || "").trim();
@@ -740,6 +899,12 @@
       ["x", "y", "z"].forEach(function (axis) {
         var el = card.querySelector('[data-ql-restore-pos="' + axis + '"]');
         if (el) p[axis] = clampFloat(el.value);
+      });
+      ["vx", "vy", "vz"].forEach(function (axis) {
+        var el = card.querySelector('[data-ql-restore-vel="' + axis + '"]');
+        if (el && String(el.value).trim() !== "") {
+          p[axis] = clampInt(el.value, -9999, 9999);
+        }
       });
       var loadoutChecks = card.querySelectorAll("[data-ql-restore-lo]:checked");
       for (var j = 0; j < loadoutChecks.length; j++) {
@@ -892,6 +1057,20 @@
     renderFromModel(host);
   }
 
+  function syncFormFromCfg(host) {
+    if (!host || !host._qlRestoreSnapshot) return;
+    var cfgEl = host.querySelector("[data-ql-restore-cfg]");
+    if (!cfgEl) return;
+    var parsed = editorStateFromCfgText(cfgEl.value, host._qlRestoreSnapshot);
+    host._qlRestoreSnapshot = snapshotFromState(host, parsed);
+    host._qlRestoreOverrides = null;
+    host._qlRestoreCfgDirty = false;
+    if (parsed.items && parsed.items.length) {
+      setRestoreItemsCache(host, parsed.items, parsed.t_ms, parsed.items);
+    }
+    renderFromModel(host);
+  }
+
   function bindRestoreActions(host) {
     if (!host) return;
     var editBtn = host.querySelector("[data-ql-restore-edit-toggle]");
@@ -923,6 +1102,14 @@
         if (!ensureSnapshot(host)) return;
         syncUiFromModel(host, resolveEditorScrubTMs(host, currentBindOpts(host)));
         encodeFromRoot(host, currentBindOpts(host));
+      });
+    }
+    var syncCfgBtn = host.querySelector("[data-ql-restore-sync-cfg]");
+    if (syncCfgBtn && !syncCfgBtn.dataset.qlRestoreActionBound) {
+      syncCfgBtn.dataset.qlRestoreActionBound = "1";
+      syncCfgBtn.addEventListener("click", function (ev) {
+        ev.preventDefault();
+        syncFormFromCfg(host);
       });
     }
     var addBtn = host.querySelector("[data-ql-restore-add-player]");
@@ -1034,6 +1221,11 @@
         }
       });
       if (Object.keys(am).length) row.am = am;
+      if (p.vx != null && p.vy != null && p.vz != null) {
+        row.vx = clampInt(p.vx, -9999, 9999);
+        row.vy = clampInt(p.vy, -9999, 9999);
+        row.vz = clampInt(p.vz, -9999, 9999);
+      }
       return row;
     });
     return {
@@ -1186,8 +1378,10 @@
     var out = String(cfgText).split("\n");
     for (var i = 0; i < out.length; i++) {
       if (out[i].indexOf("// Match restore cfg —") === 0) out[i] = header;
-      else if (/^say !restorecp time \d+/i.test(out[i])) out[i] = "say !restorecp time " + t;
-      else if (/^say !restorecp map /i.test(out[i])) out[i] = "say !restorecp map " + map;
+      else if (/^!?restorecp time \d+/i.test(out[i]) || /^say !restorecp time \d+/i.test(out[i]))
+        out[i] = cfgLine("time " + t);
+      else if (/^!?restorecp map /i.test(out[i]) || /^say !restorecp map /i.test(out[i]))
+        out[i] = cfgLine("map " + map);
     }
     return out.join("\n");
   }
@@ -1286,6 +1480,9 @@
         w: 0,
         loadoutKeys: [],
         am: {},
+        vx: null,
+        vy: null,
+        vz: null,
       };
       var sidEl = card.querySelector("[data-ql-restore-sid]");
       if (sidEl) p.sid = String(sidEl.value || "").trim();
@@ -1300,6 +1497,12 @@
       ["x", "y", "z"].forEach(function (axis) {
         var el = card.querySelector('[data-ql-restore-pos="' + axis + '"]');
         if (el) p[axis] = clampFloat(el.value);
+      });
+      ["vx", "vy", "vz"].forEach(function (axis) {
+        var el = card.querySelector('[data-ql-restore-vel="' + axis + '"]');
+        if (el && String(el.value).trim() !== "") {
+          p[axis] = clampInt(el.value, -9999, 9999);
+        }
       });
       var loadoutChecks = card.querySelectorAll("[data-ql-restore-lo]:checked");
       for (var j = 0; j < loadoutChecks.length; j++) {
@@ -1342,10 +1545,11 @@
           statusEl.classList.remove("error");
         }
         var cfgEl = root.querySelector("[data-ql-restore-cfg]");
-        var cfgText = buildCfgTextFromState(state);
+        var cfgText = pickCfgText(payload) || buildCfgTextFromState(state);
         if (cfgEl && cfgText) {
           cfgEl.value = cfgText;
           root._qlRestoreLastCfg = cfgText;
+          root._qlRestoreCfgDirty = false;
         }
         if (typeof opts.onPayload === "function") opts.onPayload(payload, checkpoint);
         return payload;
@@ -1483,6 +1687,25 @@
         })
         .join("") +
       "</div>" +
+      '<div class="ql-restore-vel-row">' +
+      '<span class="ql-restore-pos-label">' +
+      esc(t("restoreEditorVelocity") || "Velocity") +
+      "</span>" +
+      ["vx", "vy", "vz"]
+        .map(function (axis) {
+          var val = player[axis];
+          return (
+            '<label class="ql-restore-pos-field"><span>' +
+            esc(axis.toUpperCase()) +
+            '</span><input type="number" step="1" data-ql-restore-vel="' +
+            axis +
+            '" value="' +
+            esc(val != null && val !== "" ? String(val) : "") +
+            '" placeholder="0" /></label>'
+          );
+        })
+        .join("") +
+      "</div>" +
       '<div class="ql-restore-lo-wrap"><span class="ql-restore-section-label">' +
       esc(t("restoreEditorLoadout")) +
       '</span><div class="ql-restore-lo-grid">' +
@@ -1554,6 +1777,9 @@
       '<div class="control-actions restore-checkpoint-actions ql-restore-actions">' +
       '<button type="button" class="control-btn control-btn-sm" data-ql-restore-edit-toggle aria-pressed="false">' +
       esc(t("restoreEditorEdit")) +
+      "</button>" +
+      '<button type="button" class="control-btn control-btn-sm" data-ql-restore-sync-cfg">' +
+      esc(t("restoreEditorSyncFromCfg") || "Sync form from cfg") +
       "</button>" +
       '<button type="button" class="control-btn control-btn-sm control-btn-primary" data-ql-restore-copy-cfg">' +
       esc(t("restoreCheckpointCopyCfg")) +
@@ -1627,6 +1853,13 @@
       if (!t || !t.closest) return;
       if (t.closest(".ql-restore-editor-body")) onEdit();
     });
+    var cfgEl = host.querySelector("[data-ql-restore-cfg]");
+    if (cfgEl && !cfgEl.dataset.qlRestoreCfgBound) {
+      cfgEl.dataset.qlRestoreCfgBound = "1";
+      cfgEl.addEventListener("input", function () {
+        host._qlRestoreCfgDirty = true;
+      });
+    }
 
     bindRestoreActions(host);
 
@@ -1697,6 +1930,9 @@
     stateFromCheckpoint: stateFromCheckpoint,
     checkpointFromState: checkpointFromState,
     buildCfgTextFromState: buildCfgTextFromState,
+    parseCfgTextToDraft: parseCfgTextToDraft,
+    editorStateFromCfgText: editorStateFromCfgText,
+    syncFormFromCfg: syncFormFromCfg,
     pickCfgText: pickCfgText,
     LOADOUT_WEAPONS: LOADOUT_WEAPONS,
     AMMO_KEYS: AMMO_KEYS,
