@@ -701,7 +701,7 @@
   function playerDisplayScore(p, gametype) {
     var score = Number(p && p.score) || 0;
     var kills = Number(p && p.kills) || 0;
-    if (score > 0) return score;
+    if (score !== 0) return score;
     var gt = String(gametype || (p && p.gametype) || "").toLowerCase();
     if (gt === "duel" || gt === "ffa" || gt === "deathmatch") {
       return kills;

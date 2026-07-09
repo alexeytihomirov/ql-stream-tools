@@ -1780,7 +1780,7 @@
     var kills = Number(p.kills || 0);
     var score = Number(p.score || 0);
     var deaths = Number(p.deaths || 0);
-    if (duelLike && score <= 0) {
+    if (duelLike && score === 0) {
       score = kills;
     }
     if (duelLike && kills <= 0 && score > 0) {

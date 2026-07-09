@@ -20,6 +20,7 @@
   var seekReplayTimer = 0;
   var scrubPanelSyncTimer = 0;
   var checkpointFetchTimer = 0;
+  var checkpointFetchSeq = 0;
   var checkpointPayload = null;
   var checkpointStatus = "idle";
   var checkpointError = "";
@@ -41,15 +42,28 @@
     }, 320);
   }
 
+  function flushCheckpointPanelSync() {
+    refreshCheckpointPanel(scrubGameTimeMs, false);
+    scheduleCheckpointFetch(activeRecordingId, scrubGameTimeMs);
+  }
+
   async function fetchCheckpoint(recordingId, tMs) {
     if (!recordingId || tMs == null) return;
+    var seq = ++checkpointFetchSeq;
     var hadPayload = checkpointStatus === "ready" && checkpointPayload;
-    if (!hadPayload) {
+    var payloadT =
+      checkpointPayload &&
+      checkpointPayload.checkpoint &&
+      checkpointPayload.checkpoint.t_ms != null
+        ? Number(checkpointPayload.checkpoint.t_ms)
+        : null;
+    var scrubBackward = payloadT != null && Number(tMs) < payloadT - 500;
+    if (!hadPayload || scrubBackward) {
       checkpointStatus = "loading";
       checkpointError = "";
-      refreshCheckpointPanel(tMs);
+      refreshCheckpointPanel(scrubGameTimeMs, !hadPayload);
     } else {
-      refreshCheckpointPanel(tMs);
+      refreshCheckpointPanel(scrubGameTimeMs, false);
     }
     try {
       var data = await QLDashboard.fetchStatsJson(
@@ -58,15 +72,18 @@
           "/checkpoint?t_ms=" +
           encodeURIComponent(String(tMs)),
       );
+      if (seq !== checkpointFetchSeq) return;
       checkpointPayload = data;
       checkpointStatus = "ready";
       checkpointError = "";
     } catch (err) {
+      if (seq !== checkpointFetchSeq) return;
       checkpointPayload = null;
       checkpointStatus = "error";
       checkpointError = String((err && err.message) || err);
     }
-    refreshCheckpointPanel(tMs);
+    if (seq !== checkpointFetchSeq) return;
+    refreshCheckpointPanel(scrubGameTimeMs, false);
   }
 
   function copyText(text) {
@@ -76,21 +93,31 @@
     return Promise.reject(new Error("clipboard unavailable"));
   }
 
-  function refreshCheckpointPanel(tMs) {
+  function refreshCheckpointPanel(tMs, forceMount) {
     var host = document.getElementById("restore-checkpoint-host");
     if (!host || typeof QLRestoreEditor === "undefined") return;
-    QLRestoreEditor.mount(host, {
+    var scrubT = tMs != null ? tMs : scrubGameTimeMs;
+    var opts = {
       status: checkpointStatus,
       payload: checkpointPayload,
       error: checkpointError,
-      tMs: tMs != null ? tMs : scrubGameTimeMs,
+      tMs: scrubT,
       archive: lastArchive,
+      refreshPayloadItems: checkpointStatus === "ready" && !!checkpointPayload,
       onPayload: function (payload) {
         checkpointPayload = payload;
         checkpointStatus = "ready";
         checkpointError = "";
       },
-    });
+    };
+    if (host.querySelector(".ql-restore-shell") || host.querySelector(".ql-restore-editor-body")) {
+      QLRestoreEditor.updateScrub(host, opts);
+      if (typeof QLRestoreEditor.bindRestoreActions === "function") {
+        QLRestoreEditor.bindRestoreActions(host);
+      }
+      return;
+    }
+    QLRestoreEditor.mount(host, opts);
   }
 
   function serverFilter() {
@@ -352,6 +379,7 @@
     syncingFromReplay = false;
     schedulePanelSync();
     updateReplayControlUi();
+    refreshCheckpointPanel(timelineMs, false);
     scheduleCheckpointFetch(activeRecordingId, timelineMs);
   }
 
@@ -455,10 +483,15 @@
     }
     if (analyticsDragging) {
       scheduleScrubPanelSync();
+      var restoreHost = document.getElementById("restore-checkpoint-host");
+      if (restoreHost && typeof QLRestoreEditor !== "undefined" && QLRestoreEditor.updateScrubLight) {
+        QLRestoreEditor.updateScrubLight(restoreHost, { tMs: scrubGameTimeMs });
+      }
+      scheduleCheckpointFetch(activeRecordingId, scrubGameTimeMs);
     } else {
       flushScrubPanelSync();
+      flushCheckpointPanelSync();
     }
-    scheduleCheckpointFetch(activeRecordingId, scrubGameTimeMs);
   }
 
   function bindTimelineScrubber() {
@@ -513,16 +546,21 @@
       replayScrubWasPlaying = false;
       seekReplayToGameMs(scrubGameTimeMs, resume);
       flushScrubPanelSync();
+      flushCheckpointPanelSync();
       updateReplayControlUi();
-      scheduleCheckpointFetch(activeRecordingId, scrubGameTimeMs);
     });
 
     scrub.addEventListener("pointercancel", function () {
       analyticsDragging = false;
+      flushScrubPanelSync();
+      flushCheckpointPanelSync();
     });
 
     scrub.addEventListener("pointerup", function () {
+      if (!analyticsDragging) return;
       analyticsDragging = false;
+      flushScrubPanelSync();
+      flushCheckpointPanelSync();
     });
     var playBtn = document.getElementById("match-timeline-play");
     if (playBtn && !playBtn.dataset.qlBound) {

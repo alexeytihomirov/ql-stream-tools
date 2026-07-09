@@ -1349,6 +1349,24 @@ td .server-location-name {
   gap: 16px;
 }
 
+.ql-restore-shell {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+}
+
+.ql-restore-editor-body.ql-restore-readonly input[readonly],
+.ql-restore-editor-body.ql-restore-readonly select:disabled,
+.ql-restore-editor-body.ql-restore-readonly .ql-restore-lo-item input:disabled,
+.ql-restore-editor-body.ql-restore-readonly .ql-restore-ammo-input:disabled {
+  opacity: 0.85;
+  cursor: default;
+}
+
+.ql-restore-actions {
+  margin-top: 0;
+}
+
 .ql-restore-global {
   display: grid;
   grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));

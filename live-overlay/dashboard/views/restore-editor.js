@@ -115,6 +115,143 @@
     return '<span class="ql-restore-wpn-abbr">' + esc(abbr || "?") + "</span>";
   }
 
+  function fmtCfgNum(n) {
+    var x = Number(n);
+    if (isNaN(x)) return "0";
+    if (x === Math.floor(x)) return String(Math.floor(x));
+    return String(x);
+  }
+
+  function fmtPlayerVit(row) {
+    var h = clampInt(row.h, 0, 999);
+    var a = clampInt(row.a, 0, 999);
+    var w = clampInt(row.w, 0, 255);
+    var lo =
+      row.loadoutKeys && row.loadoutKeys.length
+        ? loadoutMaskFromKeys(row.loadoutKeys)
+        : clampInt(row.lo, 0, 65535);
+    var sc = row.sc;
+    if (sc != null && sc !== "") {
+      return h + " " + a + " " + w + " " + lo + " " + clampInt(sc, 0, 255);
+    }
+    if (lo) return h + " " + a + " " + w + " " + lo;
+    if (w) return h + " " + a + " " + w;
+    return h + " " + a;
+  }
+
+  function itemCfgIdentity(item) {
+    if (!item || typeof item !== "object") return "";
+    var cn = String(item.cn || item.classname || "").trim();
+    if (cn && (cn.indexOf("item_") === 0 || cn.indexOf("weapon_") === 0)) {
+      if (item.x != null && item.y != null && item.z != null) {
+        return (
+          cn +
+          " pos " +
+          fmtCfgNum(item.x) +
+          " " +
+          fmtCfgNum(item.y) +
+          " " +
+          fmtCfgNum(item.z)
+        );
+      }
+      return cn;
+    }
+    var k = String(item.k || item.key || item.alias || "").trim().toLowerCase();
+    if (k) return k;
+    if (item.eid != null) {
+      var eid = parseInt(item.eid, 10);
+      if (!isNaN(eid)) return "e" + eid;
+    }
+    return "";
+  }
+
+  function cloneCheckpointItem(item) {
+    if (!item || typeof item !== "object") return item;
+    return {
+      eid: item.eid,
+      k: item.k,
+      cn: item.cn,
+      s: item.s,
+      in: item.in,
+      at_ms: item.at_ms,
+      x: item.x,
+      y: item.y,
+      z: item.z,
+    };
+  }
+
+  function resolveCfgText(host, state, opts) {
+    return buildCfgTextFromState(state);
+  }
+
+  function buildCfgTextFromState(state) {
+    var t = clampInt(state.t_ms, 0, 86400000);
+    var map = normalizeMapKey(state.map);
+    function line(sub) {
+      return "say !restorecp " + sub;
+    }
+    var lines = [
+      "// Match restore cfg — t_ms=" + t + " map=" + map,
+      "// Client exec: say !restorecp … (perm 5). First line enables quiet mode.",
+      line("quiet"),
+      "",
+      line("clear"),
+      line("time " + t),
+      line("map " + map),
+      "",
+    ];
+    var players = (state.players || []).slice().sort(function (a, b) {
+      return clampInt(a.cid, 0, 255) - clampInt(b.cid, 0, 255);
+    });
+    for (var i = 0; i < players.length; i++) {
+      var p = players[i];
+      var slot = p.cid != null ? clampInt(p.cid, 0, 255) : i;
+      var sid = String(p.sid || "").trim();
+      if (sid) lines.push(line("player " + slot + " sid " + sid));
+      lines.push(
+        line(
+          "player " +
+            slot +
+            " pos " +
+            fmtCfgNum(p.x) +
+            " " +
+            fmtCfgNum(p.y) +
+            " " +
+            fmtCfgNum(p.z),
+        ),
+      );
+      lines.push(line("player " + slot + " vit " + fmtPlayerVit(p)));
+      AMMO_KEYS.forEach(function (key) {
+        if (p.am && p.am[key] != null && String(p.am[key]) !== "") {
+          var val = clampInt(p.am[key], 0, 255);
+          if (val > 0) lines.push(line("player " + slot + " ammo " + key + " " + val));
+        }
+      });
+      lines.push("");
+    }
+    if (players.length && lines[lines.length - 1] === "") lines.pop();
+
+    var items = state.items || [];
+    if (items.length) lines.push("");
+    for (var j = 0; j < items.length; j++) {
+      var item = items[j];
+      var identity = itemCfgIdentity(item);
+      if (!identity) continue;
+      var st = parseInt(item.s, 10);
+      if (st === 0) {
+        lines.push(line("item " + identity + " hidden"));
+      } else if (st === 2) {
+        if (item.at_ms != null) {
+          lines.push(line("item " + identity + " pending at " + parseInt(item.at_ms, 10)));
+        } else if (item.in != null) {
+          lines.push(line("item " + identity + " pending in " + item.in));
+        }
+      }
+    }
+    lines.push("", line("apply"));
+    return lines.join("\n") + "\n";
+  }
+
   function pickCfgText(payload) {
     var A = analytics();
     if (A && A.pickCfgText) return A.pickCfgText(payload);
@@ -137,6 +274,7 @@
         if (row.am[k] != null) am[k] = clampInt(row.am[k], 0, 255);
       });
     }
+    var sc = row.sc != null ? row.sc : row.score;
     return {
       cid: row.cid != null ? clampInt(row.cid, 0, 255) : idx,
       sid: String(row.sid || row.steam_id64 || "").trim(),
@@ -149,16 +287,218 @@
       w: clampInt(row.w != null ? row.w : row.weapon, 0, 255),
       lo: clampInt(row.lo != null ? row.lo : row.loadout, 0, 65535),
       loadoutKeys: loadoutKeysFromMask(row.lo != null ? row.lo : row.loadout),
-      sc: row.sc != null ? clampInt(row.sc, 0, 255) : null,
+      sc: sc != null && sc !== "" ? clampInt(sc, 0, 255) : null,
       am: am,
     };
+  }
+
+  function stripColors(text) {
+    return String(text || "").replace(/\^[0-9a-zA-Z]/g, "");
+  }
+
+  function fillMissingSteamIds(archive, roster) {
+    var rows = (roster || []).map(function (p) {
+      return Object.assign({}, p);
+    });
+    if (!archive || !rows.length) return rows;
+    var nickBySteam = {};
+    var A = analytics();
+    if (A && A.buildNicknameBySteam) nickBySteam = A.buildNicknameBySteam(archive, null);
+    rows.forEach(function (p) {
+      if (String(p.steam_id64 || "").trim()) return;
+      var nick = stripColors(p.nickname || p.name || "");
+      if (!nick) return;
+      (archive.deaths || []).forEach(function (d) {
+        if (p.steam_id64) return;
+        if (stripColors(d.killer || "") === nick && d.killer_steam_id64) {
+          p.steam_id64 = String(d.killer_steam_id64).trim();
+        }
+        if (stripColors(d.victim || "") === nick && d.victim_steam_id64) {
+          p.steam_id64 = String(d.victim_steam_id64).trim();
+        }
+      });
+      if (!p.steam_id64 && A) {
+        Object.keys(nickBySteam).some(function (steam) {
+          if (stripColors(nickBySteam[steam]) === nick) {
+            p.steam_id64 = steam;
+            return true;
+          }
+          return false;
+        });
+      }
+    });
+    return rows;
+  }
+
+  function uniqueRosterRows(archive, roster) {
+    var A = analytics();
+    var nickBySteam = A && A.buildNicknameBySteam ? A.buildNicknameBySteam(archive, null) : {};
+    var seen = {};
+    var out = [];
+    (roster || []).forEach(function (p) {
+      var steam = String(p.steam_id64 || "").trim();
+      var nick = A ? A.displayNickname(p, nickBySteam) : stripColors(p.nickname || "");
+      var key = steam ? "s:" + steam : "n:" + nick;
+      if (!steam && (!nick || nick === "—")) return;
+      if (seen[key]) return;
+      seen[key] = true;
+      out.push(p);
+    });
+    return out;
+  }
+
+  function duelLikeArchive(archive) {
+    if (!archive) return false;
+    var gt = String(archive.gametype || "").trim().toLowerCase();
+    if (gt === "duel" || gt === "1") return true;
+    var A = analytics();
+    if (!A) return false;
+    var final = A.resolveFinalPlayers(archive) || [];
+    var steams = {};
+    final.forEach(function (p) {
+      var s = String(p.steam_id64 || "").trim();
+      if (s) steams[s] = true;
+    });
+    return Object.keys(steams).length === 2;
+  }
+
+  function uniqueArchivePlayers(archive) {
+    var seen = {};
+    var out = [];
+    (archive.players || []).forEach(function (p) {
+      if (!p || typeof p !== "object") return;
+      var steam = String(p.steam_id64 || "").trim();
+      if (!steam || seen[steam]) return;
+      seen[steam] = true;
+      out.push(p);
+    });
+    return out.sort(function (a, b) {
+      return String(a.steam_id64 || "").localeCompare(String(b.steam_id64 || ""));
+    });
+  }
+
+  function archiveRosterForRestore(archive, tMs) {
+    var A = analytics();
+    if (!archive || !A) return [];
+    var roster = fillMissingSteamIds(archive, A.resolvePlayersAtScrub(archive, tMs != null ? tMs : null));
+    roster = uniqueRosterRows(archive, roster);
+    if (duelLikeArchive(archive)) {
+      if (roster.length < 2) {
+        var extra = uniqueRosterRows(
+          archive,
+          fillMissingSteamIds(archive, A.resolveFinalPlayers(archive) || []),
+        );
+        var seen = {};
+        roster.forEach(function (p) {
+          var s = String(p.steam_id64 || "").trim();
+          if (s) seen["s:" + s] = true;
+        });
+        extra.forEach(function (p) {
+          var s = String(p.steam_id64 || "").trim();
+          var nick = A.displayNickname(p, A.buildNicknameBySteam(archive, null));
+          var key = s ? "s:" + s : "n:" + nick;
+          if (seen[key]) return;
+          seen[key] = true;
+          roster.push(p);
+        });
+      }
+      if (roster.length < 2) {
+        uniqueArchivePlayers(archive).forEach(function (p) {
+          var s = String(p.steam_id64 || "").trim();
+          if (!s) return;
+          if (
+            roster.some(function (row) {
+              return String(row.steam_id64 || "").trim() === s;
+            })
+          ) {
+            return;
+          }
+          roster.push(p);
+        });
+      }
+      roster = uniqueRosterRows(archive, fillMissingSteamIds(archive, roster));
+      roster.sort(function (a, b) {
+        return String(a.steam_id64 || "").localeCompare(String(b.steam_id64 || ""));
+      });
+      if (roster.length >= 2) return roster.slice(0, 2);
+    }
+    return roster;
+  }
+
+  function mergePlayersWithArchive(checkpointPlayers, archive, tMs) {
+    var A = analytics();
+    var roster = archiveRosterForRestore(archive, tMs);
+    var cpRows = (checkpointPlayers || []).map(function (row, idx) {
+      return playerRowFromCheckpoint(row, idx);
+    });
+    if (!roster.length) return cpRows;
+    var duelLike = duelLikeArchive(archive);
+    var nickBySteam = A && A.buildNicknameBySteam ? A.buildNicknameBySteam(archive, null) : {};
+    var cpBySteam = {};
+    var cpPool = [];
+    cpRows.forEach(function (p) {
+      var steam = String(p.sid || "").trim();
+      if (steam && !cpBySteam[steam]) {
+        cpBySteam[steam] = p;
+      } else {
+        cpPool.push(p);
+      }
+    });
+    var merged = [];
+    var usedSteam = {};
+    for (var i = 0; i < roster.length; i++) {
+      var arch = roster[i];
+      var steam = String(arch.steam_id64 || "").trim();
+      var p = steam && cpBySteam[steam] ? Object.assign({}, cpBySteam[steam]) : null;
+      if (!p && cpPool.length) p = Object.assign({}, cpPool.shift());
+      if (!p) {
+        var stats = A.scoreboardStats(arch, duelLike);
+        p = playerRowFromCheckpoint(
+          {
+            cid: i,
+            sid: steam,
+            nickname: A.displayNickname(arch, nickBySteam),
+            x: 0,
+            y: 0,
+            z: 0,
+            h: 100,
+            a: 0,
+            w: 0,
+            lo: 0,
+            sc: stats && stats.score != null ? stats.score : null,
+          },
+          i,
+        );
+      } else {
+        p = Object.assign({}, p);
+        p.cid = i;
+      }
+      if (steam) p.sid = steam;
+      p.label = A.displayNickname(arch, nickBySteam);
+      var archStats = A.scoreboardStats(arch, duelLike);
+      if (archStats && archStats.score != null && !isNaN(archStats.score)) {
+        p.sc = clampInt(archStats.score, 0, 255);
+      }
+      merged.push(p);
+      if (steam) usedSteam[steam] = true;
+    }
+    cpRows.forEach(function (p) {
+      var steam = String(p.sid || "").trim();
+      if (steam && usedSteam[steam]) return;
+      var copy = Object.assign({}, p, { cid: merged.length });
+      merged.push(copy);
+      if (steam) usedSteam[steam] = true;
+    });
+    return merged;
   }
 
   function playersFromArchive(archive, tMs) {
     var A = analytics();
     if (!A || !archive) return [];
-    var roster = A.resolvePlayersAtScrub(archive, tMs);
+    var roster = archiveRosterForRestore(archive, tMs);
+    var duelLike = duelLikeArchive(archive);
     return roster.map(function (p, idx) {
+      var stats = A.scoreboardStats(p, duelLike);
       return playerRowFromCheckpoint(
         {
           cid: idx,
@@ -171,17 +511,108 @@
           a: p.armor != null ? p.armor : 0,
           w: 0,
           lo: 0,
+          sc: stats && stats.score != null ? stats.score : null,
         },
         idx,
       );
     });
   }
 
-  function stateFromCheckpoint(cp, archive, tMs) {
-    cp = cp || {};
-    var players = (cp.players || []).map(playerRowFromCheckpoint);
-    if (!players.length && archive) {
-      players = playersFromArchive(archive, tMs != null ? tMs : cp.t_ms);
+  function playersLayoutKey(players) {
+    return (
+      String((players || []).length) +
+      "|" +
+      (players || [])
+        .map(function (p, i) {
+          return i + ":" + String(p.sid || "").trim();
+        })
+        .join(",")
+    );
+  }
+
+  function setInputValue(el, value) {
+    if (!el) return;
+    var next = String(value);
+    if (el.value !== next) {
+      el.value = next;
+      return;
+    }
+    el.value = "";
+    el.value = next;
+  }
+
+  function patchPlayersFromState(host, state) {
+    var cards = host.querySelectorAll("[data-ql-restore-player]");
+    var players = state.players || [];
+    for (var i = 0; i < players.length && i < cards.length; i++) {
+      var p = players[i];
+      var card = cards[i];
+      var sidEl = card.querySelector("[data-ql-restore-sid]");
+      if (sidEl && p.sid != null) setInputValue(sidEl, p.sid);
+      var hEl = card.querySelector("[data-ql-restore-h]");
+      if (hEl) setInputValue(hEl, p.h != null ? p.h : 100);
+      var aEl = card.querySelector("[data-ql-restore-a]");
+      if (aEl) setInputValue(aEl, p.a != null ? p.a : 0);
+      var wEl = card.querySelector("[data-ql-restore-w]");
+      if (wEl) wEl.value = String(p.w != null ? p.w : 0);
+      var scEl = card.querySelector("[data-ql-restore-sc]");
+      if (scEl) setInputValue(scEl, p.sc != null && p.sc !== "" ? p.sc : "");
+      ["x", "y", "z"].forEach(function (axis) {
+        var el = card.querySelector('[data-ql-restore-pos="' + axis + '"]');
+        if (el && p[axis] != null) setInputValue(el, p[axis]);
+      });
+      var loadoutSet = {};
+      (p.loadoutKeys || []).forEach(function (k) {
+        loadoutSet[k] = true;
+      });
+      var loChecks = card.querySelectorAll("[data-ql-restore-lo]");
+      for (var j = 0; j < loChecks.length; j++) {
+        var key = loChecks[j].getAttribute("data-ql-restore-lo");
+        loChecks[j].checked = !!loadoutSet[key];
+      }
+      AMMO_KEYS.forEach(function (k) {
+        var amEl = card.querySelector('[data-ql-restore-ammo="' + k + '"]');
+        if (amEl) amEl.value = p.am && p.am[k] != null ? String(p.am[k]) : "";
+      });
+      var head = card.querySelector(".ql-restore-player-head h4");
+      if (head && p.label) head.textContent = p.label;
+    }
+  }
+
+  function applyCfgFromState(host, state, opts) {
+    var cfgEl = host.querySelector("[data-ql-restore-cfg]");
+    if (!cfgEl || !state) return;
+    var cfg = resolveCfgText(host, state, opts);
+    cfgEl.value = cfg;
+    host._qlRestoreLastCfg = cfg;
+  }
+
+  function buildEditorState(opts, host) {
+    opts = opts || {};
+    var scrubT = resolveEditorScrubTMs(host, opts);
+    var payload = opts.payload;
+    var fullCp = (payload && payload.checkpoint) || opts.checkpoint || null;
+    var cpPlayers = fullCp && fullCp.players ? fullCp.players : [];
+    var rawItems =
+      host && host._qlRestoreCheckpointItemsRaw
+        ? host._qlRestoreCheckpointItemsRaw.slice()
+        : fullCp && Array.isArray(fullCp.items)
+          ? fullCp.items.slice()
+          : [];
+    var sourceT =
+      host && host._qlRestoreCheckpointSourceTMs != null
+        ? host._qlRestoreCheckpointSourceTMs
+        : fullCp && fullCp.t_ms != null
+          ? fullCp.t_ms
+          : null;
+    var archive = opts.archive;
+    var players;
+    if (!cpPlayers.length && archive) {
+      players = playersFromArchive(archive, scrubT);
+    } else if (archive) {
+      players = mergePlayersWithArchive(cpPlayers, archive, scrubT);
+    } else {
+      players = cpPlayers.map(playerRowFromCheckpoint);
     }
     var A = analytics();
     if (archive && A && players.length) {
@@ -194,19 +625,390 @@
     }
     return {
       v: 2,
-      t_ms:
-        tMs != null
-          ? clampInt(tMs, 0, 86400000)
-          : cp.t_ms != null
-            ? clampInt(cp.t_ms, 0, 86400000)
-            : 0,
-      map: normalizeMapKey(cp.map || cp.map_name || (archive && archive.map_name) || ""),
-      players: players,
-      items: filterCheckpointItemsForScrub(
-        Array.isArray(cp.items) ? cp.items.slice() : [],
-        tMs != null ? tMs : cp.t_ms,
+      t_ms: scrubT,
+      map: normalizeMapKey(
+        (fullCp && (fullCp.map || fullCp.map_name)) ||
+          (archive && archive.map_name) ||
+          (host && host._qlRestoreMapFallback) ||
+          "",
       ),
+      players: players,
+      items: filterCheckpointItemsForScrub(rawItems, scrubT, sourceT),
     };
+  }
+
+  function clonePlayerRow(p) {
+    return {
+      cid: p.cid,
+      sid: p.sid,
+      label: p.label,
+      x: p.x,
+      y: p.y,
+      z: p.z,
+      h: p.h,
+      a: p.a,
+      w: p.w,
+      sc: p.sc,
+      lo: p.lo,
+      loadoutKeys: (p.loadoutKeys || []).slice(),
+      am: Object.assign({}, p.am || {}),
+    };
+  }
+
+  function cloneEditorState(state) {
+    return {
+      v: state.v,
+      t_ms: state.t_ms,
+      map: state.map,
+      players: (state.players || []).map(clonePlayerRow),
+      items: (state.items || []).map(cloneCheckpointItem),
+    };
+  }
+
+  function snapshotFromState(host, state) {
+    return {
+      state: cloneEditorState(state),
+      rawItems: host._qlRestoreCheckpointItemsRaw
+        ? host._qlRestoreCheckpointItemsRaw.slice()
+        : (state.items || []).slice(),
+      sourceTMs: host._qlRestoreCheckpointSourceTMs,
+      layoutKey: playersLayoutKey(state.players),
+    };
+  }
+
+  function effectiveEditorState(host, previewTMs) {
+    var snap = host._qlRestoreSnapshot;
+    if (!snap) return null;
+    var opts = currentBindOpts(host);
+    var base = cloneEditorState(snap.state);
+    var t =
+      previewTMs != null ? clampInt(previewTMs, 0, 86400000) : clampInt(base.t_ms, 0, 86400000);
+    base.t_ms = t;
+    base.items = filterCheckpointItemsForScrub(snap.rawItems, t, snap.sourceTMs);
+    if (
+      opts.status === "ready" &&
+      opts.payload &&
+      scrubPayloadRelation(opts.payload, t) === "exact"
+    ) {
+      var live = buildEditorState(Object.assign({}, opts, { tMs: t }), host);
+      if (live.players && live.players.length) {
+        base.players = live.players.map(clonePlayerRow);
+        if (live.map) base.map = live.map;
+      }
+    }
+    if (host._qlRestoreEditMode && host._qlRestoreOverrides) {
+      var ov = host._qlRestoreOverrides;
+      if (ov.map) base.map = ov.map;
+      (ov.players || []).forEach(function (row, i) {
+        if (!row || !base.players[i]) return;
+        base.players[i] = Object.assign({}, base.players[i], row, {
+          loadoutKeys: row.loadoutKeys ? row.loadoutKeys.slice() : base.players[i].loadoutKeys,
+          am: row.am ? Object.assign({}, row.am) : base.players[i].am,
+        });
+      });
+    }
+    return base;
+  }
+
+  function readOverridesFromForm(host) {
+    var cards = host.querySelectorAll("[data-ql-restore-player]");
+    var players = [];
+    for (var i = 0; i < cards.length; i++) {
+      var card = cards[i];
+      var p = {
+        cid: clampInt(card.getAttribute("data-ql-restore-player"), 0, 255),
+        sid: "",
+        x: 0,
+        y: 0,
+        z: 0,
+        h: 100,
+        a: 0,
+        w: 0,
+        loadoutKeys: [],
+        am: {},
+      };
+      var sidEl = card.querySelector("[data-ql-restore-sid]");
+      if (sidEl) p.sid = String(sidEl.value || "").trim();
+      var hEl = card.querySelector("[data-ql-restore-h]");
+      var aEl = card.querySelector("[data-ql-restore-a]");
+      var wEl = card.querySelector("[data-ql-restore-w]");
+      var scEl = card.querySelector("[data-ql-restore-sc]");
+      if (hEl) p.h = clampInt(hEl.value, 0, 999);
+      if (aEl) p.a = clampInt(aEl.value, 0, 999);
+      if (wEl) p.w = clampInt(wEl.value, 0, 255);
+      if (scEl && scEl.value !== "") p.sc = clampInt(scEl.value, 0, 255);
+      ["x", "y", "z"].forEach(function (axis) {
+        var el = card.querySelector('[data-ql-restore-pos="' + axis + '"]');
+        if (el) p[axis] = clampFloat(el.value);
+      });
+      var loadoutChecks = card.querySelectorAll("[data-ql-restore-lo]:checked");
+      for (var j = 0; j < loadoutChecks.length; j++) {
+        p.loadoutKeys.push(loadoutChecks[j].getAttribute("data-ql-restore-lo"));
+      }
+      AMMO_KEYS.forEach(function (k) {
+        var amEl = card.querySelector('[data-ql-restore-ammo="' + k + '"]');
+        if (amEl && amEl.value !== "") p.am[k] = clampInt(amEl.value, 0, 255);
+      });
+      players.push(p);
+    }
+    var mapEl = host.querySelector("[data-ql-restore-map]");
+    return {
+      map: mapEl ? normalizeMapKey(mapEl.value) : "",
+      players: players,
+    };
+  }
+
+  function setFormEditMode(host, enabled) {
+    var body = host.querySelector(".ql-restore-editor-body");
+    if (!body) return;
+    body.classList.toggle("ql-restore-readonly", !enabled);
+    body.classList.toggle("ql-restore-editing", !!enabled);
+    var textInputs = body.querySelectorAll(
+      'input[type="text"], input[type="number"], textarea',
+    );
+    for (var i = 0; i < textInputs.length; i++) {
+      if (enabled) textInputs[i].removeAttribute("readonly");
+      else textInputs[i].setAttribute("readonly", "readonly");
+    }
+    var selects = body.querySelectorAll("select");
+    for (var j = 0; j < selects.length; j++) {
+      selects[j].disabled = !enabled;
+    }
+    var checks = body.querySelectorAll('input[type="checkbox"], input[type="radio"]');
+    for (var k = 0; k < checks.length; k++) {
+      checks[k].disabled = !enabled;
+    }
+    var btn = host.querySelector("[data-ql-restore-edit-toggle]");
+    if (btn) {
+      btn.textContent = enabled ? t("restoreEditorCancelEdit") : t("restoreEditorEdit");
+      btn.setAttribute("aria-pressed", enabled ? "true" : "false");
+    }
+  }
+
+  function playersDomNeedsRebuild(host, state) {
+    if (!host || !state) return false;
+    if (host.querySelector("[data-ql-restore-pending]")) return true;
+    var domCards = host.querySelectorAll("[data-ql-restore-player]").length;
+    return domCards !== (state.players || []).length;
+  }
+
+  function currentBindOpts(host) {
+    return (host && host._qlRestoreBindOpts) || {};
+  }
+
+  function ensureSnapshot(host) {
+    if (!host) return false;
+    if (host._qlRestoreSnapshot) return true;
+    var opts = currentBindOpts(host);
+    if (opts.status !== "ready" || !opts.payload) return false;
+    var scrubT = resolveEditorScrubTMs(host, opts);
+    if (scrubPayloadRelation(opts.payload, scrubT) !== "exact") return false;
+    commitSnapshot(host, opts);
+    return !!host._qlRestoreSnapshot;
+  }
+
+  function syncUiFromModel(host, previewTMs, options) {
+    options = options || {};
+    if (!host) return null;
+    var state = effectiveEditorState(host, previewTMs);
+    if (!state) return null;
+    if (host._qlRestoreEditMode && options.editPreview) {
+      var scrubT = clampInt(previewTMs != null ? previewTMs : state.t_ms, 0, 86400000);
+      var tEl = host.querySelector("[data-ql-restore-t-ms]");
+      if (tEl) tEl.value = String(scrubT);
+      var hintEl = host.querySelector(".ql-restore-field-hint");
+      if (hintEl && analytics()) hintEl.textContent = analytics().formatGameTime(scrubT);
+      applyCfgFromState(host, state);
+      return state;
+    }
+    var layoutKey = playersLayoutKey(state.players);
+    var applyOpts = {
+      fullRender:
+        !!options.fullRender ||
+        playersDomNeedsRebuild(host, state) ||
+        layoutKey !== host._qlRestoreLayoutKey,
+    };
+    applyStateToHost(host, state, applyOpts);
+    if (state.players) host._qlRestoreLayoutKey = layoutKey;
+    setFormEditMode(host, !!host._qlRestoreEditMode);
+    return state;
+  }
+
+  function renderFromModel(host) {
+    return syncUiFromModel(host, resolveEditorScrubTMs(host, currentBindOpts(host)));
+  }
+
+  function commitSnapshot(host, opts) {
+    if (!host) return;
+    opts = opts || {};
+    var state = buildEditorState(opts, host);
+    host._qlRestoreSnapshot = snapshotFromState(host, state);
+    host._qlRestoreEditMode = false;
+    host._qlRestoreOverrides = null;
+    setRestoreItemsCache(host, state.items, host._qlRestoreCheckpointSourceTMs, host._qlRestoreCheckpointItemsRaw);
+    return renderFromModel(host);
+  }
+
+  function previewTimelineMs(host, tMs, opts) {
+    if (!host || !host._qlRestoreSnapshot) return;
+    syncUiFromModel(host, clampInt(tMs, 0, 86400000), {
+      editPreview: !!host._qlRestoreEditMode,
+    });
+  }
+
+  function showSnapshotPending(host, scrubT) {
+    if (!host) return;
+    var t = clampInt(scrubT, 0, 86400000);
+    var tEl = host.querySelector("[data-ql-restore-t-ms]");
+    if (tEl) tEl.value = String(t);
+    var hintEl = host.querySelector(".ql-restore-field-hint");
+    if (hintEl && analytics()) hintEl.textContent = analytics().formatGameTime(t);
+    var wrap = host.querySelector(".ql-restore-players");
+    if (wrap) {
+      wrap.innerHTML =
+        '<p class="control-status" data-ql-restore-pending>' +
+        esc(t("restoreCheckpointLoading")) +
+        "</p>";
+    }
+    host._qlRestoreLayoutKey = null;
+    var cfgEl = host.querySelector("[data-ql-restore-cfg]");
+    if (cfgEl) cfgEl.value = "";
+    host._qlRestoreLastCfg = "";
+    setFormEditMode(host, false);
+  }
+
+  function toggleEditMode(host) {
+    if (!host) return;
+    if (!host._qlRestoreSnapshot && !ensureSnapshot(host)) return;
+    if (!host.querySelector("[data-ql-restore-player]")) return;
+    if (!host._qlRestoreEditMode) {
+      host._qlRestoreEditMode = true;
+      host._qlRestoreOverrides = readOverridesFromForm(host);
+      setFormEditMode(host, true);
+      return;
+    }
+    host._qlRestoreEditMode = false;
+    host._qlRestoreOverrides = null;
+    renderFromModel(host);
+  }
+
+  function bindRestoreActions(host) {
+    if (!host) return;
+    var editBtn = host.querySelector("[data-ql-restore-edit-toggle]");
+    if (editBtn && !editBtn.dataset.qlRestoreActionBound) {
+      editBtn.dataset.qlRestoreActionBound = "1";
+      editBtn.addEventListener("click", function (ev) {
+        ev.preventDefault();
+        toggleEditMode(host);
+      });
+    }
+    var copyBtn = host.querySelector("[data-ql-restore-copy-cfg]");
+    if (copyBtn && !copyBtn.dataset.qlRestoreActionBound) {
+      copyBtn.dataset.qlRestoreActionBound = "1";
+      copyBtn.addEventListener("click", function (ev) {
+        ev.preventDefault();
+        var ta = host.querySelector("[data-ql-restore-cfg]");
+        var text = ta ? ta.value : "";
+        if (!text) return;
+        global.QLDashboard.copyText(text).catch(function () {
+          window.prompt("Restore cfg:", text);
+        });
+      });
+    }
+    var regenBtn = host.querySelector("[data-ql-restore-reencode]");
+    if (regenBtn && !regenBtn.dataset.qlRestoreActionBound) {
+      regenBtn.dataset.qlRestoreActionBound = "1";
+      regenBtn.addEventListener("click", function (ev) {
+        ev.preventDefault();
+        if (!ensureSnapshot(host)) return;
+        syncUiFromModel(host, resolveEditorScrubTMs(host, currentBindOpts(host)));
+        encodeFromRoot(host, currentBindOpts(host));
+      });
+    }
+    var addBtn = host.querySelector("[data-ql-restore-add-player]");
+    if (addBtn && !addBtn.dataset.qlRestoreActionBound) {
+      addBtn.dataset.qlRestoreActionBound = "1";
+      addBtn.addEventListener("click", function (ev) {
+        ev.preventDefault();
+        var playersWrap = host.querySelector(".ql-restore-players");
+        if (!playersWrap) return;
+        var idx = playersWrap.querySelectorAll("[data-ql-restore-player]").length;
+        var empty = playersWrap.querySelector(".match-analytics-empty");
+        if (empty) empty.remove();
+        var pending = playersWrap.querySelector("[data-ql-restore-pending]");
+        if (pending) pending.remove();
+        playersWrap.insertAdjacentHTML(
+          "beforeend",
+          renderPlayerCard(
+            {
+              cid: idx,
+              sid: "",
+              h: 100,
+              a: 0,
+              w: 0,
+              x: 0,
+              y: 0,
+              z: 0,
+              loadoutKeys: [],
+              am: {},
+            },
+            idx,
+          ),
+        );
+        encodeFromRoot(host, currentBindOpts(host));
+      });
+    }
+  }
+
+  function stateFromCheckpoint(cp, archive, tMs) {
+    return buildEditorState(
+      {
+        checkpoint: cp,
+        archive: archive,
+        tMs: tMs,
+        payload: cp ? { checkpoint: cp } : null,
+      },
+      null,
+    );
+  }
+
+  function applyStateToHost(host, state, options) {
+    options = options || {};
+    if (!host || !state) return;
+    var tEl = host.querySelector("[data-ql-restore-t-ms]");
+    if (tEl) tEl.value = String(state.t_ms || 0);
+    var mapEl = host.querySelector("[data-ql-restore-map]");
+    if (mapEl && state.map) mapEl.value = state.map;
+    var hintEl = host.querySelector(".ql-restore-field-hint");
+    if (hintEl && analytics()) hintEl.textContent = analytics().formatGameTime(state.t_ms);
+    var layoutKey = playersLayoutKey(state.players);
+    var domCards = host.querySelectorAll("[data-ql-restore-player]").length;
+    if (
+      options.fullRender ||
+      layoutKey !== host._qlRestoreLayoutKey ||
+      domCards !== (state.players || []).length
+    ) {
+      host._qlRestoreLayoutKey = layoutKey;
+      renderPlayersSection(host, state);
+    }
+    if (!options.skipPlayers) {
+      patchPlayersFromState(host, state);
+    }
+    if (!options.skipCfg) applyCfgFromState(host, state, currentBindOpts(host));
+  }
+
+  function renderPlayersSection(host, state) {
+    var wrap = host.querySelector(".ql-restore-players");
+    if (!wrap) return;
+    var html = "";
+    if (state.players && state.players.length) {
+      for (var i = 0; i < state.players.length; i++) {
+        html += renderPlayerCard(state.players[i], i);
+      }
+    } else {
+      html = '<p class="match-analytics-empty">' + esc(t("restoreEditorNoPlayers")) + "</p>";
+    }
+    wrap.innerHTML = html;
   }
 
   function checkpointFromState(state) {
@@ -223,7 +1025,7 @@
         lo: lo,
       };
       if (p.sid) row.sid = String(p.sid).trim();
-      if (p.sc != null && p.sc !== "") row.sc = clampInt(p.sc, 0, 255);
+      if (p.sc != null && String(p.sc) !== "") row.sc = clampInt(p.sc, 0, 255);
       var am = {};
       AMMO_KEYS.forEach(function (k) {
         if (p.am && p.am[k] != null && String(p.am[k]) !== "") {
@@ -248,47 +1050,226 @@
     return isNaN(n) ? null : n;
   }
 
-  function filterCheckpointItemsForScrub(items, tMs) {
-    var t = scrubMsValue(tMs);
-    if (t == null) return Array.isArray(items) ? items.slice() : [];
+  function itemAppearsAtMs(row, checkpointTMs) {
+    if (!row) return null;
+    var at = Number(row.at_ms);
+    if (!isNaN(at)) return at;
+    var remain = Number(row.in);
+    var sourceT = scrubMsValue(checkpointTMs);
+    if (!isNaN(remain) && sourceT != null) return sourceT + remain * 1000;
+    return null;
+  }
+
+  function filterCheckpointItemsForScrub(items, scrubTMs, checkpointTMs) {
+    var t = scrubMsValue(scrubTMs);
+    if (t == null) return [];
     return (items || []).filter(function (row) {
       if (!row || Number(row.s) !== 2) return false;
-      var at = Number(row.at_ms);
-      if (!isNaN(at)) return at > t;
-      var remain = Number(row.in);
-      return !isNaN(remain) && remain > 0;
+      var at = itemAppearsAtMs(row, checkpointTMs);
+      return at != null && at > t;
     });
   }
 
-  function payloadAlignedWithScrub(payload, tMs) {
-    if (!payload || tMs == null) return false;
-    var pt = scrubMsValue(payload.t_ms);
-    var t = scrubMsValue(tMs);
-    if (pt == null || t == null) return false;
-    return Math.abs(pt - t) <= 500;
+  function filterCfgTextForScrub(cfgText, scrubTMs, checkpointTMs) {
+    var t = scrubMsValue(scrubTMs);
+    if (t == null || !cfgText) return cfgText || "";
+    var sourceT = scrubMsValue(checkpointTMs);
+    return String(cfgText)
+      .split("\n")
+      .filter(function (line) {
+        var atMatch = line.match(/\bpending\s+at\s+(\d+)\b/i);
+        if (atMatch) {
+          var at = parseInt(atMatch[1], 10);
+          return !isNaN(at) && at > t;
+        }
+        var inMatch = line.match(/\bpending\s+in\s+([\d.]+)\b/i);
+        if (inMatch && sourceT != null) {
+          var atFromIn = sourceT + parseFloat(inMatch[1]) * 1000;
+          return !isNaN(atFromIn) && atFromIn > t;
+        }
+        return true;
+      })
+      .join("\n");
   }
 
-  function setRestoreItemsCache(host, items) {
+  function payloadCheckpointTMs(payload) {
+    if (!payload) return null;
+    var cp = payload.checkpoint;
+    return scrubMsValue(cp && cp.t_ms != null ? cp.t_ms : payload.t_ms);
+  }
+
+  function scrubPayloadRelation(payload, scrubTMs) {
+    var pt = payloadCheckpointTMs(payload);
+    var requested = scrubMsValue(payload && payload.t_ms);
+    var t = scrubMsValue(scrubTMs);
+    if (t == null || !payload) return "none";
+    if (pt != null && Math.abs(pt - t) <= 500) return "exact";
+    if (requested != null && Math.abs(requested - t) <= 500) return "exact";
+    if (pt == null) return "none";
+    if (t < pt) return "backward";
+    return "forward";
+  }
+
+  function canClientFilterPayload(payload, scrubTMs) {
+    var rel = scrubPayloadRelation(payload, scrubTMs);
+    return rel === "exact" || rel === "forward";
+  }
+
+  function checkpointItemsForScrub(payload, scrubTMs) {
+    if (!payload || !canClientFilterPayload(payload, scrubTMs)) return [];
+    var cp = payload.checkpoint || {};
+    return filterCheckpointItemsForScrub(cp.items, scrubTMs, cp.t_ms);
+  }
+
+  function cfgTextForScrub(payload, scrubTMs) {
+    if (!payload || !canClientFilterPayload(payload, scrubTMs)) return "";
+    var cp = payload.checkpoint || {};
+    return filterCfgTextForScrub(pickCfgText(payload), scrubTMs, cp.t_ms);
+  }
+
+  function cfgTextForDisplay(payload, scrubTMs, mapName, previousCfg, displayOpts) {
+    displayOpts = displayOpts || {};
+    var map = normalizeMapKey(mapName || "");
+    var prev = previousCfg ? String(previousCfg) : "";
+    if (prev) {
+      return patchCfgScrubTime(prev, scrubTMs, map);
+    }
+    return "";
+  }
+
+  function applyCfgToTextarea(host, payload, scrubT, mapName, displayOpts) {
+    if (host._qlRestoreSnapshot) {
+      previewTimelineMs(host, scrubT, displayOpts);
+      return;
+    }
+    var cfgEl = host.querySelector("[data-ql-restore-cfg]");
+    if (!cfgEl) return;
+    var previous = cfgEl.value || host._qlRestoreLastCfg || "";
+    var next = cfgTextForDisplay(payload, scrubT, mapName, previous, displayOpts);
+    if (next) {
+      host._qlRestoreLastCfg = next;
+      cfgEl.value = next;
+    }
+  }
+
+  function payloadAlignedWithScrub(payload, tMs) {
+    return scrubPayloadRelation(payload, tMs) === "exact";
+  }
+
+  function resolveEditorScrubTMs(host, opts) {
+    opts = opts || {};
+    if (opts.tMs != null && !isNaN(Number(opts.tMs))) {
+      return clampInt(opts.tMs, 0, 86400000);
+    }
+    if (host) {
+      var tEl = host.querySelector("[data-ql-restore-t-ms]");
+      if (tEl && String(tEl.value).trim() !== "") {
+        return clampInt(tEl.value, 0, 86400000);
+      }
+    }
+    if (typeof document !== "undefined") {
+      var scrub = document.getElementById("match-timeline-scrub");
+      if (scrub && String(scrub.value).trim() !== "") {
+        return clampInt(scrub.value, 0, 86400000);
+      }
+    }
+    var cp = opts.payload && opts.payload.checkpoint;
+    if (cp && cp.t_ms != null) return clampInt(cp.t_ms, 0, 86400000);
+    return 0;
+  }
+
+  function patchCfgScrubTime(cfgText, tMs, mapName) {
+    var t = clampInt(tMs, 0, 86400000);
+    var map = normalizeMapKey(mapName || "");
+    var header = "// Match restore cfg — t_ms=" + t + " map=" + map;
+    if (!cfgText) return "";
+    var out = String(cfgText).split("\n");
+    for (var i = 0; i < out.length; i++) {
+      if (out[i].indexOf("// Match restore cfg —") === 0) out[i] = header;
+      else if (/^say !restorecp time \d+/i.test(out[i])) out[i] = "say !restorecp time " + t;
+      else if (/^say !restorecp map /i.test(out[i])) out[i] = "say !restorecp map " + map;
+    }
+    return out.join("\n");
+  }
+
+  function updateScrubLight(host, opts) {
+    opts = Object.assign({}, currentBindOpts(host), opts || {});
+    host._qlRestoreBindOpts = opts;
+    previewTimelineMs(
+      host,
+      opts.tMs != null ? opts.tMs : resolveEditorScrubTMs(host, opts),
+      opts,
+    );
+  }
+
+  function updateScrub(host, opts) {
+    if (!host) return;
+    opts = opts || {};
+    host._qlRestoreBindOpts = opts;
+    if (opts.refreshPayloadItems && opts.payload && opts.payload.checkpoint && opts.payload.checkpoint.items) {
+      host._qlRestoreCheckpointItemsRaw = opts.payload.checkpoint.items.slice();
+      host._qlRestoreCheckpointSourceTMs = payloadCheckpointTMs(opts.payload);
+    }
+    if (opts.status === "ready" && opts.payload) {
+      var scrubT = resolveEditorScrubTMs(host, opts);
+      var rel = scrubPayloadRelation(opts.payload, scrubT);
+      if (rel === "exact") {
+        commitSnapshot(host, opts);
+      } else if (host._qlRestoreSnapshot) {
+        previewTimelineMs(host, scrubT, opts);
+      } else {
+        showSnapshotPending(host, scrubT);
+      }
+    } else if (host._qlRestoreSnapshot) {
+      previewTimelineMs(host, resolveEditorScrubTMs(host, opts), opts);
+    } else {
+      showSnapshotPending(host, resolveEditorScrubTMs(host, opts));
+    }
+    var statusEl = host.querySelector("[data-ql-restore-encode-status]");
+    if (statusEl) {
+      var scrubT = resolveEditorScrubTMs(host, opts);
+      var rel = scrubPayloadRelation(opts.payload, scrubT);
+      statusEl.textContent =
+        rel === "backward" || (opts.status === "loading" && rel !== "exact")
+          ? t("restoreCheckpointLoading")
+          : opts.payload
+            ? t("restoreEditorReady")
+            : t("restoreEditorEncoding");
+    }
+  }
+
+  function setRestoreItemsCache(host, items, checkpointTMs, rawItems) {
     if (!host) return;
     host._qlRestoreCheckpointItems = Array.isArray(items) ? items.slice() : [];
+    host._qlRestoreCheckpointItemsRaw = Array.isArray(rawItems)
+      ? rawItems.slice()
+      : host._qlRestoreCheckpointItems.slice();
+    host._qlRestoreCheckpointSourceTMs = scrubMsValue(checkpointTMs);
   }
 
-  function restoreItemsFromHost(host) {
-    if (!host || !host._qlRestoreCheckpointItems) return [];
-    return host._qlRestoreCheckpointItems.slice();
+  function restoreItemsForScrub(host, scrubTMs) {
+    if (!host) return [];
+    var sourceT = host._qlRestoreCheckpointSourceTMs;
+    var t = scrubMsValue(scrubTMs);
+    var pt = scrubMsValue(sourceT);
+    if (pt != null && t != null && t < pt - 500) {
+      return host._qlRestoreCheckpointItems || [];
+    }
+    var raw = host._qlRestoreCheckpointItemsRaw || host._qlRestoreCheckpointItems || [];
+    return filterCheckpointItemsForScrub(raw, scrubTMs, sourceT);
   }
 
   function readStateFromRoot(root) {
-    var state = {
-      t_ms: 0,
-      map: "",
-      players: [],
-      items: restoreItemsFromHost(root),
-    };
     var tEl = root.querySelector("[data-ql-restore-t-ms]");
     var mapEl = root.querySelector("[data-ql-restore-map]");
-    if (tEl) state.t_ms = clampInt(tEl.value, 0, 86400000);
-    if (mapEl) state.map = normalizeMapKey(mapEl.value);
+    var state = {
+      t_ms: tEl ? clampInt(tEl.value, 0, 86400000) : 0,
+      map: mapEl ? normalizeMapKey(mapEl.value) : "",
+      players: [],
+      items: [],
+    };
+    if (!state.map && root._qlRestoreMapFallback) state.map = root._qlRestoreMapFallback;
+    state.items = restoreItemsForScrub(root, state.t_ms);
 
     var cards = root.querySelectorAll("[data-ql-restore-player]");
     for (var i = 0; i < cards.length; i++) {
@@ -342,35 +1323,39 @@
   }
 
   function encodeFromRoot(root, opts) {
-    opts = opts || {};
+    opts = opts || currentBindOpts(root);
+    if (!ensureSnapshot(root)) return Promise.resolve(null);
     var statusEl = root.querySelector("[data-ql-restore-encode-status]");
-    var cfgEl = root.querySelector("[data-ql-restore-cfg]");
-    var state = readStateFromRoot(root);
-    state.items = filterCheckpointItemsForScrub(state.items, state.t_ms);
-    var checkpoint = checkpointFromState(state);
-    setRestoreItemsCache(root, checkpoint.items);
+    var state = syncUiFromModel(root, resolveEditorScrubTMs(root, opts));
+    if (!state) return Promise.resolve(null);
     if (statusEl) {
       statusEl.textContent = t("restoreEditorEncoding");
       statusEl.classList.remove("error");
     }
+    var checkpoint = checkpointFromState(state);
     return global.QLDashboard.postStatsJson("/api/checkpoint/encode", {
       checkpoint: checkpoint,
     })
       .then(function (payload) {
-        if (cfgEl) cfgEl.value = pickCfgText(payload);
         if (statusEl) {
           statusEl.textContent = t("restoreEditorReady");
           statusEl.classList.remove("error");
+        }
+        var cfgEl = root.querySelector("[data-ql-restore-cfg]");
+        var cfgText = buildCfgTextFromState(state);
+        if (cfgEl && cfgText) {
+          cfgEl.value = cfgText;
+          root._qlRestoreLastCfg = cfgText;
         }
         if (typeof opts.onPayload === "function") opts.onPayload(payload, checkpoint);
         return payload;
       })
       .catch(function (err) {
         if (statusEl) {
-          statusEl.textContent = t("restoreCheckpointError") + ": " + String(err.message || err);
+          statusEl.textContent = t("restoreEditorReady") + " (" + String(err.message || err) + ")";
           statusEl.classList.add("error");
         }
-        throw err;
+        return null;
       });
   }
 
@@ -456,7 +1441,7 @@
       '<div class="ql-restore-player-grid">' +
       '<label class="ql-restore-field"><span>' +
       esc(t("restoreEditorSteamId")) +
-      '</span><input type="text" data-ql-restore-sid" value="' +
+      '</span><input type="text" data-ql-restore-sid value="' +
       esc(player.sid || "") +
       '" spellcheck="false" /></label>' +
       '<label class="ql-restore-field"><span>' +
@@ -513,43 +1498,46 @@
     );
   }
 
-  function renderEditorBody(state, payload, opts) {
+  function renderEditorBody(payload, opts) {
     opts = opts || {};
-    var aligned = payloadAlignedWithScrub(payload, opts.tMs != null ? opts.tMs : state.t_ms);
-    var cfgText = aligned ? pickCfgText(payload) : "";
-    var playersHtml = "";
-    if (state.players.length) {
-      for (var i = 0; i < state.players.length; i++) {
-        playersHtml += renderPlayerCard(state.players[i], i);
-      }
-    } else {
-      playersHtml =
-        '<p class="match-analytics-empty">' + esc(t("restoreEditorNoPlayers")) + "</p>";
-    }
-
+    var scrubT = resolveEditorScrubTMs(null, opts);
+    var map = normalizeMapKey(
+      (payload && payload.checkpoint && (payload.checkpoint.map || payload.checkpoint.map_name)) ||
+        (opts.archive && opts.archive.map_name) ||
+        "",
+    );
+    var rel = scrubPayloadRelation(payload, scrubT);
+    var encodeStatus =
+      rel === "backward" || (opts.status === "loading" && rel !== "exact")
+        ? t("restoreCheckpointLoading")
+        : payload
+          ? t("restoreEditorReady")
+          : t("restoreEditorEncoding");
     var timeLabel =
-      state.t_ms != null && analytics()
-        ? analytics().formatGameTime(state.t_ms)
-        : "—";
+      scrubT != null && analytics() ? analytics().formatGameTime(scrubT) : "—";
 
     return (
-      '<div class="ql-restore-editor-body">' +
+      '<div class="ql-restore-shell">' +
+      '<div class="ql-restore-editor-body ql-restore-readonly">' +
       '<div class="ql-restore-global">' +
       '<label class="ql-restore-field"><span>' +
       esc(t("restoreEditorMatchTime")) +
-      '</span><input type="number" min="0" step="1000" data-ql-restore-t-ms" value="' +
-      esc(String(state.t_ms || 0)) +
+      '</span><input type="number" min="0" step="1000" data-ql-restore-t-ms value="' +
+      esc(String(scrubT || 0)) +
       '" /><span class="ql-restore-field-hint">' +
       esc(timeLabel) +
       "</span></label>" +
       '<label class="ql-restore-field"><span>' +
       esc(t("restoreCheckpointMap")) +
-      '</span><input type="text" data-ql-restore-map" value="' +
-      esc(state.map || "") +
+      '</span><input type="text" data-ql-restore-map value="' +
+      esc(map) +
       '" spellcheck="false" /></label>' +
       "</div>" +
       '<div class="ql-restore-players">' +
-      playersHtml +
+      '<p class="control-status" data-ql-restore-pending>' +
+      esc(t("restoreCheckpointLoading")) +
+      "</p>" +
+      "</div>" +
       "</div>" +
       '<div class="ql-restore-output">' +
       '<div class="ql-restore-output-head">' +
@@ -559,12 +1547,14 @@
       esc(t("restoreEditorCfgPrefix")) +
       "</span>" +
       '<span class="control-status ql-restore-encode-status" data-ql-restore-encode-status">' +
-      esc(payload ? t("restoreEditorReady") : t("restoreEditorEncoding")) +
+      esc(encodeStatus) +
       "</span></div>" +
-      '<textarea class="restore-checkpoint-json" data-ql-restore-cfg spellcheck="false" readonly>' +
-      esc(cfgText) +
-      "</textarea>" +
-      '<div class="control-actions restore-checkpoint-actions">' +
+      '<textarea class="restore-checkpoint-json" data-ql-restore-cfg spellcheck="false" readonly></textarea>' +
+      "</div>" +
+      '<div class="control-actions restore-checkpoint-actions ql-restore-actions">' +
+      '<button type="button" class="control-btn control-btn-sm" data-ql-restore-edit-toggle aria-pressed="false">' +
+      esc(t("restoreEditorEdit")) +
+      "</button>" +
       '<button type="button" class="control-btn control-btn-sm control-btn-primary" data-ql-restore-copy-cfg">' +
       esc(t("restoreCheckpointCopyCfg")) +
       "</button>" +
@@ -576,7 +1566,7 @@
           esc(t("restoreEditorAddPlayer")) +
           "</button>"
         : "") +
-      "</div></div></div>"
+      "</div></div>"
     );
   }
 
@@ -585,11 +1575,6 @@
     var status = opts.status || "idle";
     var payload = opts.payload;
     var err = opts.error || "";
-    var cp = payload && payload.checkpoint ? payload.checkpoint : opts.checkpoint || null;
-    if (cp && !payloadAlignedWithScrub(payload, opts.tMs)) {
-      cp = Object.assign({}, cp, { items: [] });
-    }
-    var state = stateFromCheckpoint(cp, opts.archive, opts.tMs);
 
     var html =
       '<section class="control-section restore-checkpoint-panel ql-restore-panel" id="restore-checkpoint-panel">' +
@@ -613,7 +1598,7 @@
         esc(err) +
         "</p>";
     } else {
-      html += renderEditorBody(state, payload, opts);
+      html += renderEditorBody(payload, opts);
     }
     html += "</section>";
     return html;
@@ -622,9 +1607,14 @@
   function bindHost(host, opts) {
     if (!host || host.dataset.qlRestoreBound) return;
     host.dataset.qlRestoreBound = "1";
+    host._qlRestoreBindOpts = opts;
 
     function onEdit() {
-      scheduleEncode(host, opts);
+      if (!host._qlRestoreEditMode) return;
+      host._qlRestoreOverrides = readOverridesFromForm(host);
+      syncUiFromModel(host, resolveEditorScrubTMs(host, currentBindOpts(host)), {
+        editPreview: true,
+      });
     }
 
     host.addEventListener("input", function (ev) {
@@ -635,80 +1625,54 @@
     host.addEventListener("change", function (ev) {
       var t = ev.target;
       if (!t || !t.closest) return;
-      if (t.matches("[data-ql-restore-lo]") || t.matches("[data-ql-restore-w]")) onEdit();
+      if (t.closest(".ql-restore-editor-body")) onEdit();
     });
 
-    host.addEventListener("click", function (ev) {
-      var t = ev.target;
-      if (!t || !t.closest) return;
-      if (t.closest("[data-ql-restore-copy-cfg]")) {
-        ev.preventDefault();
-        var ta = host.querySelector("[data-ql-restore-cfg]");
-        var text = ta ? ta.value : "";
-        if (!text) return;
-        global.QLDashboard.copyText(text).catch(function () {
-          window.prompt("Restore cfg:", text);
-        });
-        return;
-      }
-      if (t.closest("[data-ql-restore-reencode]")) {
-        ev.preventDefault();
-        encodeFromRoot(host, opts);
-        return;
-      }
-      if (t.closest("[data-ql-restore-add-player]")) {
-        ev.preventDefault();
-        var playersWrap = host.querySelector(".ql-restore-players");
-        if (!playersWrap) return;
-        var idx = playersWrap.querySelectorAll("[data-ql-restore-player]").length;
-        var empty = playersWrap.querySelector(".match-analytics-empty");
-        if (empty) empty.remove();
-        playersWrap.insertAdjacentHTML(
-          "beforeend",
-          renderPlayerCard(
-            {
-              cid: idx,
-              sid: "",
-              h: 100,
-              a: 0,
-              w: 0,
-              x: 0,
-              y: 0,
-              z: 0,
-              loadoutKeys: [],
-              am: {},
-            },
-            idx,
-          ),
-        );
-        encodeFromRoot(host, opts);
-      }
-    });
+    bindRestoreActions(host);
 
-    if (host.querySelector(".ql-restore-editor-body")) {
-      var tEl = host.querySelector("[data-ql-restore-t-ms]");
-      var tMs =
-        tEl != null
-          ? clampInt(tEl.value, 0, 86400000)
-          : opts.tMs != null
-            ? opts.tMs
-            : null;
-      if (payloadAlignedWithScrub(opts.payload, tMs)) {
-        encodeFromRoot(host, opts);
-      }
+    if (host.querySelector(".ql-restore-shell") || host.querySelector(".ql-restore-editor-body")) {
+      updateScrub(host, opts);
+      bindRestoreActions(host);
     }
   }
 
   function mount(hostEl, opts) {
     if (!hostEl) return;
     delete hostEl.dataset.qlRestoreBound;
+    hostEl._qlRestoreSnapshot = null;
+    hostEl._qlRestoreEditMode = false;
+    hostEl._qlRestoreOverrides = null;
+    hostEl._qlRestoreLayoutKey = null;
+    hostEl._qlRestoreLastCfg = null;
     opts = opts || {};
+    opts = Object.assign({}, opts, { tMs: resolveEditorScrubTMs(hostEl, opts) });
     var cp =
       (opts.payload && opts.payload.checkpoint) || opts.checkpoint || null;
-    var tMs = opts.tMs != null ? opts.tMs : cp && cp.t_ms;
-    var items =
-      cp && payloadAlignedWithScrub(opts.payload, tMs) ? cp.items : [];
-    setRestoreItemsCache(hostEl, filterCheckpointItemsForScrub(items, tMs));
+    var tMs = opts.tMs;
+    var checkpointT = cp && cp.t_ms != null ? cp.t_ms : null;
+    var rawItems =
+      opts.refreshPayloadItems && cp && Array.isArray(cp.items)
+        ? cp.items.slice()
+        : cp && Array.isArray(cp.items) && canClientFilterPayload(opts.payload, tMs)
+          ? cp.items.slice()
+          : hostEl._qlRestoreCheckpointItemsRaw || [];
+    if (opts.refreshPayloadItems && checkpointT != null) {
+      hostEl._qlRestoreCheckpointSourceTMs = scrubMsValue(checkpointT);
+    }
+    hostEl._qlRestoreMapFallback =
+      (cp && cp.map) ||
+      (opts.archive && opts.archive.map_name) ||
+      hostEl._qlRestoreMapFallback ||
+      "";
+    if (hostEl._qlRestoreMapFallback) {
+      hostEl._qlRestoreMapFallback = normalizeMapKey(hostEl._qlRestoreMapFallback);
+    }
+    setRestoreItemsCache(
+      hostEl,
+      checkpointItemsForScrub(opts.payload, tMs),
+      checkpointT,
+      rawItems,
+    );
     hostEl.innerHTML = render(opts);
     bindHost(hostEl, opts);
   }
@@ -721,9 +1685,18 @@
     render: render,
     mount: mount,
     remount: remount,
+    updateScrub: updateScrub,
+    updateScrubLight: updateScrubLight,
+    commitSnapshot: commitSnapshot,
+    previewTimelineMs: previewTimelineMs,
+    toggleEditMode: toggleEditMode,
+    bindRestoreActions: bindRestoreActions,
+    buildEditorState: buildEditorState,
+    effectiveEditorState: effectiveEditorState,
     bindHost: bindHost,
     stateFromCheckpoint: stateFromCheckpoint,
     checkpointFromState: checkpointFromState,
+    buildCfgTextFromState: buildCfgTextFromState,
     pickCfgText: pickCfgText,
     LOADOUT_WEAPONS: LOADOUT_WEAPONS,
     AMMO_KEYS: AMMO_KEYS,
