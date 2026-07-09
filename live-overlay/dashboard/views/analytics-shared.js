@@ -1775,6 +1775,70 @@
     }
   }
 
+  function deathIsSuicide(d, worldLabel) {
+    var killerSteam = String(d.killer_steam_id64 || "").trim();
+    var victimSteam = String(d.victim_steam_id64 || "").trim();
+    var killer = stripQuakeColors(d.killer);
+    var victim = stripQuakeColors(d.victim);
+    var weapon = String(d.weapon || "")
+      .trim()
+      .toUpperCase();
+    if (weapon === "SUICIDE") return true;
+    if (killerSteam && victimSteam && killerSteam === victimSteam) return true;
+    if (killer && victim && killer === victim) return true;
+    if (!killerSteam && killer && killer === worldLabel && weapon === "SUICIDE") return true;
+    return false;
+  }
+
+  function duelLikeArchive(archive) {
+    var gt = String((archive && archive.gametype) || "")
+      .trim()
+      .toLowerCase();
+    return gt === "duel" || gt === "1";
+  }
+
+  function applyArchiveDeathToScores(byKey, d, duelLike, rowKey, worldLabel) {
+    var gt = Number(d.game_time_ms);
+    if (isNaN(gt)) return;
+    var killerSteam = String(d.killer_steam_id64 || "").trim();
+    var victimSteam = String(d.victim_steam_id64 || "").trim();
+    var killer = stripQuakeColors(d.killer);
+    var victim = stripQuakeColors(d.victim);
+    var suicide = deathIsSuicide(d, worldLabel);
+    if (!suicide && killer && killer !== worldLabel) {
+      var kr = byKey[rowKey(killerSteam, killer)];
+      if (!kr) {
+        kr = {
+          steam_id64: killerSteam,
+          nickname: killer,
+          score: 0,
+          kills: 0,
+          deaths: 0,
+        };
+        byKey[rowKey(killerSteam, killer)] = kr;
+      }
+      kr.kills += 1;
+      kr.score = Math.max(Number(kr.score || 0), kr.kills);
+    }
+    if (victim) {
+      var vr = byKey[rowKey(victimSteam, victim)];
+      if (!vr) {
+        vr = {
+          steam_id64: victimSteam,
+          nickname: victim,
+          score: 0,
+          kills: 0,
+          deaths: 0,
+        };
+        byKey[rowKey(victimSteam, victim)] = vr;
+      }
+      vr.deaths += 1;
+      if (duelLike && suicide) {
+        vr.score = Number(vr.score || 0) - 1;
+      }
+    }
+  }
+
   // Match score is authoritative; fall back to frags only when SCORE is missing.
   function scoreboardStats(p, duelLike) {
     var kills = Number(p.kills || 0);
@@ -1834,21 +1898,20 @@
       return Number(p.score) || Number(p.kills) || Number(p.deaths);
     });
     if (!hasStats && archive.deaths && archive.deaths.length) {
+      var worldFinal = QLDashboard.t("matchWorldSuicide");
+      var duelLikeFinal = duelLikeArchive(archive);
+      var byKeyFinal = {};
+      function rowKeyFinal(steam, nick) {
+        return steam ? "id:" + steam : "name:" + (nick || "—");
+      }
+      Object.keys(byKey).forEach(function (k) {
+        byKeyFinal[k] = Object.assign({}, byKey[k]);
+      });
       archive.deaths.forEach(function (d) {
-        var killerSteam = String(d.killer_steam_id64 || "").trim();
-        var victimSteam = String(d.victim_steam_id64 || "").trim();
-        var killer = stripQuakeColors(d.killer);
-        var victim = stripQuakeColors(d.victim);
-        var world = QLDashboard.t("matchWorldSuicide");
-        if (killer && killer !== world) {
-          var kr = ensure(killerSteam, killer);
-          kr.kills = Number(kr.kills || 0) + 1;
-          kr.score = Math.max(Number(kr.score || 0), kr.kills);
-        }
-        if (victim) {
-          var vr = ensure(victimSteam, victim);
-          vr.deaths = Number(vr.deaths || 0) + 1;
-        }
+        applyArchiveDeathToScores(byKeyFinal, d, duelLikeFinal, rowKeyFinal, worldFinal);
+      });
+      return Object.keys(byKeyFinal).map(function (k) {
+        return byKeyFinal[k];
       });
     }
     return Object.keys(byKey).map(function (k) {
@@ -1883,42 +1946,11 @@
       };
     }
     var world = QLDashboard.t("matchWorldSuicide");
+    var duelLike = duelLikeArchive(archive);
     (archive.deaths || []).forEach(function (d) {
       var gt = Number(d.game_time_ms);
       if (isNaN(gt) || gt > scrubMs) return;
-      var killerSteam = String(d.killer_steam_id64 || "").trim();
-      var victimSteam = String(d.victim_steam_id64 || "").trim();
-      var killer = stripQuakeColors(d.killer);
-      var victim = stripQuakeColors(d.victim);
-      if (killer && killer !== world) {
-        var kr = byKey[rowKey(killerSteam, killer)];
-        if (!kr) {
-          kr = {
-            steam_id64: killerSteam,
-            nickname: killer,
-            score: 0,
-            kills: 0,
-            deaths: 0,
-          };
-          byKey[rowKey(killerSteam, killer)] = kr;
-        }
-        kr.kills += 1;
-        kr.score = Math.max(kr.score, kr.kills);
-      }
-      if (victim) {
-        var vr = byKey[rowKey(victimSteam, victim)];
-        if (!vr) {
-          vr = {
-            steam_id64: victimSteam,
-            nickname: victim,
-            score: 0,
-            kills: 0,
-            deaths: 0,
-          };
-          byKey[rowKey(victimSteam, victim)] = vr;
-        }
-        vr.deaths += 1;
-      }
+      applyArchiveDeathToScores(byKey, d, duelLike, rowKey, world);
     });
     return Object.keys(byKey).map(function (k) {
       return byKey[k];

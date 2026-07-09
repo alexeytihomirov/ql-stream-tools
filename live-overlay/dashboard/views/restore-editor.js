@@ -47,6 +47,12 @@
     return Math.max(min, Math.min(max, n));
   }
 
+  function clampScore(value) {
+    var n = parseInt(String(value), 10);
+    if (isNaN(n)) return 0;
+    return Math.max(-128, Math.min(127, n));
+  }
+
   function clampFloat(value) {
     var n = parseFloat(String(value));
     if (isNaN(n)) n = 0;
@@ -132,7 +138,7 @@
         : clampInt(row.lo, 0, 65535);
     var sc = row.sc;
     if (sc != null && sc !== "") {
-      return h + " " + a + " " + w + " " + lo + " " + clampInt(sc, 0, 255);
+      return h + " " + a + " " + w + " " + lo + " " + clampScore(sc);
     }
     if (lo) return h + " " + a + " " + w + " " + lo;
     if (w) return h + " " + a + " " + w;
@@ -235,10 +241,12 @@
           row.a = clampInt(tok[4], 0, 999);
           if (tok[5] != null) row.w = clampInt(tok[5], 0, 255);
           if (tok[6] != null) row.lo = clampInt(tok[6], 0, 65535);
-          if (tok[7] != null) row.sc = clampInt(tok[7], 0, 255);
+          if (tok[7] != null) row.sc = clampScore(tok[7]);
+        } else if (field === "dead") {
+          row.dead = tok[3] != null && tok[3] !== "0" ? 1 : 0;
         } else if (field === "w" && tok[3] != null) row.w = clampInt(tok[3], 0, 255);
         else if (field === "lo" && tok[3] != null) row.lo = clampInt(tok[3], 0, 65535);
-        else if (field === "sc" && tok[3] != null) row.sc = clampInt(tok[3], 0, 255);
+        else if (field === "sc" && tok[3] != null) row.sc = clampScore(tok[3]);
         else if (field === "ammo" && tok.length >= 5) {
           row.am = row.am || {};
           row.am[String(tok[3]).toLowerCase()] = clampInt(tok[4], 0, 255);
@@ -364,6 +372,7 @@
         );
       }
       lines.push(cfgLine("player " + slot + " vit " + fmtPlayerVit(p)));
+      if (p.dead) lines.push(cfgLine("player " + slot + " dead 1"));
       AMMO_KEYS.forEach(function (key) {
         if (p.am && p.am[key] != null && String(p.am[key]) !== "") {
           var val = clampInt(p.am[key], 0, 255);
@@ -418,7 +427,8 @@
       });
     }
     var sc = row.sc != null ? row.sc : row.score;
-    return {
+    var dead = row.dead != null ? row.dead : row.alive === false ? 1 : 0;
+    var out = {
       cid: row.cid != null ? clampInt(row.cid, 0, 255) : idx,
       sid: String(row.sid || row.steam_id64 || "").trim(),
       label: String(row.label || row.nickname || "").trim(),
@@ -433,9 +443,17 @@
       w: clampInt(row.w != null ? row.w : row.weapon, 0, 255),
       lo: clampInt(row.lo != null ? row.lo : row.loadout, 0, 65535),
       loadoutKeys: loadoutKeysFromMask(row.lo != null ? row.lo : row.loadout),
-      sc: sc != null && sc !== "" ? clampInt(sc, 0, 255) : null,
+      sc: sc != null && sc !== "" ? clampScore(sc) : null,
+      dead: dead ? 1 : 0,
       am: am,
     };
+    if (out.dead) {
+      out.w = 0;
+      out.lo = 1 << 1;
+      out.loadoutKeys = loadoutKeysFromMask(out.lo);
+      out.am = {};
+    }
+    return out;
   }
 
   function stripColors(text) {
@@ -623,7 +641,13 @@
       p.label = A.displayNickname(arch, nickBySteam);
       var archStats = A.scoreboardStats(arch, duelLike);
       if (archStats && archStats.score != null && !isNaN(archStats.score)) {
-        p.sc = clampInt(archStats.score, 0, 255);
+        var archSc = clampScore(archStats.score);
+        var cpSc = p.sc != null && p.sc !== "" && !isNaN(p.sc) ? clampScore(p.sc) : null;
+        if (cpSc != null && duelLike && cpSc < 0 && archSc >= 0) {
+          p.sc = cpSc;
+        } else {
+          p.sc = archSc;
+        }
       }
       merged.push(p);
       if (steam) usedSteam[steam] = true;
@@ -805,6 +829,7 @@
       a: p.a,
       w: p.w,
       sc: p.sc,
+      dead: p.dead ? 1 : 0,
       lo: p.lo,
       loadoutKeys: (p.loadoutKeys || []).slice(),
       am: Object.assign({}, p.am || {}),
