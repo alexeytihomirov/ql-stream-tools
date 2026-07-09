@@ -7,7 +7,7 @@
 | Слой | Аудитория | Содержимое |
 |------|-----------|------------|
 | **Dashboard** (`live-overlay/dashboard/`) | Стример за сценой | Live-матчи, турнир (ql-public-data), карта/киллфид/пикапы, replay |
-| **Overlays** (`stream-overlay/`, `live-overlay/*.html`) | OBS Browser Source | Лого, табло, миникарта, ticker — только то, что на эфире |
+| **Overlays** (`live-overlay/*.html`) | OBS Browser Source | Лого, табло, миникарта, ticker — только то, что на эфире |
 
 Dashboard и overlays **разделены**: аналитика матча не смешивается с настройкой OBS URL.
 
@@ -67,7 +67,7 @@ Dashboard и overlays **разделены**: аналитика матча не
 
 ## Миграция
 
-- `live-overlay/control/` → `live-overlay/dashboard/` (control — redirect).
+- `live-overlay/control/` → `live-overlay/dashboard/` — сделано, `control/` теперь только redirect.
 - Перенести legacy overlays из stats-hub в `live-overlay/` (или аналог). После переноса — hard remove legacy URLs на stats-hub.
 
 ## Связанные документы

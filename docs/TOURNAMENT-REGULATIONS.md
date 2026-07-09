@@ -85,7 +85,7 @@
 
 - Страница для игроков и зрителей: [`player-guide/index.html`](../player-guide/index.html).
 - Можно открыть в браузере, дать ссылку в описании стрима или показать слайдом в OBS (Browser Source).
-- Overlays (`live-overlay/`, `stream-overlay/`) - отдельно; этот документ не нагружает game server.
+- Overlays (`live-overlay/`) - отдельно; этот документ не нагружает game server.
 
 ---
 

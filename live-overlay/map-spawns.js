@@ -2214,7 +2214,6 @@
     this._markStaticLayerDirty();
     this.render();
     this.syncItemCategoryControls();
-    this.syncPickupDisplayControls();
   };
 
   MapSpawns.prototype.setItemClassnameEnabled = function (classname, enabled) {
@@ -2227,7 +2226,6 @@
     this._markStaticLayerDirty();
     this.render();
     this.syncItemCategoryControls();
-    this.syncPickupDisplayControls();
   };
 
   MapSpawns.prototype.syncItemCategoryControls = function () {
@@ -3367,7 +3365,6 @@
     this.render();
     this.syncLayerControls();
     this.syncItemCategoryControls();
-    this.syncPickupDisplayControls();
     this.syncHudControls();
     this.syncPlayerControls();
     this.syncHeatmapControls();
@@ -3432,7 +3429,6 @@
     this.render();
     this.syncLayerControls();
     this.syncItemCategoryControls();
-    this.syncPickupDisplayControls();
     this.syncHudControls();
     this.syncPlayerControls();
     this.syncThemeControls();
@@ -3476,7 +3472,6 @@
         self.render();
         self.syncLayerControls();
         self.syncItemCategoryControls();
-        self.syncPickupDisplayControls();
         self.syncHudControls();
         self.syncPlayerControls();
         self.syncThemeControls();
@@ -3620,7 +3615,6 @@
     markCustom(this.settings);
     this.settings.itemPickupDisplay[category] = m;
     saveSettings(this.settings);
-    this.syncPickupDisplayControls();
   };
 
   MapSpawns.prototype.setPickupDisplayClassnameMode = function (classname, mode) {
@@ -3636,7 +3630,6 @@
       this.settings.itemPickupDisplay[classname] = m;
     }
     saveSettings(this.settings);
-    this.syncPickupDisplayControls();
   };
 
   MapSpawns.prototype._appendPickupDisplayCategoryRow = function (
@@ -3740,16 +3733,6 @@
 
     host.appendChild(group);
   };
-
-  // After-pickup behaviour is now merged into the consolidated Items control
-  // (see rebuildItemCategoryControls / setItemState). These remain as no-ops so
-  // existing callers (presets, profile load) keep working.
-  MapSpawns.prototype.rebuildPickupDisplayControls = function () {
-    var host = document.getElementById("spawn-pickup-display-toggles");
-    if (host) host.innerHTML = "";
-  };
-
-  MapSpawns.prototype.syncPickupDisplayControls = function () {};
 
   MapSpawns.prototype.syncProfileControls = function () {
     var select = document.getElementById("spawn-profile-select");
@@ -4426,7 +4409,6 @@
     this.syncAnchorControls();
     this.rebuildLayerControls();
     this.rebuildItemCategoryControls();
-    this.rebuildPickupDisplayControls();
     this.syncSettingsTabs();
     this.syncHudControls();
     this.syncProfileControls();

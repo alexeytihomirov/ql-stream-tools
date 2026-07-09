@@ -1,7 +1,7 @@
-stream-overlay/config.json
 **/.venv/
 **/__pycache__/
 *.pyc
 *.log
 _tmp_*.sh
 _vps_*.sh
+demos

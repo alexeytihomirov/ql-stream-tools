@@ -7,7 +7,7 @@
 
   var pollTimer = null;
   var clockTimer = null;
-  var ws = null;
+  var wsHandle = null;
   var wsRefreshTimer = null;
   var activeMatchId = null;
   var lastLiveData = null;
@@ -93,17 +93,9 @@
       clearTimeout(wsRefreshTimer);
       wsRefreshTimer = null;
     }
-    if (ws) {
-      try {
-        ws.onopen = null;
-        ws.onmessage = null;
-        ws.onclose = null;
-        ws.onerror = null;
-        ws.close();
-      } catch (_e) {
-        /* ignore */
-      }
-      ws = null;
+    if (wsHandle) {
+      wsHandle.close();
+      wsHandle = null;
     }
   }
 
@@ -184,82 +176,73 @@
     stopWs();
     var url = QLDashboard.statsHubWsUrl(matchId);
     if (!url || typeof WebSocket === "undefined") return;
-    try {
-      ws = new WebSocket(url);
-    } catch (_e) {
-      ws = null;
-      return;
-    }
-    ws.onmessage = function (ev) {
-      var msg;
-      try {
-        msg = JSON.parse(ev.data);
-      } catch (_e2) {
-        return;
-      }
-      if (!msg || String(msg.match_id || "") !== String(matchId)) return;
-      var event = String(msg.event || "");
-      if (event === "pickup") {
-        mergeWsPickup(msg);
-        scheduleArchiveRefresh(200);
-        syncScrubToLive();
-        refreshAnalyticsOnLiveData();
-        return;
-      }
-      if (event === "death") {
-        mergeWsDeath(msg);
-        scheduleArchiveRefresh(200);
-        syncScrubToLive();
-        refreshAnalyticsOnLiveData();
-        return;
-      }
-      if (event === "accuracy_update") {
-        mergeWsAccuracy(msg);
-        scheduleArchiveRefresh(200);
-        syncScrubToLive();
-        refreshAnalyticsOnLiveData();
-        return;
-      }
-      if (event === "session_event") {
-        scheduleArchiveRefresh(100);
-        return;
-      }
-      if (event === "snapshot" || event === "positions") {
-        if (Array.isArray(msg.players)) {
-          lastPositionRowsRaw = msg.players.slice();
-          lastPositionPlayers = A().playersFromPositionRows(msg.players);
-          refreshRosterDisplay();
+
+    wsHandle = window.QLLiveWs.connect(url, {
+      backoffMs: 3000,
+      onMessage: function (ev) {
+        var msg;
+        try {
+          msg = JSON.parse(ev.data);
+        } catch (_e2) {
+          return;
         }
-        if (msg.paused != null) {
-          lastLiveData = Object.assign({}, lastLiveData || {}, {
-            paused: !!msg.paused,
-            pause_accumulated_ms:
-              msg.pause_accumulated_ms != null
-                ? Number(msg.pause_accumulated_ms) || 0
-                : lastLiveData && lastLiveData.pause_accumulated_ms,
-          });
-          updateHeader(lastLiveData);
+        if (!msg || String(msg.match_id || "") !== String(matchId)) return;
+        var event = String(msg.event || "");
+        if (event === "pickup") {
+          mergeWsPickup(msg);
+          scheduleArchiveRefresh(200);
+          syncScrubToLive();
+          refreshAnalyticsOnLiveData();
+          return;
         }
-        return;
-      }
-      if (event === "match_update") {
-        if (msg.match) {
-          lastLiveData = msg.match;
-          updateHeader(lastLiveData);
-          refreshRosterDisplay();
-        } else {
-          scheduleArchiveRefresh(400);
+        if (event === "death") {
+          mergeWsDeath(msg);
+          scheduleArchiveRefresh(200);
+          syncScrubToLive();
+          refreshAnalyticsOnLiveData();
+          return;
         }
-        return;
-      }
-    };
-    ws.onclose = function () {
-      if (activeMatchId === matchId) {
-        setTimeout(function () {
-          if (activeMatchId === matchId) startWs(matchId);
-        }, 3000);
-      }
-    };
+        if (event === "accuracy_update") {
+          mergeWsAccuracy(msg);
+          scheduleArchiveRefresh(200);
+          syncScrubToLive();
+          refreshAnalyticsOnLiveData();
+          return;
+        }
+        if (event === "session_event") {
+          scheduleArchiveRefresh(100);
+          return;
+        }
+        if (event === "snapshot" || event === "positions") {
+          if (Array.isArray(msg.players)) {
+            lastPositionRowsRaw = msg.players.slice();
+            lastPositionPlayers = A().playersFromPositionRows(msg.players);
+            refreshRosterDisplay();
+          }
+          if (msg.paused != null) {
+            lastLiveData = Object.assign({}, lastLiveData || {}, {
+              paused: !!msg.paused,
+              pause_accumulated_ms:
+                msg.pause_accumulated_ms != null
+                  ? Number(msg.pause_accumulated_ms) || 0
+                  : lastLiveData && lastLiveData.pause_accumulated_ms,
+            });
+            updateHeader(lastLiveData);
+          }
+          return;
+        }
+        if (event === "match_update") {
+          if (msg.match) {
+            lastLiveData = msg.match;
+            updateHeader(lastLiveData);
+            refreshRosterDisplay();
+          } else {
+            scheduleArchiveRefresh(400);
+          }
+          return;
+        }
+      },
+    });
   }
 
   function syncScrubToLive() {
@@ -949,5 +932,4 @@
   };
 
   QLDashboard.registerView("server", serverView);
-  QLDashboard.registerView("match", serverView);
 })();

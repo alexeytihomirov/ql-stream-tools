@@ -91,7 +91,7 @@ Edit **`live-overlay/maps/map_transforms.json`** (key = lowercase `map_name` fro
 | `image_width` / `image_height` | PNG size in pixels |
 | `image_url` | Path relative to overlay, e.g. `maps/bloodrun.png` |
 
-Place PNG in `live-overlay/maps/`. Regenerate placeholders:
+Place PNG in `live-overlay/maps/`. Requires Pillow (`pip install -r scripts/requirements.txt`). Regenerate placeholders:
 
 ```bash
 python scripts/gen_map_placeholders.py
@@ -122,5 +122,9 @@ python scripts/gen_entity_display.py
 Without `maps/entities/{map}.json` and a matching entry in `entity-display.json`, the overlay shows no static items (panel meta: «no entity dump»).
 
 Tune bounds in-game: compare telemetry `x`/`y` with dot position on the image (`?debug=1`). Maps without ql-spawns HTML may need manual calibration.
+
+### TODO: maps with staged but unwired data
+
+`maps/entities/tortured.json` and `maps/spawns/{campgroundsintel,silence,terminatria,windsongkeep}.json` already have extracted spawn/entity data, but none of these 5 maps have a PNG, a `map_transforms.json` entry, or an `entities/index.json`/`spawns/index.json` listing yet — the overlay currently has no way to render them. To finish onboarding: generate/place a map PNG, add calibration via `gen_map_transforms.py` (or manual `map_transforms.json` entry), then add the map to `maps/entities/index.json` and `maps/spawns/index.json`.
 
 Hub **Statistics** tab generates ready-made URLs when stats-hub is deployed.

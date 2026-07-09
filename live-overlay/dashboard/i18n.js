@@ -387,14 +387,7 @@
   };
 
   function t(lang, key, vars) {
-    var bag = STRINGS[lang] || STRINGS.en;
-    var text = bag[key] != null ? bag[key] : STRINGS.en[key] || key;
-    if (vars) {
-      Object.keys(vars).forEach(function (k) {
-        text = text.replace("{" + k + "}", String(vars[k]));
-      });
-    }
-    return text;
+    return global.QLI18nCore.translate(STRINGS, lang, key, vars);
   }
 
   global.QLDashboardI18n = {

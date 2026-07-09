@@ -64,18 +64,8 @@
   }
 
   function loadSettings() {
-    try {
-      var stored = localStorage.getItem(STORAGE_KEY);
-      if (stored) return normalizeSettings(JSON.parse(stored));
-    } catch (_e) {
-      /* ignore */
-    }
-    try {
-      var legacy = localStorage.getItem(LEGACY_STORAGE_KEY);
-      if (legacy) return normalizeSettings(JSON.parse(legacy));
-    } catch (_e2) {
-      /* ignore */
-    }
+    var stored = global.QLSettingsStore.readJsonKeys([STORAGE_KEY, LEGACY_STORAGE_KEY]);
+    if (stored) return normalizeSettings(stored);
     try {
       var legacyBase = localStorage.getItem(LEGACY_BASE_KEY);
       if (legacyBase) return normalizeSettings({ statsHubBase: legacyBase });

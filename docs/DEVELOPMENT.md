@@ -4,8 +4,8 @@
 
 | Path | Purpose |
 |------|---------|
-| `live-overlay/dashboard/` | **Frontier Gaming Panel** — hash router, settings, views |
-| `live-overlay/control/` | Legacy redirect → `dashboard/` |
+| `live-overlay/dashboard/` | **Frontier Gaming Panel** - hash router, settings, views |
+| `live-overlay/control/` | Legacy redirect -> `dashboard/` |
 | `live-overlay/` | Map viewer and OBS pages: scoreboard, map, matches, match.html |
 | `player-guide/` | Public HTML: tournament regulations, network cvars |
 | `docs/TOURNAMENT-REGULATIONS.md` | Generic technical rules + pointer to event SoT |
@@ -19,10 +19,14 @@ Entry: `live-overlay/dashboard/index.html`
 |------------|------|--------|
 | `#/` (empty) | Live matches home | `views/home.js` |
 | `#/tournament` | Tournament meta, bracket, stats, demos | `views/tournament.js` |
-| `#/match/{match_id}` | Match detail (summary, killfeed, pickups, accuracy) | `views/match.js` |
-
-Match analytics: `GET /api/stream/matches/{id}/archive-summary` on stats-hub. Preview layout with sample data: add `?debug=1` to dashboard URL (e.g. `index.html?base=…&debug=1#/match/server-1`).
+| `#/server/{match_id}` | Match detail (summary, killfeed, pickups, accuracy) | `views/match.js` |
+| `#/results` | Finished matches list | `views/results.js` |
+| `#/restore` | Match restore editor | `views/restore.js` |
 | `#/settings` | Connection form | `views/settings.js` |
+
+Match analytics: `GET /api/stream/matches/{id}/archive-summary` on stats-hub. Preview layout with sample data: add `?debug=1` to dashboard URL (e.g. `index.html?base=…&debug=1#/server/server-1`).
+
+`#/match/{match_id}` is a legacy route kept only for backward compatibility: `legacyMatchRedirect()` in `app.js` hard-redirects it to `#/server/{match_id}` on load.
 
 Shared: `app.js` (settings, fetch, router), `i18n.js`, `dashboard.css`.
 

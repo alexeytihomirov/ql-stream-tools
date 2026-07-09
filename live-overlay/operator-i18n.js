@@ -65,29 +65,14 @@
   };
 
   function operatorLang() {
-    try {
-      var ctrl = localStorage.getItem("ql-control-settings");
-      if (ctrl) {
-        var parsed = JSON.parse(ctrl);
-        if (parsed && parsed.lang === "ru") return "ru";
-      }
-    } catch (_e) {
-      /* ignore */
-    }
+    var lang = global.QLSettingsStore.readField(["ql-control-settings"], "lang", null);
+    if (lang === "ru") return "ru";
     var q = new URLSearchParams(window.location.search).get("lang");
     return q === "ru" ? "ru" : "en";
   }
 
   function ot(key, vars) {
-    var lang = operatorLang();
-    var bag = STRINGS[lang] || STRINGS.en;
-    var text = bag[key] != null ? bag[key] : STRINGS.en[key] || key;
-    if (vars) {
-      Object.keys(vars).forEach(function (k) {
-        text = text.replace("{" + k + "}", String(vars[k]));
-      });
-    }
-    return text;
+    return global.QLI18nCore.translate(STRINGS, operatorLang(), key, vars);
   }
 
   global.QLOperatorI18n = { t: ot, lang: operatorLang };

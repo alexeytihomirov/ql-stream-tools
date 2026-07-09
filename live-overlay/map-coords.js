@@ -44,17 +44,9 @@
   }
 
   function assetsFromControlSettings() {
-    try {
-      var raw = localStorage.getItem("ql-control-settings");
-      if (!raw) return "";
-      var parsed = JSON.parse(raw);
-      if (parsed && parsed.assetsBase) {
-        return sanitizeAssetsRoot(parsed.assetsBase, statsHubOriginFromQuery());
-      }
-    } catch (_e3) {
-      /* ignore */
-    }
-    return "";
+    var assetsBase = global.QLSettingsStore.readField(["ql-control-settings"], "assetsBase", "");
+    if (!assetsBase) return "";
+    return sanitizeAssetsRoot(assetsBase, statsHubOriginFromQuery());
   }
 
   function pageOverlayAssetsRoot() {

@@ -30,7 +30,7 @@ Phase 3: built-in presets (minimal / team), named profiles, JSON import/export, 
 
 ## localStorage
 
-All overlay UI settings use one key (schema **v11**):
+All overlay UI settings use one key (schema **v13**):
 
 | Key | Type | Description |
 |-----|------|-------------|
@@ -558,14 +558,10 @@ map.html?base=http://STATS_HOST:8090&replay=1&source=file
 
 Server replay still works when `match` is set and `source=file` is omitted.
 
-### Deploy notes
-
-- **ql-stats-hub:** redeploy with `STATS_HUB_RECORD_MATCHES=1` on Finland (or any stats host that should record).
-- **ql-stream-tools:** push `live-overlay/*` for replay UI (CDN/jsDelivr on `main`).
-
 Heatmap PNG/export is **not** implemented (by design).
 
 ## Deploy notes
 
-- **ql-stream-tools:** push `live-overlay/*` (CDN/jsDelivr picks up `main`). No stats-hub redeploy for Phase 4 overlay-only changes.
+- **ql-stream-tools:** push `live-overlay/*` (CDN/jsDelivr picks up `main`). Covers replay UI and Phase 4 overlay-only changes; no stats-hub redeploy needed for overlay-only changes.
+- **ql-stats-hub:** redeploy with `STATS_HUB_RECORD_MATCHES=1` on Finland (or any stats host that should record) for replay support.
 - **ql-stats-hub:** optional redeploy if pickup cleanup is deployed (removes dead ZMQ snapshot state only; no ingest behavior change).

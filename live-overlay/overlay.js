@@ -564,16 +564,7 @@
   }
 
   function readControlSettings() {
-    var keys = ["ql-dashboard-settings", "ql-control-settings"];
-    for (var i = 0; i < keys.length; i++) {
-      try {
-        var raw = localStorage.getItem(keys[i]);
-        if (raw) return JSON.parse(raw);
-      } catch (_e) {
-        /* ignore */
-      }
-    }
-    return null;
+    return window.QLSettingsStore.readJsonKeys(["ql-dashboard-settings", "ql-control-settings"]);
   }
 
   function publicDataBaseUrl() {
@@ -957,7 +948,7 @@
     setStatus("");
   }
 
-  var scoreboardWsState = { ws: null, timer: null };
+  var scoreboardWsState = { handle: null };
 
   function applyScoreboardMatch(data) {
     if (!data) return;
@@ -984,46 +975,30 @@
     var base = apiBase();
     if (!base) return;
 
-    function scheduleReconnect(ms) {
-      if (scoreboardWsState.timer) clearTimeout(scoreboardWsState.timer);
-      scoreboardWsState.timer = setTimeout(connect, ms || 2500);
-    }
-
-    function connect() {
-      if (scoreboardWsState.ws) {
-        scoreboardWsState.ws.onclose = null;
-        scoreboardWsState.ws.close();
-        scoreboardWsState.ws = null;
-      }
-      var wsProto = base.indexOf("https") === 0 ? "wss" : "ws";
-      var hostPath = base.replace(/^https?:\/\//, "");
-      var ws = new WebSocket(
-        wsProto + "://" + hostPath + "/api/ws/live?match=" + encodeURIComponent(id),
-      );
-      scoreboardWsState.ws = ws;
-      ws.onmessage = function (ev) {
-        var data;
-        try {
-          data = JSON.parse(ev.data);
-        } catch (_e) {
-          return;
-        }
-        if (data.event === "match_update" && data.match) {
-          var row = data.match;
-          row.score_summary =
-            row.score_summary || buildScoreSummary(row.players, row.gametype);
-          applyScoreboardMatch(row);
-        }
-      };
-      ws.onclose = function () {
-        scheduleReconnect(2500);
-      };
-      ws.onerror = function () {
-        if (ws) ws.close();
-      };
-    }
-
-    connect();
+    scoreboardWsState.handle = window.QLLiveWs.connect(
+      function () {
+        var wsProto = base.indexOf("https") === 0 ? "wss" : "ws";
+        var hostPath = base.replace(/^https?:\/\//, "");
+        return wsProto + "://" + hostPath + "/api/ws/live?match=" + encodeURIComponent(id);
+      },
+      {
+        backoffMs: 2500,
+        onMessage: function (ev) {
+          var data;
+          try {
+            data = JSON.parse(ev.data);
+          } catch (_e) {
+            return;
+          }
+          if (data.event === "match_update" && data.match) {
+            var row = data.match;
+            row.score_summary =
+              row.score_summary || buildScoreSummary(row.players, row.gametype);
+            applyScoreboardMatch(row);
+          }
+        },
+      },
+    );
   }
 
   function buildScoreSummary(players, gametype) {
@@ -1051,8 +1026,7 @@
   var matchesListState = {
     rows: [],
     endedCache: {},
-    ws: null,
-    wsTimer: null,
+    wsHandle: null,
   };
 
   function isEndedStatus(status) {
@@ -1437,64 +1411,50 @@
     var base = apiBase();
     if (!base) return;
 
-    function scheduleReconnect(ms) {
-      if (matchesListState.wsTimer) clearTimeout(matchesListState.wsTimer);
-      matchesListState.wsTimer = setTimeout(connect, ms || 2500);
-    }
-
-    function connect() {
-      if (matchesListState.ws) {
-        matchesListState.ws.onclose = null;
-        matchesListState.ws.close();
-        matchesListState.ws = null;
-      }
-      var wsProto = base.indexOf("https") === 0 ? "wss" : "ws";
-      var hostPath = base.replace(/^https?:\/\//, "");
-      var ws = new WebSocket(wsProto + "://" + hostPath + "/api/ws/live");
-      matchesListState.ws = ws;
-      ws.onmessage = function (ev) {
-        var data;
-        try {
-          data = JSON.parse(ev.data);
-        } catch (_e) {
-          return;
-        }
-        if (data.event === "match_update" && data.match) {
-          mergeMatchRow(data.match);
-          renderMatchListDom(filterMatchRows(allMatchRowsForDisplay()));
-        }
-        if (data.event === "match_status") {
-          var id = data.match_id;
-          if (!id) return;
-          if (isEndedStatus(data.status)) {
-            fetchJson("/api/stream/matches/" + encodeURIComponent(id))
-              .then(function (m) {
-                mergeMatchRow(Object.assign({}, m, { status: data.status }));
-                renderMatchListDom(filterMatchRows(allMatchRowsForDisplay()));
-              })
-              .catch(function () {
-                mergeMatchRow({
-                  match_id: id,
-                  status: data.status,
-                  score_summary: id,
-                  players: [],
-                });
-                renderMatchListDom(filterMatchRows(allMatchRowsForDisplay()));
-              });
-          } else {
-            refreshMatchList().catch(function () {});
+    matchesListState.wsHandle = window.QLLiveWs.connect(
+      function () {
+        var wsProto = base.indexOf("https") === 0 ? "wss" : "ws";
+        var hostPath = base.replace(/^https?:\/\//, "");
+        return wsProto + "://" + hostPath + "/api/ws/live";
+      },
+      {
+        backoffMs: 2500,
+        onMessage: function (ev) {
+          var data;
+          try {
+            data = JSON.parse(ev.data);
+          } catch (_e) {
+            return;
           }
-        }
-      };
-      ws.onclose = function () {
-        scheduleReconnect(2500);
-      };
-      ws.onerror = function () {
-        if (ws) ws.close();
-      };
-    }
-
-    connect();
+          if (data.event === "match_update" && data.match) {
+            mergeMatchRow(data.match);
+            renderMatchListDom(filterMatchRows(allMatchRowsForDisplay()));
+          }
+          if (data.event === "match_status") {
+            var id = data.match_id;
+            if (!id) return;
+            if (isEndedStatus(data.status)) {
+              fetchJson("/api/stream/matches/" + encodeURIComponent(id))
+                .then(function (m) {
+                  mergeMatchRow(Object.assign({}, m, { status: data.status }));
+                  renderMatchListDom(filterMatchRows(allMatchRowsForDisplay()));
+                })
+                .catch(function () {
+                  mergeMatchRow({
+                    match_id: id,
+                    status: data.status,
+                    score_summary: id,
+                    players: [],
+                  });
+                  renderMatchListDom(filterMatchRows(allMatchRowsForDisplay()));
+                });
+            } else {
+              refreshMatchList().catch(function () {});
+            }
+          }
+        },
+      },
+    );
   }
 
   function bindMatchesOperatorControls() {
@@ -1690,45 +1650,51 @@
     var id = matchId();
     if (!id) return;
     var base = apiBase();
-    var wsProto = base.indexOf("https") === 0 ? "wss" : "ws";
-    var hostPath = base.replace(/^https?:\/\//, "");
-    var ws = new WebSocket(
-      wsProto + "://" + hostPath + "/api/ws/live?match=" + encodeURIComponent(id),
+
+    window.QLLiveWs.connect(
+      function () {
+        var wsProto = base.indexOf("https") === 0 ? "wss" : "ws";
+        var hostPath = base.replace(/^https?:\/\//, "");
+        return wsProto + "://" + hostPath + "/api/ws/live?match=" + encodeURIComponent(id);
+      },
+      {
+        backoffMs: 2500,
+        onMessage: function (ev) {
+          var data;
+          try {
+            data = JSON.parse(ev.data);
+          } catch (_e) {
+            return;
+          }
+          if (data.event === "match_update" && data.match) {
+            var matchRow = data.match;
+            renderMatchPagePlayers(matchRow.players, matchRow.gametype);
+            matchPageClockRow = matchRow;
+            applyMatchPhaseBadge(
+              document.getElementById("match-page-status"),
+              matchRow,
+            );
+            renderMatchClockEl(
+              document.getElementById("match-page-clock"),
+              matchRow,
+            );
+            var title = document.getElementById("match-page-title");
+            if (title) {
+              title.textContent =
+                matchRow.score_summary ||
+                buildScoreSummary(matchRow.players, matchRow.gametype) ||
+                matchRow.match_id;
+            }
+          }
+          if (data.event === "session_event" && data.session_event) {
+            appendMatchArchiveEvent(data.session_event);
+          }
+          if (data.event === "accuracy_update" && data.accuracy) {
+            renderMatchArchiveAccuracy(data.accuracy);
+          }
+        },
+      },
     );
-    ws.onmessage = function (ev) {
-      var data;
-      try {
-        data = JSON.parse(ev.data);
-      } catch (_e) {
-        return;
-      }
-      if (data.event === "match_update" && data.match) {
-        var matchRow = data.match;
-        renderMatchPagePlayers(matchRow.players, matchRow.gametype);
-        matchPageClockRow = matchRow;
-        applyMatchPhaseBadge(
-          document.getElementById("match-page-status"),
-          matchRow,
-        );
-        renderMatchClockEl(
-          document.getElementById("match-page-clock"),
-          matchRow,
-        );
-        var title = document.getElementById("match-page-title");
-        if (title) {
-          title.textContent =
-            matchRow.score_summary ||
-            buildScoreSummary(matchRow.players, matchRow.gametype) ||
-            matchRow.match_id;
-        }
-      }
-      if (data.event === "session_event" && data.session_event) {
-        appendMatchArchiveEvent(data.session_event);
-      }
-      if (data.event === "accuracy_update" && data.accuracy) {
-        renderMatchArchiveAccuracy(data.accuracy);
-      }
-    };
   }
 
   var matchArchiveAccuracy = {};
