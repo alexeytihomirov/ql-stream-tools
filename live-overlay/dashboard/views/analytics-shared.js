@@ -1775,19 +1775,42 @@
     }
   }
 
-  function deathIsSuicide(d, worldLabel) {
+  function normalizeDeathWeapon(weapon) {
+    var w = String(weapon || "")
+      .trim()
+      .toUpperCase()
+      .replace(/-/g, "_");
+    if (w.indexOf("MOD_") === 0) w = w.slice(4);
+    return w;
+  }
+
+  var DUEL_VICTIM_PENALTY_WEAPONS = {
+    SUICIDE: 1,
+    SUICIDES: 1,
+    FALLING: 1,
+    LAVA: 1,
+    WATER: 1,
+    SLIME: 1,
+    CRUSH: 1,
+    TRIGGER_HURT: 1,
+    WORLD: 1,
+  };
+
+  function deathCostsVictimPoint(d, worldLabel) {
     var killerSteam = String(d.killer_steam_id64 || "").trim();
     var victimSteam = String(d.victim_steam_id64 || "").trim();
     var killer = stripQuakeColors(d.killer);
-    var victim = stripQuakeColors(d.victim);
-    var weapon = String(d.weapon || "")
-      .trim()
-      .toUpperCase();
-    if (weapon === "SUICIDE") return true;
-    if (killerSteam && victimSteam && killerSteam === victimSteam) return true;
-    if (killer && victim && killer === victim) return true;
-    if (!killerSteam && killer && killer === worldLabel && weapon === "SUICIDE") return true;
+    var weapon = normalizeDeathWeapon(d.weapon);
+    if (DUEL_VICTIM_PENALTY_WEAPONS[weapon]) return true;
+    if (killerSteam && victimSteam && killerSteam === victimSteam && weapon === "SUICIDE") return true;
+    if (!killerSteam && killer && (killer === worldLabel || String(killer).toLowerCase() === "world")) {
+      return true;
+    }
     return false;
+  }
+
+  function deathIsSuicide(d, worldLabel) {
+    return deathCostsVictimPoint(d, worldLabel);
   }
 
   function duelLikeArchive(archive) {
