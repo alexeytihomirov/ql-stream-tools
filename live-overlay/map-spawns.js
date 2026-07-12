@@ -325,6 +325,16 @@
     item_invis: true,
     item_invulnerability: true,
   };
+  // rockets/grenades: hide | show | splash. railgun/lightninggun: hide | show
+  // (beam). machinegun: hide | show (bullet impact marks — shared with
+  // shotgun since the protocol doesn't tag which weapon fired the mark).
+  var DEFAULT_WEAPON_FX = {
+    rockets: "splash",
+    grenades: "splash",
+    railgun: "show",
+    lightninggun: "show",
+    machinegun: "show",
+  };
   var DEFAULTS = {
     version: SETTINGS_VERSION,
     enabled: false,
@@ -336,10 +346,12 @@
     layers: {},
     layerTemplate: null,
     itemCategories: Object.assign({}, DEFAULT_ITEM_CATEGORIES),
+    weaponFx: Object.assign({}, DEFAULT_WEAPON_FX),
     showFovWedge: true,
     showDirectionArrow: true,
     playerMarkerStyle: "pin",
     showPlayerHealthArmor: true,
+    showWeaponInHand: false,
     playerMarkerMinPx: 8,
     playerMarkerMaxPx: 14,
     playerLabelFontPx: 11,
@@ -690,6 +702,11 @@
       s.itemCategories = Object.assign({}, DEFAULT_ITEM_CATEGORIES);
     } else {
       s.itemCategories = Object.assign({}, DEFAULT_ITEM_CATEGORIES, s.itemCategories);
+    }
+    if (!s.weaponFx || typeof s.weaponFx !== "object") {
+      s.weaponFx = Object.assign({}, DEFAULT_WEAPON_FX);
+    } else {
+      s.weaponFx = Object.assign({}, DEFAULT_WEAPON_FX, s.weaponFx);
     }
     if (s.showFovWedge == null) s.showFovWedge = DEFAULTS.showFovWedge;
     if (s.showDirectionArrow == null) s.showDirectionArrow = DEFAULTS.showDirectionArrow;
@@ -1925,15 +1942,26 @@
   };
 
   MapSpawns.prototype.onPickupEvent = function (data) {
-    if (data && String(data.action || "pickup").toLowerCase() === "drop") {
-      return;
-    }
+    var action = data && String(data.action || "pickup").toLowerCase();
+    if (action === "drop") return;
     var transform =
       this.transform || (this.lastPayload && this.lastPayload.transform);
     if (!this.settings.enabled || !this.entityData || !transform) return;
     if (!this.transform) this.transform = transform;
     var item = data && data.item;
-    if (!item || !itemSupportsRespawn(item)) return;
+    if (!item) return;
+    if (action === "respawn") {
+      // Ground-truth signal from the demo (item entity really reappeared in
+      // the snapshot) — un-hide immediately instead of waiting for the
+      // guessed respawn_sec timer below to run out. See demo-to-replay.js
+      // StaticItemTracker.collectPickups().
+      var respawnedEnt = this.findItemEntityForPickup(data, PICKUP_MATCH_RADIUS);
+      if (!respawnedEnt) return;
+      this._clearEntityPickupState(respawnedEnt.id);
+      this._refreshEntityHidden(respawnedEnt.id);
+      return;
+    }
+    if (!itemSupportsRespawn(item)) return;
     if (!entityVisibleForCategory(item, this.settings.itemCategories)) return;
     if (!this.layerEnabled("items")) return;
     var displayMode = pickupDisplayForClassname(item, this.settings);
@@ -3302,6 +3330,147 @@
     }
   };
 
+  // Weapon/projectile FX rows (Items tab, below item categories) — same
+  // icon-button-group look as ITEM_STATE_BUTTONS above, but each row picks
+  // its own 2- or 3-state set (hide/show, or hide/show/splash).
+  var WEAPON_FX_ROW_ICON = {
+    rockets: "iconw_rocket",
+    grenades: "iconw_grenade",
+    railgun: "iconw_railgun",
+    lightninggun: "iconw_lightning",
+    machinegun: "iconw_machinegun",
+  };
+  var WEAPON_FX_STATES_HIDE_SHOW = [
+    { state: "hide", icon: "item-hidden", title: "Hidden" },
+    { state: "show", icon: "item-show", title: "Shown" },
+  ];
+  var WEAPON_FX_STATES_HIDE_SHOW_SPLASH = [
+    { state: "hide", icon: "item-hidden", title: "Hidden" },
+    { state: "show", icon: "item-show", title: "Shown (no splash mark)" },
+    { state: "splash", iconUrl: "maps/sprites/udt/explosion.png", title: "Shown with splash" },
+  ];
+  var WEAPON_FX_ROW_STATES = {
+    rockets: WEAPON_FX_STATES_HIDE_SHOW_SPLASH,
+    grenades: WEAPON_FX_STATES_HIDE_SHOW_SPLASH,
+    railgun: WEAPON_FX_STATES_HIDE_SHOW,
+    lightninggun: WEAPON_FX_STATES_HIDE_SHOW,
+    machinegun: WEAPON_FX_STATES_HIDE_SHOW,
+  };
+  var WEAPON_FX_ROW_LABEL = {
+    playerWeapon: "Player weapon (in hand)",
+    rockets: "Rockets",
+    grenades: "Grenades",
+    railgun: "Railgun (beam)",
+    lightninggun: "Lightning gun (beam)",
+    machinegun: "Machine gun (bullet marks)",
+  };
+
+  MapSpawns.prototype.weaponFxStateFor = function (key) {
+    var fx = Object.assign({}, DEFAULT_WEAPON_FX, this.settings.weaponFx || {});
+    return fx[key] || "show";
+  };
+
+  MapSpawns.prototype.setWeaponFxState = function (key, state) {
+    if (!this.settings.weaponFx) {
+      this.settings.weaponFx = Object.assign({}, DEFAULT_WEAPON_FX);
+    }
+    markCustom(this.settings);
+    this.settings.weaponFx[key] = state;
+    saveSettings(this.settings);
+    if (window.OverlayApp && typeof OverlayApp.refreshHud === "function") {
+      OverlayApp.refreshHud();
+    }
+    this.syncWeaponFxControls();
+  };
+
+  MapSpawns.prototype._appendWeaponFxRow = function (host, key) {
+    var self = this;
+    var row = document.createElement("div");
+    row.className = "spawn-item-row";
+    row.setAttribute("data-weapon-fx-key", key);
+
+    var icon = document.createElement("img");
+    icon.className = "spawn-item-icon";
+    icon.alt = "";
+    icon.setAttribute("aria-hidden", "true");
+    icon.style.visibility = "hidden";
+    icon.onerror = function () {
+      icon.style.visibility = "hidden";
+    };
+    icon.onload = function () {
+      icon.style.visibility = "visible";
+    };
+    if (window.MapCoords && WEAPON_FX_ROW_ICON[key]) {
+      icon.src = MapCoords.assetUrl("maps/sprites/" + WEAPON_FX_ROW_ICON[key] + ".png");
+    }
+    row.appendChild(icon);
+
+    var name = document.createElement("span");
+    name.className = "spawn-item-name";
+    name.textContent = WEAPON_FX_ROW_LABEL[key] || key;
+    row.appendChild(name);
+
+    var states = document.createElement("div");
+    states.className = "spawn-item-states";
+    states.setAttribute("role", "group");
+    var buttons = WEAPON_FX_ROW_STATES[key] || WEAPON_FX_STATES_HIDE_SHOW;
+    buttons.forEach(function (b) {
+      var btn = document.createElement("button");
+      btn.type = "button";
+      btn.className = "spawn-item-state";
+      btn.setAttribute("data-item-state", b.state);
+      btn.title = b.title;
+      btn.setAttribute("aria-label", (WEAPON_FX_ROW_LABEL[key] || key) + ": " + b.title);
+      var img = document.createElement("img");
+      if (b.iconUrl) {
+        img.src = window.MapCoords ? MapCoords.assetUrl(b.iconUrl) : b.iconUrl;
+      } else {
+        img.src = window.MapCoords ? MapCoords.assetUrl("ui-icons/" + b.icon + ".png") : "ui-icons/" + b.icon + ".png";
+      }
+      img.alt = "";
+      img.setAttribute("aria-hidden", "true");
+      btn.appendChild(img);
+      btn.addEventListener("click", function () {
+        self.setWeaponFxState(key, b.state);
+      });
+      states.appendChild(btn);
+    });
+    row.appendChild(states);
+    host.appendChild(row);
+  };
+
+  MapSpawns.prototype.rebuildWeaponFxControls = function () {
+    var host = document.getElementById("spawn-weapon-fx-toggles");
+    if (!host) return;
+    host.innerHTML = "";
+    this._appendWeaponFxRow(host, "rockets");
+    this._appendWeaponFxRow(host, "grenades");
+    this._appendWeaponFxRow(host, "railgun");
+    this._appendWeaponFxRow(host, "lightninggun");
+    this._appendWeaponFxRow(host, "machinegun");
+    this.syncWeaponFxControls();
+  };
+
+  MapSpawns.prototype.syncWeaponFxControls = function () {
+    var host = document.getElementById("spawn-weapon-fx-toggles");
+    if (!host) return;
+    var self = this;
+    var rows = host.querySelectorAll(".spawn-item-row");
+    for (var i = 0; i < rows.length; i++) {
+      var row = rows[i];
+      var key = row.getAttribute("data-weapon-fx-key");
+      var active = self.weaponFxStateFor(key);
+      var btns = row.querySelectorAll(".spawn-item-state");
+      for (var j = 0; j < btns.length; j++) {
+        var btn = btns[j];
+        btn.setAttribute(
+          "aria-pressed",
+          btn.getAttribute("data-item-state") === active ? "true" : "false",
+        );
+      }
+    }
+  };
+
   MapSpawns.prototype.rebuildItemCategoryControls = function () {
     var host = document.getElementById("spawn-item-category-toggles");
     if (!host) return;
@@ -3365,6 +3534,7 @@
     this.render();
     this.syncLayerControls();
     this.syncItemCategoryControls();
+    this.syncWeaponFxControls();
     this.syncHudControls();
     this.syncPlayerControls();
     this.syncHeatmapControls();
@@ -3429,6 +3599,7 @@
     this.render();
     this.syncLayerControls();
     this.syncItemCategoryControls();
+    this.syncWeaponFxControls();
     this.syncHudControls();
     this.syncPlayerControls();
     this.syncThemeControls();
@@ -3472,6 +3643,7 @@
         self.render();
         self.syncLayerControls();
         self.syncItemCategoryControls();
+        self.syncWeaponFxControls();
         self.syncHudControls();
         self.syncPlayerControls();
         self.syncThemeControls();
@@ -3909,6 +4081,7 @@
       '<option value="arrow">Arrow line</option>' +
       "</select></label>" +
       '<label class="dbg-toggle"><input type="checkbox" id="spawn-show-player-stats" /> Show HP / armor above nickname</label>' +
+      '<label class="dbg-toggle"><input type="checkbox" id="spawn-show-weapon-in-hand" /> Show weapon in hand (like UDT viewer)</label>' +
       '<label class="dbg-field">Marker size (low height) <span id="spawn-marker-min-value" class="map-spawns-zoom-value">8px</span>' +
       '<input type="range" id="spawn-marker-min" min="' +
       PLAYER_MARKER_MIN_PX +
@@ -3950,6 +4123,11 @@
       "<h3>Item categories</h3>" +
       '<p class="map-spawns-hint">Per item: Hidden / Always visible / Hide until respawn / Timer ring after pickup. Expand Health, Armor, Powerups for per-type. Shards off by default (25 s respawn).</p>' +
       '<div id="spawn-item-category-toggles"></div>' +
+      "</section>" +
+      '<section class="map-spawns-section">' +
+      "<h3>Weapon &amp; projectile effects</h3>" +
+      '<p class="map-spawns-hint">Rockets/grenades: Hidden / Shown / Shown with splash mark. Railgun/lightning gun: beam on or off. Machine gun: bullet impact marks on or off (shared with shotgun — the demo protocol doesn\'t tag which weapon left the mark).</p>' +
+      '<div id="spawn-weapon-fx-toggles"></div>' +
       "</section>" +
       "</div>" +
       '<div class="map-spawns-tab-panel hidden" data-settings-panel="hud">' +
@@ -4063,6 +4241,7 @@
       });
     }
     var showPlayerStats = document.getElementById("spawn-show-player-stats");
+    var showWeaponInHand = document.getElementById("spawn-show-weapon-in-hand");
     var markerMin = document.getElementById("spawn-marker-min");
     var markerMinVal = document.getElementById("spawn-marker-min-value");
     var markerMax = document.getElementById("spawn-marker-max");
@@ -4099,6 +4278,15 @@
       showPlayerStats.addEventListener("change", function () {
         markCustom(self.settings);
         self.settings.showPlayerHealthArmor = showPlayerStats.checked;
+        saveSettings(self.settings);
+        refreshPlayerMarkers();
+      });
+    }
+    if (showWeaponInHand) {
+      showWeaponInHand.checked = self.settings.showWeaponInHand === true;
+      showWeaponInHand.addEventListener("change", function () {
+        markCustom(self.settings);
+        self.settings.showWeaponInHand = showWeaponInHand.checked;
         saveSettings(self.settings);
         refreshPlayerMarkers();
       });
@@ -4409,6 +4597,7 @@
     this.syncAnchorControls();
     this.rebuildLayerControls();
     this.rebuildItemCategoryControls();
+    this.rebuildWeaponFxControls();
     this.syncSettingsTabs();
     this.syncHudControls();
     this.syncProfileControls();
@@ -4468,6 +4657,7 @@
     pressed(this._tbDirection, s.showDirectionArrow !== false);
     pressed(this._tbFov, s.showFovWedge !== false);
     pressed(this._tbStats, s.showPlayerHealthArmor !== false);
+    pressed(this._tbWeapon, s.showWeaponInHand === true);
   };
 
   // Compact top-left icon toolbar. Quick toggles proxy to the detailed controls
@@ -4776,6 +4966,15 @@
         self.syncToolbar();
       },
     });
+    self._tbWeapon = makeBtn({
+      icon: "../maps/sprites/iconw_rocket",
+      title: "Weapon in hand on / off (like UDT viewer)",
+      toggle: true,
+      onClick: function () {
+        proxyCheckbox("spawn-show-weapon-in-hand");
+        self.syncToolbar();
+      },
+    });
 
     sep();
 
@@ -4937,6 +5136,7 @@
       "spawn-player-marker-style",
       "spawn-show-fov-wedge",
       "spawn-show-player-stats",
+      "spawn-show-weapon-in-hand",
     ].forEach(function (id) {
       var el = document.getElementById(id);
       var lab = el && el.closest ? el.closest("label") : null;
@@ -5048,6 +5248,7 @@
         showDirectionArrow: s.showDirectionArrow !== false,
         playerMarkerStyle: normalizePlayerMarkerStyle(s.playerMarkerStyle),
         showPlayerHealthArmor: s.showPlayerHealthArmor !== false,
+        showWeaponInHand: s.showWeaponInHand === true,
         playerMarkerMinPx: clampPlayerMarkerMinPx(s.playerMarkerMinPx),
         playerMarkerMaxPx: clampPlayerMarkerMaxPx(
           s.playerMarkerMaxPx,
@@ -5059,6 +5260,9 @@
         fovOpacity: clampOpacity(theme.players.fovOpacity, 1),
         viewOpacity: clampOpacity(theme.players.viewOpacity, 1),
       };
+    },
+    getWeaponFxSettings: function () {
+      return Object.assign({}, DEFAULT_WEAPON_FX, instance.settings.weaponFx || {});
     },
     getHudSettings: function () {
       var s = instance.settings;

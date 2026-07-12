@@ -14,7 +14,7 @@ https://cdn.jsdelivr.net/gh/owner/ql-stream-tools@main/live-overlay/dashboard/in
 http://127.0.0.1:8787/live-overlay/dashboard/index.html?base=http://STATS_HOST:8090
 ```
 
-Hash routes: `#/` · `#/results` · `#/tournament` · `#/server/{id}` · `#/settings`.
+Hash routes: `#/` · `#/results` · `#/tournament` · `#/server/{id}` · `#/demo` · `#/settings`.
 
 Legacy `control/` and `viewer.html` redirect to `dashboard/`. Operator pages: `match.html`, `matches.html?mode=operator`.
 

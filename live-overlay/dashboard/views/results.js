@@ -39,7 +39,7 @@
     checkpointFetchTimer = setTimeout(function () {
       checkpointFetchTimer = 0;
       fetchCheckpoint(recordingId, Math.max(0, Math.round(Number(tMs))));
-    }, 320);
+    }, 200);
   }
 
   function flushCheckpointPanelSync() {
@@ -776,8 +776,18 @@
             "/api/replays/" + encodeURIComponent(recordingId) + "?limit=10000",
           );
           archive = A().enrichArchivePickupsFromReplay(archive, replayPayload);
+          archive = A().attachReplayScrubData(archive, replayPayload);
         } catch (_replayErr) {
           /* keep archive without pickups */
+        }
+      } else if (archive.replay_available !== false) {
+        try {
+          var replayForDeath = await QLDashboard.fetchStatsJson(
+            "/api/replays/" + encodeURIComponent(recordingId) + "?limit=10000",
+          );
+          archive = A().attachReplayScrubData(archive, replayForDeath);
+        } catch (_replayErr2) {
+          /* deaths-only fallback */
         }
       }
       lastArchive = A().normalizeArchiveCombatClock(archive);

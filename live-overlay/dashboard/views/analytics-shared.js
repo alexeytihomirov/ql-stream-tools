@@ -1878,6 +1878,128 @@
 
   // Archive players often carry 0/0/0 when the snapshot missed the last ZMQ
   // PLAYER_STATS tick; derive final frags from the death log as fallback.
+  /** Death windows from replay positions (same model as overlay minimap). */
+  function replayEventGameMs(ev) {
+    if (!ev) return null;
+    var gt = Number(ev.game_time_ms);
+    return isNaN(gt) ? null : gt;
+  }
+
+  function buildReplayDeathWindowsGameMs(events) {
+    var pending = {};
+    var windows = {};
+    (events || []).forEach(function (ev) {
+      if (!ev || typeof ev !== "object") return;
+      if (ev.event === "death") {
+        var sid = String(ev.victim_steam_id64 || "").trim();
+        if (!sid) return;
+        var deathGt = replayEventGameMs(ev);
+        if (deathGt == null) return;
+        windows[sid] = windows[sid] || [];
+        windows[sid].push({
+          deathGt: deathGt,
+          respawnGt: null,
+          x: ev.x,
+          y: ev.y,
+          z: ev.z,
+        });
+        pending[sid] = windows[sid].length - 1;
+        return;
+      }
+      if (ev.event === "positions") {
+        var t = replayEventGameMs(ev);
+        if (t == null) return;
+        (ev.players || []).forEach(function (p) {
+          var psid = String(p.steam_id64 || "").trim();
+          if (!psid || pending[psid] == null) return;
+          if (p.alive === false) return;
+          var hp =
+            p.health != null ? Number(p.health) : p.h != null ? Number(p.h) : null;
+          if (hp != null && hp <= 0) return;
+          windows[psid][pending[psid]].respawnGt = t;
+          delete pending[psid];
+        });
+      }
+    });
+    return windows;
+  }
+
+  function buildReplayPositionTimeline(events) {
+    var rows = [];
+    (events || []).forEach(function (ev) {
+      if (!ev || ev.event !== "positions") return;
+      var gt = replayEventGameMs(ev);
+      if (gt == null) return;
+      rows.push({ game_time_ms: gt, players: ev.players || [] });
+    });
+    rows.sort(function (a, b) {
+      return a.game_time_ms - b.game_time_ms;
+    });
+    return rows;
+  }
+
+  function nearestReplayPositionsAtScrub(timeline, scrubMs) {
+    if (!timeline || !timeline.length || scrubMs == null || isNaN(Number(scrubMs))) return null;
+    var t = Number(scrubMs);
+    var best = null;
+    for (var i = 0; i < timeline.length; i++) {
+      if (timeline[i].game_time_ms > t) break;
+      best = timeline[i];
+    }
+    return best;
+  }
+
+  function attachReplayScrubData(archive, replayPayload) {
+    var events = (replayPayload && replayPayload.events) || (archive && archive.events);
+    if (!Array.isArray(events) || !events.length) return archive;
+    var out = Object.assign({}, archive || {});
+    out.deathWindows = buildReplayDeathWindowsGameMs(events);
+    out.replayPositions = buildReplayPositionTimeline(events);
+    return out;
+  }
+
+  function attachReplayDeathWindows(archive, replayPayload) {
+    return attachReplayScrubData(archive, replayPayload);
+  }
+
+  function hasReplayScrubData(archive) {
+    return !!(
+      archive &&
+      ((archive.replayPositions && archive.replayPositions.length) || archive.deathWindows)
+    );
+  }
+
+  function playerDeadWindowAtScrub(deathWindows, steamId64, scrubMs) {
+    if (!deathWindows || scrubMs == null || isNaN(Number(scrubMs))) return null;
+    var want = String(steamId64 || "").trim();
+    if (!want) return null;
+    var scrub = Number(scrubMs);
+    var rows = deathWindows[want];
+    if (!rows || !rows.length) return null;
+    for (var i = 0; i < rows.length; i++) {
+      var row = rows[i];
+      if (scrub < row.deathGt) continue;
+      if (row.respawnGt != null && scrub >= row.respawnGt) continue;
+      return {
+        dead: true,
+        deathGt: row.deathGt,
+        x: row.x,
+        y: row.y,
+        z: row.z,
+      };
+    }
+    return { alive: true };
+  }
+
+  /** Death / respawn at scrub from replay death windows (positions-based respawn). */
+  function playerCombatWindowAtScrub(archive, steamId64, scrubMs) {
+    if (!archive || scrubMs == null || isNaN(Number(scrubMs))) return null;
+    if (archive.deathWindows) {
+      return playerDeadWindowAtScrub(archive.deathWindows, steamId64, scrubMs);
+    }
+    return null;
+  }
+
   function resolveFinalPlayers(archive, livePlayers) {
     var players = Array.isArray(archive.players) ? archive.players.slice() : [];
     var nickBySteam = buildNicknameBySteam(archive, livePlayers);
@@ -2337,6 +2459,14 @@
     resolveFinalPlayers: resolveFinalPlayers,
     resolvePlayersAtScrub: resolvePlayersAtScrub,
     resolveDisplayPlayers: resolveDisplayPlayers,
+    buildReplayDeathWindowsGameMs: buildReplayDeathWindowsGameMs,
+    buildReplayPositionTimeline: buildReplayPositionTimeline,
+    nearestReplayPositionsAtScrub: nearestReplayPositionsAtScrub,
+    attachReplayScrubData: attachReplayScrubData,
+    attachReplayDeathWindows: attachReplayDeathWindows,
+    hasReplayScrubData: hasReplayScrubData,
+    playerDeadWindowAtScrub: playerDeadWindowAtScrub,
+    playerCombatWindowAtScrub: playerCombatWindowAtScrub,
     archiveForScore: archiveForScore,
     renderMatchupBanner: renderMatchupBanner,
     renderScoreboard: renderScoreboard,

@@ -30,6 +30,39 @@ No separate `pickup_ms` column in JSONL — use `game_time_ms` on `event=pickup`
 
 ## Open / next
 
+### Replay storage — QLRP binary (ql-stream-tools → stats-hub)
+
+**Problem:** JSON / JSONL replays are large (~6× demo for full-rate snapshot export) and heavy on disk + API expand.
+
+**Direction:** [QLRP v1](replay-binary-QLRP.md) — compact columnar tracks + sparse pickups. No hand-editing; decode to canonical `{ meta, events }` for checkpoint builder / scrub. Debug: `--json` or API `?format=json`.
+
+| Phase | Status |
+|-------|--------|
+| ql-stream-tools encode/decode + demo `--full` → `.qlrp` | **done (2026-07)** |
+| stats-hub `ReplayRecorder` + `/api/replays` read path | planned |
+| dashboard demo import (qlrp upload) | planned |
+| optional 10 Hz subsample on encode (live parity) | backlog |
+
+### Demo parser → restore (ql-stream-tools)
+
+| Piece | Status (bloodrun POV duel) |
+|-------|----------------------------|
+| dm_91 playerstate delta | done — 24448 snaps, 0 errors |
+| dm_91 entity delta (`EntityStateFields91`) | done |
+| Positions | `ET_PLAYER` + playerstate merge + carry-forward → both players every snap |
+| Pickups | `ET_ITEM` + map entity lookup (`maps/entities/{map}.json`) — classname@coords, no entity_id |
+| Projectiles | sparse `ET_MISSILE` frames + `weapon` / `weapon_slug` (RL/GL/PG, UDT filter) |
+| Impacts | bullet/missile/explosion via `ET_GENERAL` + `ET_EVENTS` + NewEvent (UDT viewer) |
+| Beams | rail trails from changed entities (`EV_RAIL_TRAIL`, eType-encoded) |
+| Player powerups | `ps.powerups[]` expiry slots when present |
+| World powerup items | entity `powerups` bitmask on item rows |
+
+**Canonical JSON:** `meta.schema: "replay-v2"` — events: `match_start`, `positions`, `pickup`, `projectiles`, `impacts`, `beams`.
+See `docs/replay-binary-QLRP.md` (QLRP v1 = positions+pickups only; v2 = +projectiles).
+
+- Wire decoded replay → `QLRestoreEditor` / match viewer scrub.
+- Optional `POST /api/demo/import` on stats-hub (stores `.qlrp`, not JSON).
+
 ### Minimap / replay scrub (ql-stream-tools)
 
 - **Kinematics on minimap:** when scrubbing timeline, interpolate position between telemetry samples and **extrapolate** with `vx/vy/vz` between posts (10 Hz active / 1 Hz idle). Reduces “steppy” dots without faking data outside velocity cone.

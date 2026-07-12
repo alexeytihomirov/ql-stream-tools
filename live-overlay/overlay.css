@@ -946,6 +946,23 @@ body.map-debug-mode .status {
   display: none;
 }
 
+/* UDT-style in-hand weapon sprite: a portrait gun/tool image held to the
+   side of the player dot, like DrawPlayerWeapon() in the UDT viewer. JS
+   (placePlayerElement) applies the side offset + rotation via `transform`;
+   here the image is just centered on the marker before that transform. */
+.map-weapon-icon {
+  position: absolute;
+  left: 50%;
+  top: 50%;
+  width: 9px;
+  height: 24px;
+  object-fit: contain;
+  margin-left: -4.5px;
+  margin-top: -12px;
+  pointer-events: none;
+  filter: drop-shadow(0 0 2px rgba(0, 0, 0, 0.85));
+}
+
 .map-meta {
   /* Map caption (e.g. "REPLAY · bloodrun · duel · server-1" / "bloodrun · N
      players") is redundant clutter on both the OBS overlay and the embedded
@@ -1304,6 +1321,127 @@ body.map-replay-mode .map-replay-bar {
   height: 100%;
   object-fit: contain;
   filter: drop-shadow(0 0 3px rgba(0, 0, 0, 0.85));
+}
+
+.map-beam-layer {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  z-index: 4;
+  pointer-events: none;
+}
+
+.map-fx-beam-line {
+  stroke: #f87171;
+  stroke-width: 2;
+  stroke-linecap: round;
+}
+
+.map-fx-beam-lightninggun {
+  stroke: #fde047;
+  stroke-width: 2.5;
+}
+
+.map-impact-layer,
+.map-projectile-layer {
+  position: absolute;
+  inset: 0;
+  z-index: 4;
+  pointer-events: none;
+}
+
+.map-fx-marker {
+  position: absolute;
+  transform: translate(-50%, -50%);
+  pointer-events: none;
+  border-radius: 50%;
+}
+
+.map-fx-impact {
+  width: 10px;
+  height: 10px;
+  background: #e5e7eb;
+  box-shadow: 0 0 4px rgba(0, 0, 0, 0.85);
+}
+
+.map-fx-impact-explosion {
+  width: 16px;
+  height: 16px;
+  background: #f97316;
+}
+
+.map-fx-impact-plasma {
+  background: #38bdf8;
+}
+
+.map-fx-impact-shaft {
+  background: #fde047;
+}
+
+.map-fx-projectile {
+  /* Unrotated shape points along +X (screen-right) — yaw=0 convention, same as
+     the player FOV wedge/direction arrow (fovWedgePath / -yaw rotation). */
+  width: 14px;
+  height: 10px;
+  background: #f8fafc;
+  border-radius: 0;
+  clip-path: polygon(0% 0%, 100% 50%, 0% 100%, 22% 50%);
+  box-shadow: 0 0 4px rgba(0, 0, 0, 0.9);
+}
+
+.map-fx-projectile-rocketlauncher {
+  background: #fb923c;
+}
+
+.map-fx-projectile-plasmagun {
+  background: #38bdf8;
+}
+
+/* UDT draws the in-flight grenade as a plain green ball, not an arrow. */
+.map-fx-projectile-grenadelauncher {
+  width: 9px;
+  height: 9px;
+  background: radial-gradient(circle at 35% 30%, #bbf7b0, #22c55e 70%);
+  clip-path: none;
+  box-shadow: 0 0 4px rgba(0, 0, 0, 0.9);
+}
+
+.map-fx-projectile-sprite {
+  position: absolute;
+  width: 18px;
+  height: 18px;
+  pointer-events: none;
+  filter: drop-shadow(0 0 3px rgba(0, 0, 0, 0.9));
+}
+
+/* Plasma/impact/explosion sprites imported from UDT are baked on a black
+   background (meant for additive blending in its nanovg renderer) — screen
+   blend approximates that over our map art instead of showing a black box. */
+.map-fx-projectile-plasma-sprite {
+  mix-blend-mode: screen;
+}
+
+.map-fx-impact-sprite {
+  position: absolute;
+  transform: translate(-50%, -50%);
+  pointer-events: none;
+  mix-blend-mode: screen;
+}
+
+.map-fx-impact-bullet-sprite {
+  width: 14px;
+  height: 14px;
+}
+
+.map-fx-impact-plasma-sprite {
+  width: 16px;
+  height: 16px;
+}
+
+.map-fx-impact-explosion-sprite {
+  width: 34px;
+  height: 34px;
 }
 
 .map-item-respawn-layer {

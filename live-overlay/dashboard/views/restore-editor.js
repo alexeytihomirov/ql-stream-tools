@@ -313,12 +313,13 @@
   }
 
   function resolveCfgText(host, state, opts) {
+    if (state) return buildCfgTextFromState(state);
     opts = opts || {};
     if (!host || !host._qlRestoreCfgDirty) {
       var fromPayload = opts.payload ? pickCfgText(opts.payload) : "";
       if (fromPayload) return fromPayload;
     }
-    return buildCfgTextFromState(state);
+    return buildCfgTextFromState(state || { t_ms: 0, map: "", players: [], items: [] });
   }
 
   function buildCfgTextFromState(state) {
@@ -425,6 +426,13 @@
     }
     var sc = row.sc != null ? row.sc : row.score;
     var dead = row.dead != null ? row.dead : row.alive === false ? 1 : 0;
+    var hRaw = row.h != null ? row.h : row.health;
+    var h =
+      hRaw != null && hRaw !== ""
+        ? clampInt(hRaw, 0, 999)
+        : dead
+          ? 0
+          : 100;
     var out = {
       cid: row.cid != null ? clampInt(row.cid, 0, 255) : idx,
       sid: String(row.sid || row.steam_id64 || "").trim(),
@@ -435,7 +443,7 @@
       vx: row.vx != null ? clampInt(row.vx, -9999, 9999) : null,
       vy: row.vy != null ? clampInt(row.vy, -9999, 9999) : null,
       vz: row.vz != null ? clampInt(row.vz, -9999, 9999) : null,
-      h: clampInt(row.h != null ? row.h : row.health, 0, 999),
+      h: h,
       a: clampInt(row.a != null ? row.a : row.armor, 0, 999),
       w: clampInt(row.w != null ? row.w : row.weapon, 0, 255),
       lo: clampInt(row.lo != null ? row.lo : row.loadout, 0, 65535),
@@ -451,6 +459,74 @@
       out.am = {};
     }
     return out;
+  }
+
+  function overlayDeathAdjustPlayers(players, archive, scrubT) {
+    var A = analytics();
+    if (!A || !archive || !A.playerCombatWindowAtScrub) return players;
+    var t = scrubMsValue(scrubT);
+    if (t == null) return players;
+    return (players || []).map(function (p) {
+      var steam = String(p.sid || "").trim();
+      if (!steam) return p;
+      var win = A.playerCombatWindowAtScrub(archive, steam, t);
+      if (!win) return p;
+      var copy = Object.assign({}, p);
+      if (win.dead) {
+        copy.dead = 1;
+        copy.h = 0;
+        copy.w = 0;
+        copy.lo = 1 << 1;
+        copy.loadoutKeys = loadoutKeysFromMask(copy.lo);
+        copy.am = {};
+        ["x", "y", "z"].forEach(function (axis) {
+          if (win[axis] != null && !isNaN(Number(win[axis]))) {
+            copy[axis] = clampFloat(win[axis]);
+          }
+        });
+        return copy;
+      }
+      if (copy.dead) {
+        copy.dead = 0;
+        if (copy.h <= 0) copy.h = 100;
+      }
+      return copy;
+    });
+  }
+
+  function applyReplayScrubToPlayers(players, archive, scrubT) {
+    var A = analytics();
+    if (!A || !archive || !A.hasReplayScrubData(archive)) {
+      return overlayDeathAdjustPlayers(players, archive, scrubT);
+    }
+    var t = scrubMsValue(scrubT);
+    if (t == null) return players;
+    var snap = A.nearestReplayPositionsAtScrub(archive.replayPositions, t);
+    var roster = players || [];
+    if (snap && snap.players && snap.players.length) {
+      var bySteam = {};
+      roster.forEach(function (p) {
+        var sid = String(p.sid || "").trim();
+        if (sid) bySteam[sid] = p;
+      });
+      roster = snap.players.map(function (row, idx) {
+        var steam = String(row.steam_id64 || "").trim();
+        var p = playerRowFromCheckpoint(row, idx);
+        if (steam && bySteam[steam]) {
+          if (bySteam[steam].label) p.label = bySteam[steam].label;
+          if (bySteam[steam].sc != null && bySteam[steam].sc !== "") {
+            p.sc = bySteam[steam].sc;
+          }
+        }
+        return p;
+      });
+    }
+    return overlayDeathAdjustPlayers(roster, archive, t);
+  }
+
+  function replayScrubPlayersActive(archive) {
+    var A = analytics();
+    return !!(A && archive && A.hasReplayScrubData(archive));
   }
 
   function stripColors(text) {
@@ -797,6 +873,7 @@
         }
       });
     }
+    players = applyReplayScrubToPlayers(players, archive, scrubT);
     return {
       v: 2,
       t_ms: scrubT,
@@ -863,7 +940,13 @@
       previewTMs != null ? clampInt(previewTMs, 0, 86400000) : clampInt(base.t_ms, 0, 86400000);
     base.t_ms = t;
     base.items = filterCheckpointItemsForScrub(snap.rawItems, t, snap.sourceTMs);
+    var archive = opts.archive || currentBindOpts(host).archive;
+    var replayPlayers = replayScrubPlayersActive(archive);
+    if (archive) {
+      base.players = applyReplayScrubToPlayers(base.players, archive, t);
+    }
     if (
+      !replayPlayers &&
       opts.status === "ready" &&
       opts.payload &&
       scrubPayloadRelation(opts.payload, t) === "exact"
@@ -1250,6 +1333,7 @@
         row.vy = clampInt(p.vy, -9999, 9999);
         row.vz = clampInt(p.vz, -9999, 9999);
       }
+      if (p.dead) row.dead = 1;
       return row;
     });
     return {

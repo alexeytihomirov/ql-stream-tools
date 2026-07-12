@@ -1580,3 +1580,56 @@ td .server-location-name {
 .ql-restore-encode-status {
   font-size: 11px;
 }
+
+.demo-drop-zone {
+  margin-top: 12px;
+  padding: 28px 20px;
+  border: 2px dashed var(--border, #444);
+  border-radius: 8px;
+  text-align: center;
+  cursor: pointer;
+  background: rgba(255, 255, 255, 0.02);
+  transition: border-color 0.15s, background 0.15s;
+}
+
+.demo-drop-zone:hover,
+.demo-drop-zone.demo-drop-active,
+.demo-drop-zone:focus-visible {
+  border-color: var(--accent, #6cf);
+  background: rgba(102, 204, 255, 0.06);
+  outline: none;
+}
+
+.demo-drop-title {
+  margin: 0 0 6px;
+  font-size: 15px;
+  font-weight: 600;
+}
+
+.demo-drop-sub {
+  margin: 0;
+  font-size: 12px;
+  color: var(--muted, #888);
+}
+
+.demo-summary-dl {
+  display: grid;
+  grid-template-columns: auto 1fr;
+  gap: 4px 16px;
+  margin: 12px 0 0;
+  font-size: 13px;
+}
+
+.demo-summary-dl dt {
+  margin: 0;
+  color: var(--muted, #888);
+  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+}
+
+.demo-summary-dl dd {
+  margin: 0;
+}
+
+.demo-viewer-section {
+  margin-top: 8px;
+}

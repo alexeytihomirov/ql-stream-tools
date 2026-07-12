@@ -22,6 +22,7 @@ Entry: `live-overlay/dashboard/index.html`
 | `#/server/{match_id}` | Match detail (summary, killfeed, pickups, accuracy) | `views/match.js` |
 | `#/results` | Finished matches list | `views/results.js` |
 | `#/restore` | Match restore editor | `views/restore.js` |
+| `#/demo` | Local `.dm_91` upload + map replay | `views/demo.js` |
 | `#/settings` | Connection form | `views/settings.js` |
 
 Match analytics: `GET /api/stream/matches/{id}/archive-summary` on stats-hub. Preview layout with sample data: add `?debug=1` to dashboard URL (e.g. `index.html?base=…&debug=1#/server/server-1`).

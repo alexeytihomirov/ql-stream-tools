@@ -27,6 +27,14 @@
       var archive = await QLDashboard.fetchStatsJson(
         "/api/stream/results/" + encodeURIComponent(recordingId),
       );
+      try {
+        var replayPayload = await QLDashboard.fetchStatsJson(
+          "/api/replays/" + encodeURIComponent(recordingId) + "?limit=10000",
+        );
+        archive = A().attachReplayScrubData(archive, replayPayload);
+      } catch (_replayErr) {
+        /* deaths-only fallback */
+      }
       lastArchive = A().normalizeArchiveCombatClock(archive);
       if (tMs == null) {
         tMs = A().computeTimelineMaxMs(lastArchive, null);

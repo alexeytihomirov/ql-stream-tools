@@ -26,6 +26,9 @@
     '<div id="map-item-respawns" class="map-item-respawn-layer" aria-hidden="true"></div>' +
     '<div id="map-spawn-ref" class="map-spawn-ref" aria-hidden="true"></div>' +
     '<div id="map-deaths" class="map-death-layer" aria-hidden="true"></div>' +
+    '<svg id="map-beams" class="map-beam-layer" aria-hidden="true"></svg>' +
+    '<div id="map-impacts" class="map-impact-layer" aria-hidden="true"></div>' +
+    '<div id="map-projectiles" class="map-projectile-layer" aria-hidden="true"></div>' +
     '<canvas id="map-contour-trail" class="map-contour-layer hidden" aria-hidden="true"></canvas>' +
     '<canvas id="map-heatmap" class="map-heatmap-layer hidden" aria-hidden="true"></canvas>' +
     '<div id="map-spawn-cursor" class="map-spawn-cursor hidden" aria-hidden="true"></div>' +

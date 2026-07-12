@@ -1,0 +1,5 @@
+Sprites in this folder are imported from the UDT project's viewer_data/sprites
+(mightycow/uberdemotools, GPL), which itself derives them from id Software's
+Quake III Arena assets. Used here for a non-commercial demo-replay viewer with
+the project owner's explicit sign-off. Not for redistribution as a standalone
+asset pack.

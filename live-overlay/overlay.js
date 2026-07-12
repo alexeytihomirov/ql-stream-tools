@@ -123,7 +123,6 @@
   }
 
   function mapSmoothEnabled() {
-    if (replayMode()) return false;
     var v = String(qs("smooth", "1")).toLowerCase();
     return v !== "0" && v !== "false" && v !== "off";
   }
@@ -2286,6 +2285,9 @@
   var PICKUP_LOG_MAX = 200;
   var mapDeathMarkers = [];
   var mapLastKnownPos = {};
+  var mapImpactMarkers = [];
+  var mapBeamMarkers = {};
+  var mapProjectileMarkers = {};
 
   function deathMarkerSec() {
     return Math.max(2, Math.min(120, Number(qs("death_sec", "4")) || 4));
@@ -2323,6 +2325,86 @@
     if (deathSpriteUrl) return deathSpriteUrl;
     deathSpriteUrl = resolveOverlayAsset("maps/sprites/medal_excellent.png");
     return deathSpriteUrl;
+  }
+
+  // Raw dm_91 weapon index (qldemo/weapons.js WEAPON_SLUG) -> our own existing
+  // pickup sprite file. Used for the killfeed/pickup log and as a fallback for
+  // weapons the imported UDT set doesn't cover (BFG, grapple).
+  var WEAPON_ICON_FILE = {
+    1: "iconw_gauntlet.png",
+    2: "iconw_machinegun.png",
+    3: "iconw_shotgun.png",
+    4: "iconw_grenade.png",
+    5: "iconw_rocket.png",
+    6: "iconw_lightning.png",
+    7: "iconw_railgun.png",
+    8: "iconw_plasma.png",
+    9: "iconw_bfg.png",
+    10: "iconw_grapple.png",
+  };
+  var weaponIconUrlCache = {};
+
+  function weaponIconUrlById(weaponId) {
+    var file = WEAPON_ICON_FILE[Number(weaponId)];
+    return weaponIconUrlByFile(file);
+  }
+
+  var WEAPON_ICON_FILE_BY_SLUG = {
+    gauntlet: "iconw_gauntlet.png",
+    machinegun: "iconw_machinegun.png",
+    shotgun: "iconw_shotgun.png",
+    grenadelauncher: "iconw_grenade.png",
+    rocketlauncher: "iconw_rocket.png",
+    lightninggun: "iconw_lightning.png",
+    railgun: "iconw_railgun.png",
+    plasmagun: "iconw_plasma.png",
+    bfg: "iconw_bfg.png",
+    grapple: "iconw_grapple.png",
+  };
+
+  function weaponIconUrlBySlug(slug) {
+    var file = WEAPON_ICON_FILE_BY_SLUG[String(slug || "").toLowerCase()];
+    return weaponIconUrlByFile(file);
+  }
+
+  function weaponIconUrlByFile(file) {
+    if (!file) return "";
+    if (!weaponIconUrlCache[file]) {
+      weaponIconUrlCache[file] = resolveOverlayAsset("maps/sprites/" + file);
+    }
+    return weaponIconUrlCache[file];
+  }
+
+  // Sprites imported from the UDT viewer's own asset pack (maps/sprites/udt/,
+  // see SOURCE.txt there) — in-hand weapons, projectiles, impact marks and
+  // explosion frames, used with the project owner's sign-off.
+  var udtSpriteUrlCache = {};
+  function udtSpriteUrl(file) {
+    if (!file) return "";
+    if (!udtSpriteUrlCache[file]) {
+      udtSpriteUrlCache[file] = resolveOverlayAsset("maps/sprites/udt/" + file);
+    }
+    return udtSpriteUrlCache[file];
+  }
+
+  // Weapon id -> UDT in-hand sprite (DrawPlayerWeapon in the UDT viewer).
+  // BFG (9) and grapple (10) aren't in UDT's bundled set — fall back to our
+  // own flat pickup icon so something still renders.
+  var WEAPON_HAND_SPRITE_FILE = {
+    1: "gauntlet.png",
+    2: "mg.png",
+    3: "sg.png",
+    4: "gl.png",
+    5: "rl.png",
+    6: "lg.png",
+    7: "rg.png",
+    8: "pg.png",
+  };
+
+  function weaponHandSpriteUrlById(weaponId) {
+    var file = WEAPON_HAND_SPRITE_FILE[Number(weaponId)];
+    if (file) return udtSpriteUrl(file);
+    return weaponIconUrlById(weaponId);
   }
 
   function createDeathCrossMarker() {
@@ -2466,10 +2548,30 @@
       showDirectionArrow: true,
       playerMarkerStyle: "pin",
       showPlayerHealthArmor: true,
+      showWeaponInHand: false,
       playerMarkerMinPx: 8,
       playerMarkerMaxPx: 14,
       playerLabelFontPx: 11,
       mapZoomPercent: 100,
+    };
+  }
+
+  // rockets/grenades: "hide" | "show" | "splash" (splash = explosion sprite on
+  // impact, show = projectile only with a plain impact mark).
+  // railgun/lightninggun: "hide" | "show" (beam line).
+  // machinegun: "hide" | "show" (bullet impact marks — MG and SG hits share
+  // the same network event with no reliable per-weapon tag in this protocol,
+  // so this also covers SG marks; see WP_ROCKET/WP_GRENADE comment below).
+  function weaponFxSettings() {
+    if (window.MapSpawns && typeof MapSpawns.getWeaponFxSettings === "function") {
+      return MapSpawns.getWeaponFxSettings();
+    }
+    return {
+      rockets: "splash",
+      grenades: "splash",
+      railgun: "show",
+      lightninggun: "show",
+      machinegun: "show",
     };
   }
 
@@ -2624,6 +2726,13 @@
     mapDeathMarkers = [];
     var deathLayer = document.getElementById("map-deaths");
     if (deathLayer) deathLayer.innerHTML = "";
+    mapImpactMarkers = [];
+    var impactLayer = document.getElementById("map-impacts");
+    if (impactLayer) impactLayer.innerHTML = "";
+    mapBeamMarkers = {};
+    var beamLayer = document.getElementById("map-beams");
+    if (beamLayer) beamLayer.innerHTML = "";
+    clearProjectileMarkers();
     mapKillFeed = [];
     mapKillFeedDedup = [];
     renderKillFeed();
@@ -3359,9 +3468,17 @@
     ) {
       return;
     }
+    var action = String(data.action || "pickup").toLowerCase();
+    // "respawn" is a synthetic, internal-only signal (item entity reappeared
+    // in a demo replay snapshot) — it drives MapSpawns' visibility only, not
+    // the killfeed-style pickup log/toast/client recording a real pickup gets.
+    if (action === "respawn") {
+      notifyPickup(data);
+      return;
+    }
     var silent = !!(opts && opts.silent) || replaySeeking;
     if (!silent) recordClientPickup(data);
-    if (String(data.action || "pickup").toLowerCase() === "drop") return;
+    if (action === "drop") return;
     if (!silent) pushPickupFeed(data);
     notifyPickup(data);
     if (debugPickups() && typeof console !== "undefined" && console.info) {
@@ -3565,6 +3682,326 @@
     }
   }
 
+  var IMPACT_BULLET_FILES = ["impact_bullet_0.png", "impact_bullet_1.png", "impact_bullet_2.png"];
+  var EXPLOSION_FRAME_COUNT = 8;
+
+  function impactMarkerTtlMs(kind) {
+    return kind === "explosion" ? 2200 : 1200;
+  }
+
+  // variant: "splash" (full explosion flipbook) or "plain" (small dot) — only
+  // meaningful for kind "explosion" (rockets/grenades); everything else has a
+  // single look.
+  function createImpactMarker(kind, variant) {
+    if (kind === "explosion" && variant === "splash") {
+      var eimg = document.createElement("img");
+      eimg.className = "map-fx-impact-sprite map-fx-impact-explosion-sprite";
+      eimg.setAttribute("aria-hidden", "true");
+      eimg._frame = -1;
+      eimg.src = udtSpriteUrl("explosion_0.png");
+      return eimg;
+    }
+    if (kind === "bullet") {
+      var bimg = document.createElement("img");
+      bimg.className = "map-fx-impact-sprite map-fx-impact-bullet-sprite";
+      bimg.setAttribute("aria-hidden", "true");
+      bimg.src = udtSpriteUrl(IMPACT_BULLET_FILES[(Math.random() * IMPACT_BULLET_FILES.length) | 0]);
+      return bimg;
+    }
+    if (kind === "plasma") {
+      var pimg = document.createElement("img");
+      pimg.className = "map-fx-impact-sprite map-fx-impact-plasma-sprite";
+      pimg.setAttribute("aria-hidden", "true");
+      pimg.src = udtSpriteUrl("impact_plasma.png");
+      return pimg;
+    }
+    var marker = document.createElement("div");
+    marker.className = "map-fx-marker map-fx-impact map-fx-impact-" + (kind || "impact");
+    marker.setAttribute("aria-hidden", "true");
+    return marker;
+  }
+
+  // Raw dm_91 weapon ids (qldemo/entity-events.js WP_ROCKET=5/WP_GRENADE=4) —
+  // the only two impact "kind: explosion" causes, and each has its own
+  // rockets/grenades display mode.
+  function impactVariant(impact) {
+    if (impact.kind !== "explosion") return null;
+    var mode = Number(impact.weapon) === 5 ? weaponFxSettings().rockets : weaponFxSettings().grenades;
+    return mode === "splash" ? "splash" : "plain";
+  }
+
+  function addImpactMarker(impact, evT) {
+    if (!impact || impact.x == null || impact.y == null) return;
+    var fx = weaponFxSettings();
+    if (Number(impact.weapon) === 5 && fx.rockets === "hide") return;
+    if (Number(impact.weapon) === 4 && fx.grenades === "hide") return;
+    if (impact.kind === "bullet" && fx.machinegun === "hide") return;
+    var variant = impactVariant(impact);
+    var ttl = impactMarkerTtlMs(impact.kind);
+    var expiresAt =
+      replayState && evT != null && isFinite(Number(evT)) ? Number(evT) + ttl : overlayNowMs() + ttl;
+    mapImpactMarkers.push({
+      x: impact.x,
+      y: impact.y,
+      kind: impact.kind,
+      variant: variant,
+      expiresAt: expiresAt,
+      el: null,
+    });
+  }
+
+  function pruneImpactMarkers() {
+    var now = overlayNowMs();
+    var layer = document.getElementById("map-impacts");
+    if (!layer) return;
+    var kept = [];
+    for (var i = 0; i < mapImpactMarkers.length; i++) {
+      var row = mapImpactMarkers[i];
+      if (row.expiresAt <= now) {
+        if (row.el && row.el.parentNode) row.el.parentNode.removeChild(row.el);
+        continue;
+      }
+      kept.push(row);
+    }
+    mapImpactMarkers = kept;
+    if (!mapImpactMarkers.length) layer.innerHTML = "";
+  }
+
+  function renderImpactMarkers() {
+    var layer = document.getElementById("map-impacts");
+    var wrap = document.getElementById("map-wrap");
+    var transform = mapMotion.renderTransform || cachedTransform;
+    if (!layer || !wrap || !transform) return;
+    pruneImpactMarkers();
+    var now = overlayNowMs();
+    for (var i = 0; i < mapImpactMarkers.length; i++) {
+      var row = mapImpactMarkers[i];
+      if (!row.el) {
+        row.el = createImpactMarker(row.kind, row.variant);
+        layer.appendChild(row.el);
+      }
+      var pos = worldToDisplayPos(transform, wrap, row.x, row.y);
+      if (!pos) continue;
+      var ttl = impactMarkerTtlMs(row.kind);
+      var opacity = Math.max(0, Math.min(1, (row.expiresAt - now) / ttl));
+      row.el.style.left = pos.x + "px";
+      row.el.style.top = pos.y + "px";
+      row.el.style.opacity = String(opacity);
+      if (row.variant === "splash" && row.el.tagName === "IMG") {
+        var elapsed = ttl - (row.expiresAt - now);
+        var frame = Math.max(
+          0,
+          Math.min(EXPLOSION_FRAME_COUNT - 1, Math.floor((elapsed / ttl) * EXPLOSION_FRAME_COUNT)),
+        );
+        if (row.el._frame !== frame) {
+          row.el._frame = frame;
+          row.el.src = udtSpriteUrl("explosion_" + frame + ".png");
+        }
+      }
+    }
+  }
+
+  function handleImpactsEvent(payload) {
+    if (replaySeeking) return;
+    var list = (payload && payload.impacts) || [];
+    if (!list.length) return;
+    for (var i = 0; i < list.length; i++) addImpactMarker(list[i], payload.t);
+    renderImpactMarkers();
+  }
+
+  function beamMarkerTtlMs() {
+    return 260;
+  }
+
+  function createBeamMarker(weaponSlug) {
+    var line = document.createElementNS("http://www.w3.org/2000/svg", "line");
+    line.setAttribute("class", "map-fx-beam-line map-fx-beam-" + (weaponSlug || "railgun"));
+    return line;
+  }
+
+  function beamMarkerKey(beam) {
+    return beam.clientNum != null ? "c" + beam.clientNum : "s" + (beam.weapon_slug || "?");
+  }
+
+  function addBeamMarker(beam, evT) {
+    if (!beam || beam.x0 == null || beam.x1 == null) return;
+    var fx = weaponFxSettings();
+    if (beam.weapon_slug === "railgun" && fx.railgun === "hide") return;
+    if (beam.weapon_slug === "lightninggun" && fx.lightninggun === "hide") return;
+    var ttl = beamMarkerTtlMs();
+    var expiresAt =
+      replayState && evT != null && isFinite(Number(evT)) ? Number(evT) + ttl : overlayNowMs() + ttl;
+    // Keyed by shooter (not appended as a new element per snapshot): a
+    // continuous lightninggun burst emits one beam event per demo snapshot,
+    // and pushing a fresh fading line for each one drew a "fan" of several
+    // overlapping, slightly-different-angle beams instead of one crisp line.
+    var key = beamMarkerKey(beam);
+    var row = mapBeamMarkers[key];
+    if (!row) {
+      row = mapBeamMarkers[key] = { el: null };
+    }
+    row.x0 = beam.x0;
+    row.y0 = beam.y0;
+    row.x1 = beam.x1;
+    row.y1 = beam.y1;
+    row.weapon_slug = beam.weapon_slug;
+    row.expiresAt = expiresAt;
+  }
+
+  function pruneBeamMarkers() {
+    var now = overlayNowMs();
+    var layer = document.getElementById("map-beams");
+    if (!layer) return;
+    var any = false;
+    for (var key in mapBeamMarkers) {
+      if (!Object.prototype.hasOwnProperty.call(mapBeamMarkers, key)) continue;
+      var row = mapBeamMarkers[key];
+      if (row.expiresAt <= now) {
+        if (row.el && row.el.parentNode) row.el.parentNode.removeChild(row.el);
+        delete mapBeamMarkers[key];
+        continue;
+      }
+      any = true;
+    }
+    if (!any) layer.innerHTML = "";
+  }
+
+  function renderBeamMarkers() {
+    var layer = document.getElementById("map-beams");
+    var wrap = document.getElementById("map-wrap");
+    var transform = mapMotion.renderTransform || cachedTransform;
+    if (!layer || !wrap || !transform) return;
+    pruneBeamMarkers();
+    var now = overlayNowMs();
+    var ttl = beamMarkerTtlMs();
+    for (var key in mapBeamMarkers) {
+      if (!Object.prototype.hasOwnProperty.call(mapBeamMarkers, key)) continue;
+      var row = mapBeamMarkers[key];
+      if (!row.el) {
+        row.el = createBeamMarker(row.weapon_slug);
+        layer.appendChild(row.el);
+      }
+      var p0 = worldToDisplayPos(transform, wrap, row.x0, row.y0);
+      var p1 = worldToDisplayPos(transform, wrap, row.x1, row.y1);
+      if (!p0 || !p1) continue;
+      var opacity = Math.max(0, Math.min(1, (row.expiresAt - now) / ttl));
+      row.el.setAttribute("x1", String(p0.x));
+      row.el.setAttribute("y1", String(p0.y));
+      row.el.setAttribute("x2", String(p1.x));
+      row.el.setAttribute("y2", String(p1.y));
+      row.el.style.opacity = String(opacity);
+    }
+  }
+
+  function handleBeamsEvent(payload) {
+    if (replaySeeking) return;
+    var list = (payload && payload.beams) || [];
+    if (!list.length) return;
+    for (var i = 0; i < list.length; i++) addBeamMarker(list[i], payload.t);
+    renderBeamMarkers();
+  }
+
+  function createProjectileMarker(slug) {
+    if (slug === "rocketlauncher") {
+      var rimg = document.createElement("img");
+      rimg.className = "map-fx-projectile-sprite";
+      rimg.setAttribute("aria-hidden", "true");
+      rimg.src = udtSpriteUrl("rocket.png");
+      return rimg;
+    }
+    if (slug === "plasmagun") {
+      var pimg = document.createElement("img");
+      pimg.className = "map-fx-projectile-sprite map-fx-projectile-plasma-sprite";
+      pimg.setAttribute("aria-hidden", "true");
+      pimg.src = udtSpriteUrl("projectile_plasma.png");
+      return pimg;
+    }
+    if (slug === "grenadelauncher") {
+      // UDT draws the grenade itself as a plain green circle, not a sprite.
+      var marker = document.createElement("div");
+      marker.className = "map-fx-marker map-fx-projectile map-fx-projectile-grenadelauncher";
+      marker.setAttribute("aria-hidden", "true");
+      return marker;
+    }
+    var iconUrl = weaponIconUrlBySlug(slug);
+    if (iconUrl) {
+      var img = document.createElement("img");
+      img.className = "map-fx-projectile-sprite";
+      img.setAttribute("aria-hidden", "true");
+      img.src = iconUrl;
+      return img;
+    }
+    var fallback = document.createElement("div");
+    fallback.className = "map-fx-marker map-fx-projectile map-fx-projectile-" + (slug || "default");
+    fallback.setAttribute("aria-hidden", "true");
+    return fallback;
+  }
+
+  function clearProjectileMarkers() {
+    var layer = document.getElementById("map-projectiles");
+    if (layer) layer.innerHTML = "";
+    mapProjectileMarkers = {};
+  }
+
+  function renderProjectileMarkers() {
+    var layer = document.getElementById("map-projectiles");
+    var wrap = document.getElementById("map-wrap");
+    var transform = mapMotion.renderTransform || cachedTransform;
+    if (!layer || !wrap || !transform) return;
+    for (var eid in mapProjectileMarkers) {
+      var row = mapProjectileMarkers[eid];
+      if (!row.el) {
+        row.el = createProjectileMarker(row.weapon_slug);
+        layer.appendChild(row.el);
+      }
+      var pos = worldToDisplayPos(transform, wrap, row.x, row.y);
+      if (!pos) continue;
+      row.el.style.left = pos.x + "px";
+      row.el.style.top = pos.y + "px";
+      // No sign flip here (unlike the player/weapon rotations, which negate
+      // their Quake-yaw-convention angle): UDT's own ComputeProjectileAngle
+      // (atan2(trDelta.x, trDelta.y), same formula as projectileYawDeg below)
+      // is used completely unrotated in DrawMapSpriteAt — it's already in
+      // screen/nanovg convention. Negating it here mirrored the sprite
+      // left-right (e.g. a rocket flying toward ~1 o'clock rendered facing
+      // ~11 o'clock instead).
+      row.el.style.transform = "translate(-50%, -50%) rotate(" + (row.yaw || 0) + "deg)";
+    }
+  }
+
+  /** UDT viewer (ComputeProjectileAngle): atan2(vx, vy) — same convention as player yaw. */
+  function projectileYawDeg(vx, vy) {
+    if (!vx && !vy) return null;
+    return (Math.atan2(vx, vy) * 180) / Math.PI;
+  }
+
+  function handleProjectilesEvent(payload) {
+    if (replaySeeking) return;
+    var list = (payload && payload.projectiles) || [];
+    var fx = weaponFxSettings();
+    var seen = {};
+    for (var i = 0; i < list.length; i++) {
+      var p = list[i];
+      if (p.eid == null) continue;
+      if (p.weapon_slug === "rocketlauncher" && fx.rockets === "hide") continue;
+      if (p.weapon_slug === "grenadelauncher" && fx.grenades === "hide") continue;
+      seen[p.eid] = true;
+      var st = mapProjectileMarkers[p.eid];
+      if (!st) st = mapProjectileMarkers[p.eid] = { el: null };
+      st.x = p.x;
+      st.y = p.y;
+      st.yaw = projectileYawDeg(p.vx, p.vy) ?? st.yaw ?? 0;
+      st.weapon_slug = p.weapon_slug;
+    }
+    for (var eid in mapProjectileMarkers) {
+      if (seen[eid]) continue;
+      var gone = mapProjectileMarkers[eid];
+      if (gone.el && gone.el.parentNode) gone.el.parentNode.removeChild(gone.el);
+      delete mapProjectileMarkers[eid];
+    }
+    renderProjectileMarkers();
+  }
+
   function stripQuakeColors(text) {
     return String(text || "")
       .replace(/\^[0-9a-zA-Z]/g, "")
@@ -3736,6 +4173,9 @@
     if (!p) return false;
     if (replayState && !isReplayMapPlayer(p)) return false;
     if (p.connected === false || p.online === false) return false;
+    // Hide a dead player's dot until respawn (avoids a stale marker at the
+    // death spot); the map-death-marker cross covers the death location for
+    // a few seconds instead. Applies to live and demo replay alike.
     if (p.alive === false) return false;
     var team = String(p.team || "")
       .trim()
@@ -3846,11 +4286,16 @@
     var view = document.createElement("div");
     view.className = "map-view";
     view.setAttribute("aria-hidden", "true");
+    var weaponIcon = document.createElement("img");
+    weaponIcon.className = "map-weapon-icon";
+    weaponIcon.setAttribute("aria-hidden", "true");
+    weaponIcon.style.display = "none";
     marker.appendChild(label);
     marker.appendChild(fov);
     marker.appendChild(pin);
     marker.appendChild(dot);
     marker.appendChild(view);
+    marker.appendChild(weaponIcon);
     layer.appendChild(marker);
     marker.title =
       playerLabelText(p) +
@@ -3872,6 +4317,7 @@
       fov: fov,
       fovPath: fovPath,
       view: view,
+      weaponIcon: weaponIcon,
     };
   }
 
@@ -3971,6 +4417,31 @@
       el.fovPath.setAttribute("d", fovWedgePath(fovDeg, fovConeLengthPx()));
     } else if (el.fov) {
       el.fov.style.display = "none";
+    }
+    if (el.weaponIcon) {
+      var weaponPlayer = playerId ? findPlayerForMotionId(players, playerId) : null;
+      var iconUrl = display.showWeaponInHand && weaponPlayer ? weaponHandSpriteUrlById(weaponPlayer.weapon) : "";
+      if (iconUrl) {
+        if (el.weaponIcon.getAttribute("data-src") !== iconUrl) {
+          el.weaponIcon.setAttribute("data-src", iconUrl);
+          el.weaponIcon.src = iconUrl;
+        }
+        el.weaponIcon.style.display = "";
+        // UDT DrawPlayerWeapon (nanovg_drawing.cpp): a = -playerAngle + PI/2;
+        // sprite center offset 1.5*r from the dot along (a - PI/8), then the
+        // sprite itself is drawn centered on that offset point rotated by a
+        // — this is what makes the weapon read as held to the side rather
+        // than pointing straight out from the dot.
+        var weapADeg = -(yaw || 0) + 90;
+        var weapOffsetRad = ((weapADeg - 22.5) * Math.PI) / 180;
+        var weapOffsetPx = 1.5 * (size / 2);
+        var weapDx = weapOffsetPx * Math.cos(weapOffsetRad);
+        var weapDy = weapOffsetPx * Math.sin(weapOffsetRad);
+        el.weaponIcon.style.transform =
+          "translate(" + weapDx.toFixed(2) + "px, " + weapDy.toFixed(2) + "px) rotate(" + weapADeg.toFixed(2) + "deg)";
+      } else {
+        el.weaponIcon.style.display = "none";
+      }
     }
     var markerStyle =
       display.playerMarkerStyle === "arrow" ? "arrow" : "pin";
@@ -4088,6 +4559,8 @@
       }
 
       renderDeathMarkers();
+      renderImpactMarkers();
+      renderBeamMarkers();
       if (!replayState) {
         renderHeatmap(mapMotion.currentPlayers, mapMotion.currentGametype);
       }
@@ -4427,6 +4900,8 @@
         yaw: p.yaw != null ? Number(p.yaw) : null,
         fov: p.fov != null ? Number(p.fov) : null,
         team: p.team,
+        weapon: p.weapon,
+        alive: p.alive,
       },
       replayVitalsFromSnapshots(p, p, 0),
     );
@@ -4479,6 +4954,8 @@
                   ? npp.fov
                   : pp.fov,
             team: npp.team != null ? npp.team : pp.team,
+            weapon: npp.weapon != null ? npp.weapon : pp.weapon,
+            alive: npp.alive != null ? npp.alive : pp.alive,
           },
           replayVitalsFromSnapshots(pp, npp, frac),
         ),
@@ -4530,19 +5007,9 @@
     ) {
       return [];
     }
-    var events = replayState.events;
-    var prev = null;
-    var next = null;
-    for (var i = 0; i < events.length; i++) {
-      var ev = events[i];
-      if (ev.event !== "positions") continue;
-      var t = ev.t || 0;
-      if (t <= targetT) prev = ev;
-      else {
-        next = ev;
-        break;
-      }
-    }
+    var bounds = replayPositionsBoundsAtTime(targetT);
+    var prev = bounds.prev;
+    var next = bounds.next;
     if (!prev && !next) return [];
     if (!prev) {
       return filterReplayPlayersAtTime(normalizePlayersList(next.players || []), targetT);
@@ -4621,7 +5088,13 @@
       players: players,
       transform: cachedTransform,
     };
-    applyMapDotsPreview(payload);
+    if (!cachedTransform && payload.map_name) {
+      ensureReplayMapFromPositions(payload).then(function () {
+        applyReplayFramePositions();
+      });
+      return;
+    }
+    setMapSnapshot(payload, { instant: !mapSmoothEnabled() });
     notifyMapPayload(payload);
     if (window.MapSpawns && typeof MapSpawns.refreshItemRespawnOverlays === "function") {
       MapSpawns.refreshItemRespawnOverlays();
@@ -4666,24 +5139,54 @@
     return best;
   }
 
-  function replayLastPositionsEventAtOrBefore(targetT) {
-    if (!replayState) return null;
+  function buildPositionsIndex(events) {
+    var index = [];
+    for (var i = 0; i < events.length; i++) {
+      if (events[i].event !== "positions") continue;
+      index.push({ t: events[i].t || 0, i: i });
+    }
+    return index;
+  }
+
+  function replayPositionsBoundsAtTime(targetT) {
+    if (!replayState) return { prev: null, next: null };
     if (
       replayState.positionsEndT != null &&
       targetT > replayState.positionsEndT
     ) {
       targetT = replayState.positionsEndT;
     }
-    var events = replayState.events;
-    var best = null;
-    for (var i = 0; i < events.length; i++) {
-      var ev = events[i];
-      if (ev.event !== "positions") continue;
-      var t = ev.t || 0;
-      if (t <= targetT) best = ev;
-      else break;
+    var index = replayState.positionsIndex;
+    if (!index || !index.length) return { prev: null, next: null };
+    var lo = 0;
+    var hi = index.length - 1;
+    var best = -1;
+    while (lo <= hi) {
+      var mid = (lo + hi) >> 1;
+      if (index[mid].t <= targetT) {
+        best = mid;
+        lo = mid + 1;
+      } else {
+        hi = mid - 1;
+      }
     }
-    return best;
+    if (best < 0) {
+      return {
+        prev: null,
+        next: replayState.events[index[0].i] || null,
+      };
+    }
+    return {
+      prev: replayState.events[index[best].i] || null,
+      next:
+        best + 1 < index.length
+          ? replayState.events[index[best + 1].i] || null
+          : null,
+    };
+  }
+
+  function replayLastPositionsEventAtOrBefore(targetT) {
+    return replayPositionsBoundsAtTime(targetT).prev;
   }
 
   function cancelScheduledSeekReplay() {
@@ -5020,7 +5523,7 @@
           var psid = normalizeSteamId64(p.steam_id64);
           if (!psid || pending[psid] == null) continue;
           var hp = p.health != null ? Number(p.health) : null;
-          if (hp != null && hp > 0) {
+          if ((hp != null && hp > 0) || p.alive === true) {
             windows[psid][pending[psid]].respawnT = t;
             delete pending[psid];
           }
@@ -5143,6 +5646,7 @@
       matchId: normalized.match_id,
       meta: meta,
       events: events,
+      positionsIndex: buildPositionsIndex(events),
       startMs: startMs,
       durationMs: durationMs,
       positionsEndT: positionsEndT,
@@ -5153,7 +5657,13 @@
       rafId: 0,
       lastTickMs: 0,
       source: normalized.source,
-      deathWindows: buildReplayDeathWindows(events),
+      // Demo-derived replays already carry a reliable per-entity alive flag
+      // (world entities of dead-but-settled players report themselves as
+      // dead, not just briefly-missing); the health>0-based respawn-window
+      // heuristic below is for stats-hub telemetry, where opponents may
+      // never post a positive health while genuinely alive and would then
+      // stay hidden for the rest of the match after their first death.
+      deathWindows: normalized.source === "qldemo" ? null : buildReplayDeathWindows(events),
       gameStartWall: computeReplayGameStartWall(events),
       countdownWallT: countdownWallT,
       matchStartWallT: matchStartWallT,
@@ -5257,6 +5767,15 @@
         respawn_at: ev.respawn_at,
       };
     }
+    if (ev.event === "impacts") {
+      return { event: "impacts", t: ev.t, impacts: ev.impacts || [] };
+    }
+    if (ev.event === "beams") {
+      return { event: "beams", t: ev.t, beams: ev.beams || [] };
+    }
+    if (ev.event === "projectiles") {
+      return { event: "projectiles", t: ev.t, projectiles: ev.projectiles || [] };
+    }
     return null;
   }
 
@@ -5318,6 +5837,18 @@
       handlePickupEvent(payload);
       return true;
     }
+    if (payload.event === "impacts") {
+      handleImpactsEvent(payload);
+      return true;
+    }
+    if (payload.event === "beams") {
+      handleBeamsEvent(payload);
+      return true;
+    }
+    if (payload.event === "projectiles") {
+      handleProjectilesEvent(payload);
+      return true;
+    }
     return false;
   }
 
@@ -5356,8 +5887,7 @@
 
   function replayCursorToGameMs(cursorMs) {
     if (!replayState || replayState.gameStartWall == null) return null;
-    var g = replayState.startMs + (Number(cursorMs) || 0) - replayState.gameStartWall;
-    return g < 0 ? 0 : g;
+    return replayState.startMs + (Number(cursorMs) || 0) - replayState.gameStartWall;
   }
 
   function replayGameMaxMs(opts) {
@@ -6199,6 +6729,10 @@
     _resolveImageUrl: resolveImageUrl,
     useWebSocket: useWebSocket,
     replayMode: replayMode,
+    loadReplayData: function (data) {
+      return activateReplayData(data);
+    },
+    parseReplayFileContent: parseReplayFileContent,
     overlayNowMs: overlayNowMs,
     playerMarkerRole: playerMarkerRole,
     mapPollMs: mapPollMs,
