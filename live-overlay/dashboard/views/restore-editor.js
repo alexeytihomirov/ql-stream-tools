@@ -26,9 +26,6 @@
     if (row.w != null && WEAPON_BY_W[row.w] == null) WEAPON_BY_W[row.w] = row;
   });
 
-  var encodeTimer = 0;
-  var ENCODE_DEBOUNCE_MS = 380;
-
   function analytics() {
     return global.QLDashboardAnalytics;
   }
@@ -990,9 +987,15 @@
     if (!host) return false;
     if (host._qlRestoreSnapshot) return true;
     var opts = currentBindOpts(host);
-    if (opts.status !== "ready" || !opts.payload) return false;
-    var scrubT = resolveEditorScrubTMs(host, opts);
-    if (scrubPayloadRelation(opts.payload, scrubT) !== "exact") return false;
+    if (opts.status !== "ready") return false;
+    if (!opts.payload) {
+      // Standalone "from scratch" editor (no recording_id, nothing to fetch):
+      // build an empty snapshot instead of waiting forever for a payload.
+      if (!opts.standalone) return false;
+    } else {
+      var scrubT = resolveEditorScrubTMs(host, opts);
+      if (scrubPayloadRelation(opts.payload, scrubT) !== "exact") return false;
+    }
     commitSnapshot(host, opts);
     return !!host._qlRestoreSnapshot;
   }
@@ -1048,11 +1051,11 @@
 
   function showSnapshotPending(host, scrubT) {
     if (!host) return;
-    var t = clampInt(scrubT, 0, 86400000);
+    var tMs = clampInt(scrubT, 0, 86400000);
     var tEl = host.querySelector("[data-ql-restore-t-ms]");
-    if (tEl) tEl.value = String(t);
+    if (tEl) tEl.value = String(tMs);
     var hintEl = host.querySelector(".ql-restore-field-hint");
-    if (hintEl && analytics()) hintEl.textContent = analytics().formatGameTime(t);
+    if (hintEl && analytics()) hintEl.textContent = analytics().formatGameTime(tMs);
     var wrap = host.querySelector(".ql-restore-players");
     if (wrap) {
       wrap.innerHTML =
@@ -1142,31 +1145,27 @@
       addBtn.dataset.qlRestoreActionBound = "1";
       addBtn.addEventListener("click", function (ev) {
         ev.preventDefault();
-        var playersWrap = host.querySelector(".ql-restore-players");
-        if (!playersWrap) return;
-        var idx = playersWrap.querySelectorAll("[data-ql-restore-player]").length;
-        var empty = playersWrap.querySelector(".match-analytics-empty");
-        if (empty) empty.remove();
-        var pending = playersWrap.querySelector("[data-ql-restore-pending]");
-        if (pending) pending.remove();
-        playersWrap.insertAdjacentHTML(
-          "beforeend",
-          renderPlayerCard(
-            {
-              cid: idx,
-              sid: "",
-              h: 100,
-              a: 0,
-              w: 0,
-              x: 0,
-              y: 0,
-              z: 0,
-              loadoutKeys: [],
-              am: {},
-            },
-            idx,
-          ),
-        );
+        // Mutate the canonical snapshot (not the DOM directly): the model-driven
+        // re-render inside encodeFromRoot rebuilds .ql-restore-players from
+        // state.players and would otherwise wipe a raw DOM-inserted card.
+        if (!ensureSnapshot(host)) return;
+        var state = host._qlRestoreSnapshot.state;
+        var idx = (state.players || []).length;
+        state.players = (state.players || []).concat([
+          {
+            cid: idx,
+            sid: "",
+            h: 100,
+            a: 0,
+            w: 0,
+            x: 0,
+            y: 0,
+            z: 0,
+            loadoutKeys: [],
+            am: {},
+          },
+        ]);
+        renderFromModel(host);
         encodeFromRoot(host, currentBindOpts(host));
       });
     }
@@ -1542,14 +1541,6 @@
     return state;
   }
 
-  function scheduleEncode(root, opts) {
-    if (encodeTimer) clearTimeout(encodeTimer);
-    encodeTimer = setTimeout(function () {
-      encodeTimer = 0;
-      encodeFromRoot(root, opts);
-    }, ENCODE_DEBOUNCE_MS);
-  }
-
   function encodeFromRoot(root, opts) {
     opts = opts || currentBindOpts(root);
     if (!ensureSnapshot(root)) return Promise.resolve(null);
@@ -1675,17 +1666,17 @@
       '" spellcheck="false" /></label>' +
       '<label class="ql-restore-field"><span>' +
       esc(t("restoreEditorHealth")) +
-      '</span><input type="number" min="0" max="999" data-ql-restore-h" value="' +
+      '</span><input type="number" min="0" max="999" data-ql-restore-h value="' +
       esc(String(player.h)) +
       '" /></label>' +
       '<label class="ql-restore-field"><span>' +
       esc(t("restoreEditorArmor")) +
-      '</span><input type="number" min="0" max="999" data-ql-restore-a" value="' +
+      '</span><input type="number" min="0" max="999" data-ql-restore-a value="' +
       esc(String(player.a)) +
       '" /></label>' +
       '<label class="ql-restore-field"><span>' +
       esc(t("restoreEditorScore")) +
-      '</span><input type="number" min="0" max="255" data-ql-restore-sc" value="' +
+      '</span><input type="number" min="0" max="255" data-ql-restore-sc value="' +
       esc(player.sc != null ? String(player.sc) : "") +
       '" placeholder="—" /></label>' +
       '<label class="ql-restore-field ql-restore-field-wpn"><span>' +
@@ -1794,7 +1785,7 @@
       '</h4><span class="ql-restore-cfg-prefix">' +
       esc(t("restoreEditorCfgPrefix")) +
       "</span>" +
-      '<span class="control-status ql-restore-encode-status" data-ql-restore-encode-status">' +
+      '<span class="control-status ql-restore-encode-status" data-ql-restore-encode-status>' +
       esc(encodeStatus) +
       "</span></div>" +
       '<textarea class="restore-checkpoint-json" data-ql-restore-cfg spellcheck="false" readonly></textarea>' +
@@ -1803,17 +1794,17 @@
       '<button type="button" class="control-btn control-btn-sm" data-ql-restore-edit-toggle aria-pressed="false">' +
       esc(t("restoreEditorEdit")) +
       "</button>" +
-      '<button type="button" class="control-btn control-btn-sm" data-ql-restore-sync-cfg">' +
+      '<button type="button" class="control-btn control-btn-sm" data-ql-restore-sync-cfg>' +
       esc(t("restoreEditorSyncFromCfg") || "Sync form from cfg") +
       "</button>" +
-      '<button type="button" class="control-btn control-btn-sm control-btn-primary" data-ql-restore-copy-cfg">' +
+      '<button type="button" class="control-btn control-btn-sm control-btn-primary" data-ql-restore-copy-cfg>' +
       esc(t("restoreCheckpointCopyCfg")) +
       "</button>" +
-      '<button type="button" class="control-btn control-btn-sm" data-ql-restore-reencode">' +
+      '<button type="button" class="control-btn control-btn-sm" data-ql-restore-reencode>' +
       esc(t("restoreEditorRegenerate")) +
       "</button>" +
       (opts.standalone
-        ? '<button type="button" class="control-btn control-btn-sm" data-ql-restore-add-player">' +
+        ? '<button type="button" class="control-btn control-btn-sm" data-ql-restore-add-player>' +
           esc(t("restoreEditorAddPlayer")) +
           "</button>"
         : "") +
