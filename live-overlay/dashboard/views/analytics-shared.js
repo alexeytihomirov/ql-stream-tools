@@ -146,12 +146,14 @@
     RL: "weapon_rocketlauncher",
     ROCKET: "weapon_rocketlauncher",
     "ROCKET LAUNCHER": "weapon_rocketlauncher",
+    ROCKETLAUNCHER: "weapon_rocketlauncher",
     RG: "weapon_railgun",
     RAIL: "weapon_railgun",
     RAILGUN: "weapon_railgun",
     LG: "weapon_lightning",
     LIGHTNING: "weapon_lightning",
     "LIGHTNING GUN": "weapon_lightning",
+    LIGHTNINGGUN: "weapon_lightning",
     PG: "weapon_plasmagun",
     PLASMA: "weapon_plasmagun",
     PLASMAGUN: "weapon_plasmagun",
@@ -159,6 +161,7 @@
     GL: "weapon_grenadelauncher",
     GRENADE: "weapon_grenadelauncher",
     "GRENADE LAUNCHER": "weapon_grenadelauncher",
+    GRENADELAUNCHER: "weapon_grenadelauncher",
     SG: "weapon_shotgun",
     SHOTGUN: "weapon_shotgun",
     MG: "weapon_machinegun",
@@ -175,6 +178,8 @@
     CG: "weapon_chaingun",
     CHAINGUN: "weapon_chaingun",
     GRAPPLE: "weapon_grapple",
+    PL: "weapon_proxlauncher",
+    PROXLAUNCHER: "weapon_proxlauncher",
   };
 
   // Display abbreviation by recognized token (kept distinct where the sprite
@@ -201,6 +206,7 @@
     weapon_grapple: "GH",
     weapon_nailgun: "NG",
     weapon_chaingun: "CG",
+    weapon_proxlauncher: "PL",
   };
 
   // Mirror stats_hub/zmq_ingest.py `_NON_COMBAT_WEAPONS` — excluded from weapon stats.

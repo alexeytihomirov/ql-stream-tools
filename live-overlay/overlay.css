@@ -460,6 +460,63 @@ td:nth-child(2) {
   align-items: flex-start;
 }
 
+.map-widget-root:fullscreen {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: #05070c;
+}
+
+.map-widget-root:fullscreen .map-layout {
+  width: 100vw;
+  height: 100vh;
+}
+
+.map-fullscreen-btn {
+  position: absolute;
+  right: 16px;
+  bottom: 16px;
+  z-index: 15;
+  width: 36px;
+  height: 36px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  padding: 0;
+  border: 1px solid rgba(255, 255, 255, 0.14);
+  border-radius: 8px;
+  background: rgba(17, 22, 34, 0.82);
+  color: #eef2ff;
+  box-shadow: 0 4px 16px rgba(0, 0, 0, 0.45);
+  backdrop-filter: blur(6px);
+  cursor: pointer;
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity 0.15s ease;
+}
+
+.map-fullscreen-btn.is-visible {
+  opacity: 1;
+  pointer-events: auto;
+}
+
+.map-fullscreen-btn svg {
+  width: 18px;
+  height: 18px;
+}
+
+.map-fullscreen-btn .map-fullscreen-icon-exit {
+  display: none;
+}
+
+.map-fullscreen-btn[aria-pressed="true"] .map-fullscreen-icon-enter {
+  display: none;
+}
+
+.map-fullscreen-btn[aria-pressed="true"] .map-fullscreen-icon-exit {
+  display: inline-flex;
+}
+
 .map-main {
   flex: 0 0 auto;
 }
@@ -811,6 +868,12 @@ body.map-debug-mode .status {
   box-shadow: 0 0 8px rgba(239, 68, 68, 0.55);
 }
 
+/* Brief flash on the victim's marker when they die (handleDeathEvent). */
+.map-dot--hit {
+  border-color: #ec4899;
+  box-shadow: 0 0 8px rgba(236, 72, 153, 0.9);
+}
+
 .map-pin {
   position: absolute;
   left: 50%;
@@ -838,6 +901,12 @@ body.map-debug-mode .status {
   stroke-linejoin: round;
   stroke-linecap: round;
   pointer-events: none;
+}
+
+/* Brief flash on the victim's marker when they die (handleDeathEvent). */
+.map-pin-outline--hit {
+  stroke: #ec4899;
+  filter: drop-shadow(0 0 4px rgba(236, 72, 153, 0.85));
 }
 
 .map-marker--self .map-pin-fill {
@@ -954,11 +1023,11 @@ body.map-debug-mode .status {
   position: absolute;
   left: 50%;
   top: 50%;
-  width: 9px;
-  height: 24px;
+  width: 13.5px;
+  height: 36px;
   object-fit: contain;
-  margin-left: -4.5px;
-  margin-top: -12px;
+  margin-left: -6.75px;
+  margin-top: -18px;
   pointer-events: none;
   filter: drop-shadow(0 0 2px rgba(0, 0, 0, 0.85));
 }

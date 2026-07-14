@@ -4975,6 +4975,10 @@
         self.syncToolbar();
       },
     });
+    var weaponFxPop = document.createElement("div");
+    weaponFxPop.className = "map-tb-popover map-tb-popover-list hidden";
+    bar.appendChild(weaponFxPop);
+    addCaret(self._tbWeapon, weaponFxPop, { title: "Effect visibility (explosions, beams, bullet marks)" });
 
     sep();
 
@@ -5102,6 +5106,7 @@
     moveInto(layersPop, "spawn-show-inactive");
     moveInto(layersPop, "spawn-show-threshold");
     moveInto(itemsPop, "spawn-item-category-toggles", "Items");
+    moveInto(weaponFxPop, "spawn-weapon-fx-toggles");
     if (!layersPop.querySelector("*")) {
       layersPop.appendChild(document.createTextNode("No layers for this map."));
     }

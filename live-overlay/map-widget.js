@@ -88,10 +88,16 @@
     "</aside>" +
     '<div id="map-spawns-backdrop" class="map-spawns-backdrop hidden"></div>' +
     '<aside id="map-spawns-panel" class="map-spawns-panel map-spawns-modal hidden" role="dialog" aria-modal="true" aria-label="Map overlay settings"></aside>' +
+    '<button type="button" id="map-fullscreen-btn" class="map-fullscreen-btn" aria-label="Fullscreen" title="Fullscreen">' +
+    '<svg class="map-fullscreen-icon-enter" viewBox="0 0 24 24" aria-hidden="true"><path d="M4 9V4h5M20 9V4h-5M4 15v5h5M20 15v5h-5" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg>' +
+    '<svg class="map-fullscreen-icon-exit" viewBox="0 0 24 24" aria-hidden="true"><path d="M9 4v5H4M15 4v5h5M9 20v-5H4M15 20v-5h5" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg>' +
+    "</button>" +
     "</div>";
 
   var mountedContainer = null;
   var fitObserver = null;
+  var fsIdleTimer = null;
+  var FS_IDLE_MS = 2000;
   // Map render space is a fixed square (MAP_BASE_PX in map-spawns.js). When the
   // widget is embedded in a narrower/wider dashboard column we scale the whole
   // map layer to fit the column width via CSS zoom (zoom changes layout box, so
@@ -129,6 +135,63 @@
     }
   }
 
+  function isFullscreen() {
+    return !!mountedContainer && document.fullscreenElement === mountedContainer;
+  }
+
+  function updateFullscreenBtnState() {
+    if (!mountedContainer) return;
+    var btn = mountedContainer.querySelector("#map-fullscreen-btn");
+    if (!btn) return;
+    var active = isFullscreen();
+    btn.setAttribute("aria-pressed", active ? "true" : "false");
+    btn.setAttribute("aria-label", active ? "Exit fullscreen" : "Fullscreen");
+    btn.title = active ? "Exit fullscreen" : "Fullscreen";
+  }
+
+  function showFullscreenBtn() {
+    if (!mountedContainer) return;
+    var btn = mountedContainer.querySelector("#map-fullscreen-btn");
+    if (!btn) return;
+    btn.classList.add("is-visible");
+    if (fsIdleTimer) clearTimeout(fsIdleTimer);
+    fsIdleTimer = setTimeout(function () {
+      fsIdleTimer = null;
+      btn.classList.remove("is-visible");
+    }, FS_IDLE_MS);
+  }
+
+  function onContainerMouseMove() {
+    showFullscreenBtn();
+  }
+
+  function onFullscreenBtnClick() {
+    if (!mountedContainer) return;
+    if (isFullscreen()) {
+      if (document.exitFullscreen) document.exitFullscreen();
+    } else if (mountedContainer.requestFullscreen) {
+      mountedContainer.requestFullscreen();
+    }
+  }
+
+  function onFullscreenChange() {
+    updateFullscreenBtnState();
+    if (!mountedContainer) return;
+    if (isFullscreen() || MapWidget.embedded) {
+      lastFitContainerWidth = 0;
+      applyFit();
+      return;
+    }
+    // Standalone (non-embedded) view leaving fullscreen: applyFit()'s
+    // container-width fit is an embedded-only concept, so just drop the
+    // zoom back to the natural unscaled layout instead of fitting to the
+    // (much wider) window.
+    var layout = mountedContainer.querySelector(".map-layout");
+    if (layout) layout.style.zoom = "";
+    lastFitContainerWidth = 0;
+    lastFitNaturalWidth = MAP_FIT_BASE_PX;
+  }
+
   function mount(container, opts) {
     if (!container) throw new Error("MapWidget.mount: container required");
     opts = opts || {};
@@ -156,6 +219,13 @@
         global.addEventListener("resize", applyFit);
       }
     }
+
+    container.addEventListener("mousemove", onContainerMouseMove);
+    var fsBtn = container.querySelector("#map-fullscreen-btn");
+    if (fsBtn) fsBtn.addEventListener("click", onFullscreenBtnClick);
+    document.addEventListener("fullscreenchange", onFullscreenChange);
+    updateFullscreenBtnState();
+
     return { destroy: destroy };
   }
 
@@ -170,6 +240,16 @@
     }
     if (global.removeEventListener) {
       global.removeEventListener("resize", applyFit);
+    }
+    document.removeEventListener("fullscreenchange", onFullscreenChange);
+    if (fsIdleTimer) {
+      clearTimeout(fsIdleTimer);
+      fsIdleTimer = null;
+    }
+    if (mountedContainer) {
+      mountedContainer.removeEventListener("mousemove", onContainerMouseMove);
+      var fsBtn = mountedContainer.querySelector("#map-fullscreen-btn");
+      if (fsBtn) fsBtn.removeEventListener("click", onFullscreenBtnClick);
     }
     if (global.OverlayApp && typeof OverlayApp._teardownMap === "function") {
       OverlayApp._teardownMap();

@@ -319,7 +319,14 @@
       window.OverlayApp &&
       typeof OverlayApp.isReplayPlaying === "function" &&
       OverlayApp.isReplayPlaying();
-    playBtn.textContent = QLDashboard.t(playing ? "matchReplayPause" : "matchReplayPlay");
+    var icon = document.getElementById("match-timeline-play-icon");
+    if (icon) {
+      icon.src = playing ? "icons/replay/pause.png" : "icons/replay/play.png";
+    }
+    playBtn.setAttribute(
+      "aria-label",
+      playing ? QLDashboard.t("matchReplayPause") : QLDashboard.t("matchReplayPlay"),
+    );
     var speedSel = document.getElementById("match-timeline-speed");
     var info = replayInfo();
     if (speedSel && info && info.speed != null) {

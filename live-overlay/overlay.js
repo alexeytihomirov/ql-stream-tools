@@ -3665,6 +3665,22 @@
     renderDeathMarkers();
   }
 
+  var HIT_OUTLINE_FLASH_MS = 450;
+
+  function flashHitOutline(steamId64) {
+    var id = normalizeSteamId64(steamId64);
+    var st = id ? mapMotion.byId[id] : null;
+    if (!st || !st.el) return;
+    var dot = st.el.dot;
+    var pinOutline = st.el.pinOutline;
+    if (dot) dot.classList.add("map-dot--hit");
+    if (pinOutline) pinOutline.classList.add("map-pin-outline--hit");
+    setTimeout(function () {
+      if (dot) dot.classList.remove("map-dot--hit");
+      if (pinOutline) pinOutline.classList.remove("map-pin-outline--hit");
+    }, HIT_OUTLINE_FLASH_MS);
+  }
+
   function handleDeathEvent(data, opts) {
     if (
       replayState &&
@@ -3677,6 +3693,7 @@
     recordClientDeath(data);
     pushKillFeed(data);
     addDeathMarker(data);
+    flashHitOutline(data.victim_steam_id64);
     if (typeof console !== "undefined" && console.info) {
       console.info("[overlay] death", data);
     }
@@ -3685,8 +3702,11 @@
   var IMPACT_BULLET_FILES = ["impact_bullet_0.png", "impact_bullet_1.png", "impact_bullet_2.png"];
   var EXPLOSION_FRAME_COUNT = 8;
 
+  // Fade/lifetime for map FX markers, in ms — one place to tune all of them.
+  var EFFECT_FADE_MS = { explosion: 220, impact: 120, beam: 260 };
+
   function impactMarkerTtlMs(kind) {
-    return kind === "explosion" ? 2200 : 1200;
+    return kind === "explosion" ? EFFECT_FADE_MS.explosion : EFFECT_FADE_MS.impact;
   }
 
   // variant: "splash" (full explosion flipbook) or "plain" (small dot) — only
@@ -3736,6 +3756,7 @@
     if (Number(impact.weapon) === 5 && fx.rockets === "hide") return;
     if (Number(impact.weapon) === 4 && fx.grenades === "hide") return;
     if (impact.kind === "bullet" && fx.machinegun === "hide") return;
+    if (impact.kind === "shaft" && fx.lightninggun === "hide") return;
     var variant = impactVariant(impact);
     var ttl = impactMarkerTtlMs(impact.kind);
     var expiresAt =
@@ -3810,7 +3831,7 @@
   }
 
   function beamMarkerTtlMs() {
-    return 260;
+    return EFFECT_FADE_MS.beam;
   }
 
   function createBeamMarker(weaponSlug) {
@@ -3884,7 +3905,12 @@
       var p0 = worldToDisplayPos(transform, wrap, row.x0, row.y0);
       var p1 = worldToDisplayPos(transform, wrap, row.x1, row.y1);
       if (!p0 || !p1) continue;
-      var opacity = Math.max(0, Math.min(1, (row.expiresAt - now) / ttl));
+      // Lightning gun beam disappears instantly (no fade-out tail) - confirmed
+      // by user; railgun keeps the fading trail.
+      var opacity =
+        row.weapon_slug === "lightninggun"
+          ? 1
+          : Math.max(0, Math.min(1, (row.expiresAt - now) / ttl));
       row.el.setAttribute("x1", String(p0.x));
       row.el.setAttribute("y1", String(p0.y));
       row.el.setAttribute("x2", String(p1.x));
@@ -5458,8 +5484,19 @@
     }
   }
 
+  // game_time_ms is the canonical clock (always ms, both live qlrp decode and
+  // demo-derived replay-v2 — see lib/qlreplay/decode.js and
+  // lib/qldemo/replay-for-overlay.js). Death/pickup events also carry a legacy
+  // `time` field for old renderers, already in ms too, so it must never be
+  // re-guessed as seconds when game_time_ms is missing. The *1000 guess below
+  // only fires for genuinely old client-recorded files that predate
+  // game_time_ms and only ever had `time` in seconds.
   function replayGameTimeFieldMs(ev) {
-    if (!ev || ev.time == null || !isFinite(Number(ev.time))) return null;
+    if (!ev) return null;
+    if (ev.game_time_ms != null && isFinite(Number(ev.game_time_ms))) {
+      return Number(ev.game_time_ms);
+    }
+    if (ev.time == null || !isFinite(Number(ev.time))) return null;
     var g = Number(ev.time);
     return g < 100000 ? g * 1000 : g;
   }

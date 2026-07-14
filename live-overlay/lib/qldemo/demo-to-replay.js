@@ -480,12 +480,15 @@ function playerRowFromEntity(ent, serverTime, rosterByClient, clientNum) {
   const powerups = powerupNamesFromEntityMask(ent.powerups);
   // A settled (non-falling) corpse still passes shouldProcessPlayerEntity by
   // design (matches UDT's Demo::ProcessPlayer) so its death marker/position
-  // stays visible, but eFlags is still the only reliable alive/dead signal —
-  // the health/armor entity fields exist in the protocol 91 wire format but
-  // this server never actually populates them for anyone but the POV (always
-  // 0, verified across 16984 sightings of the opponent in this demo), so
-  // showing them would just be making up a fake "0/0" HUD label.
+  // stays visible; eFlags is the reliable alive/dead signal. The health/armor
+  // entity fields (indices 55/56) are only populated by the server for
+  // spectator recordings (recording client has full-entity visibility);
+  // regular participant demos read back a constant 0 for opponents. A live
+  // player can never actually be at 0 HP (they'd be dead), so alive+0 means
+  // "not populated" here - suppress both fields together rather than show a
+  // fabricated 0/0.
   const dead = (ent.eFlags & EF_DEAD) !== 0;
+  const vitalsPopulated = !dead && Number(ent.health) > 0;
   return {
     clientNum,
     nickname: row.n || row.name || "player" + clientNum,
@@ -497,8 +500,8 @@ function playerRowFromEntity(ent, serverTime, rosterByClient, clientNum) {
     vz,
     yaw: yawFromEntity(ent),
     weapon: ent.weapon || 0,
-    health: null,
-    armor: null,
+    health: vitalsPopulated ? saneVital(ent.health) : null,
+    armor: vitalsPopulated ? saneVital(ent.armor) : null,
     alive: !dead,
     powerups: powerups.length ? powerups : undefined,
   };
@@ -683,6 +686,19 @@ export function demoToReplay(parser, options = {}) {
         z1,
         weapon: WP_SHAFT,
         weapon_slug: "lightninggun",
+      });
+      // The beam is synthesized (see lgBeamEndpoint() comment above) and never
+      // wall-snapped, so it has no matched impact temp-entity like other
+      // weapons — push its own end point as a "shaft" impact so the overlay
+      // draws a hit marker at the beam tip like UDT does.
+      impacts.push({
+        kind: "shaft",
+        weapon: WP_SHAFT,
+        weapon_slug: "lightninggun",
+        clientNum,
+        x: x1,
+        y: y1,
+        z: z1,
       });
     }
     for (const death of deaths) {
