@@ -202,6 +202,8 @@
       demoParsedOk: "Loaded {file}",
       demoBadExtension: "Expected a .dm_* demo file",
       demoReloadHint: "Re-upload the demo after language change",
+      demoCheckpointHint:
+        "Item state is best-effort: only what's visible from this demo's POV, not authoritative server data.",
       demoParserTimeout: "Demo parser failed to load (timeout). Check browser console.",
       demoParserLoadFailed: "Demo parser failed to load. Check browser console.",
       demoParsingSnapshots: "Parsing snapshots…",
@@ -407,6 +409,8 @@
       demoParsedOk: "Загружено: {file}",
       demoBadExtension: "Нужен файл демки .dm_*",
       demoReloadHint: "Загрузите демку снова после смены языка",
+      demoCheckpointHint:
+        "Состояние предметов — best-effort: только то, что видно из POV этой демки, не авторитетные серверные данные.",
       demoParserTimeout: "Парсер не загрузился (таймаут). Смотрите консоль браузера.",
       demoParserLoadFailed: "Парсер не загрузился. Смотрите консоль браузера.",
       demoParsingSnapshots: "Разбор снапов…",

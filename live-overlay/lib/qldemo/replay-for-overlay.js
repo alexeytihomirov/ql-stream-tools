@@ -77,6 +77,73 @@ export function replayForOverlay(replay) {
   };
 }
 
+/**
+ * Item hidden/pending intervals for the whole demo, keyed by (classname, x, y, z)
+ * so consecutive pickup/respawn events can be paired without a server entity_id
+ * (the demo has none — see StaticItemTracker in demo-to-replay.js). Every pickup
+ * is paired with the *next observed* respawn event for the same spot when one
+ * exists; that's the exact moment UDT saw the item reappear in the demo, more
+ * accurate than the vanilla_respawn_sec() guess stats-hub uses for live
+ * telemetry. Only the trailing pickup with no later respawn (e.g. last pickup
+ * of the match) falls back to that guess (`respawn_sec` already attached to the
+ * pickup event by demoToReplay). Rows match the checkpoint item schema consumed
+ * by restore-editor.js's buildEditorState/filterCheckpointItemsForScrub
+ * (classname + position addressing — checkpoint_codec.canonicalize() resolves
+ * these via find_map_item_entity, no entity_id required).
+ *
+ * Each row also carries pickup_ms — the caller (demo.js) must filter to
+ * pickup_ms <= scrubT itself before handing rows to the editor:
+ * filterCheckpointItemsForScrub() only checks at_ms > t (it assumes the raw
+ * list was already trimmed to "picked up by t", true for a real recording's
+ * per-t_ms server fetch, not true here since this returns every pickup for
+ * the whole demo up front).
+ */
+export function itemStateRows(replay) {
+  const byKey = new Map();
+  for (const ev of replay.events || []) {
+    if (!ev || ev.event !== "pickup") continue;
+    const key = String(ev.item) + "@" + Math.round(ev.x) + "," + Math.round(ev.y) + "," + Math.round(ev.z);
+    if (!byKey.has(key)) byKey.set(key, []);
+    byKey.get(key).push(ev);
+  }
+  const rows = [];
+  for (const list of byKey.values()) {
+    list.sort((a, b) => (a.game_time_ms || 0) - (b.game_time_ms || 0));
+    let pending = null;
+    for (const ev of list) {
+      const action = String(ev.action || "pickup");
+      if (action === "pickup") {
+        if (pending) rows.push(makeItemRow(pending, pending.guessAtMs));
+        pending = {
+          item: ev.item,
+          x: ev.x,
+          y: ev.y,
+          z: ev.z,
+          pickupMs: ev.game_time_ms,
+          guessAtMs: ev.game_time_ms + (Number(ev.respawn_sec) > 0 ? Number(ev.respawn_sec) : 35) * 1000,
+        };
+      } else if (action === "respawn" && pending) {
+        rows.push(makeItemRow(pending, ev.game_time_ms));
+        pending = null;
+      }
+    }
+    if (pending) rows.push(makeItemRow(pending, pending.guessAtMs));
+  }
+  return rows;
+}
+
+function makeItemRow(pending, atMs) {
+  return {
+    cn: pending.item,
+    x: pending.x,
+    y: pending.y,
+    z: pending.z,
+    s: 2,
+    pickup_ms: pending.pickupMs,
+    at_ms: Math.round(atMs),
+  };
+}
+
 export function archiveFromDemoReplay(replay) {
   const meta = replay.meta || {};
   const povClientNum = meta.pov_client_num ?? null;

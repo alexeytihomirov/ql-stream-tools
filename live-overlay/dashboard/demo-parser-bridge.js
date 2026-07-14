@@ -1,5 +1,5 @@
 async function loadModules() {
-  const v = "20260712b";
+  const v = "20260713a";
   const qldemo = await import(`../lib/qldemo/index.js?v=${v}`);
   const overlayHelpers = await import(`../lib/qldemo/replay-for-overlay.js?v=${v}`);
   const mapResolve = await import(`../lib/qldemo/map-item-resolve.js?v=${v}`);
@@ -9,6 +9,7 @@ async function loadModules() {
     replaySummary: qldemo.replaySummary,
     replayForOverlay: overlayHelpers.replayForOverlay,
     archiveFromDemoReplay: overlayHelpers.archiveFromDemoReplay,
+    itemStateRows: overlayHelpers.itemStateRows,
     filterPickupEntities: mapResolve.filterPickupEntities,
     normalizeMapKey: mapResolve.normalizeMapKey,
   };

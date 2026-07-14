@@ -7,6 +7,7 @@
 
   var lastArchive = null;
   var lastOverlayReplay = null;
+  var lastItemRows = null;
   var scrubGameTimeMs = null;
   var parseSummary = null;
   var parseFileName = "";
@@ -208,12 +209,60 @@
     updateReplayControlUi();
   }
 
+  // lastItemRows spans the whole demo (every pickup interval up front); each
+  // row's pickup_ms tells us whether that pickup has even happened yet as of
+  // scrubT. restore-editor.js's own filterCheckpointItemsForScrub only checks
+  // at_ms > t (it assumes the raw list was already trimmed to "picked up by
+  // t", true for a real recording's per-t_ms server fetch) so we pre-filter
+  // here before handing rows to the editor.
+  function itemRowsAtTime(tMs) {
+    return (lastItemRows || []).filter(function (row) {
+      return row.pickup_ms <= tMs && row.at_ms > tMs;
+    });
+  }
+
+  // No server round-trip (unlike results.js's real-recording checkpoint
+  // fetch): recompute the item slice into a synthetic payload.checkpoint
+  // and let QLRestoreEditor's own updateScrub/ensureSnapshot machinery
+  // (relation === "exact" since t_ms always matches scrubT here) refresh
+  // the cache and re-render — same path results.js uses for real recordings,
+  // just fed from local data instead of a server fetch.
+  function refreshCheckpointPanel(tMs, forceMount) {
+    var host = document.getElementById("restore-checkpoint-host");
+    if (!host || typeof QLRestoreEditor === "undefined" || !lastArchive) return;
+    var scrubT = tMs != null ? tMs : scrubGameTimeMs;
+    var opts = {
+      status: "ready",
+      payload: {
+        checkpoint: {
+          v: 2,
+          t_ms: scrubT,
+          map: lastArchive.map_name || "",
+          items: itemRowsAtTime(scrubT),
+          players: [],
+        },
+      },
+      tMs: scrubT,
+      archive: lastArchive,
+      standalone: true,
+      refreshPayloadItems: true,
+    };
+    var hasShell =
+      host.querySelector(".ql-restore-shell") || host.querySelector(".ql-restore-editor-body");
+    if (forceMount || !hasShell) {
+      QLRestoreEditor.mount(host, opts);
+      return;
+    }
+    QLRestoreEditor.updateScrub(host, opts);
+  }
+
   function scheduleScrubPanelSync() {
     if (scrubPanelSyncTimer) return;
     scrubPanelSyncTimer = setTimeout(function () {
       scrubPanelSyncTimer = 0;
       refreshAnalyticsPanels();
       refreshScoreDisplay();
+      refreshCheckpointPanel(scrubGameTimeMs);
     }, 100);
   }
 
@@ -224,6 +273,7 @@
     }
     refreshAnalyticsPanels();
     refreshScoreDisplay();
+    refreshCheckpointPanel(scrubGameTimeMs);
   }
 
   function refreshScoreDisplay() {
@@ -392,6 +442,7 @@
     parseSummary = null;
     lastArchive = null;
     lastOverlayReplay = null;
+    lastItemRows = null;
     parseFileName = name;
 
     try {
@@ -411,6 +462,7 @@
       var replay = QLDemo.demoToReplay(parser, { mapTable: mapTable, includePickups: true });
       parseSummary = QLDemo.replaySummary(replay);
       lastOverlayReplay = QLDemo.replayForOverlay(replay);
+      lastItemRows = QLDemo.itemStateRows(replay);
       lastArchive = A().normalizeArchiveCombatClock(QLDemo.archiveFromDemoReplay(replay));
       lastArchive = A().enrichArchivePickupsFromReplay(lastArchive, lastOverlayReplay);
       lastArchive = A().attachReplayScrubData(lastArchive, lastOverlayReplay);
@@ -440,6 +492,7 @@
 
       refreshAnalytics();
       refreshScoreDisplay();
+      refreshCheckpointPanel(scrubGameTimeMs, true);
       setParseStatus(QLDashboard.t("demoParsedOk", { file: name }), false);
     } catch (err) {
       setParseStatus(String(err.message || err), true);
@@ -482,6 +535,7 @@
     destroyDemoMapWidget();
     lastArchive = null;
     lastOverlayReplay = null;
+    lastItemRows = null;
     scrubGameTimeMs = null;
     parseSummary = null;
     parseFileName = "";
@@ -518,6 +572,10 @@
       '<div id="demo-map-widget" class="match-map-widget"></div>' +
       "</div>" +
       '<div id="demo-analytics-wrap"></div>' +
+      '<p class="control-field-hint">' +
+      QLDashboard.escapeHtml(QLDashboard.t("demoCheckpointHint")) +
+      "</p>" +
+      '<div id="restore-checkpoint-host"></div>' +
       "</section>";
 
     bindUpload(root);
