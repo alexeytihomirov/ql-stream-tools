@@ -105,7 +105,9 @@
   // sibling of .map-layout) and stay crisp at native size.
   var MAP_FIT_BASE_PX = 512;
   var lastFitContainerWidth = 0;
+  var lastFitContainerHeight = null;
   var lastFitNaturalWidth = MAP_FIT_BASE_PX;
+  var lastFitNaturalHeight = MAP_FIT_BASE_PX;
 
   function applyFit() {
     if (!mountedContainer) return;
@@ -113,22 +115,30 @@
     if (!layout) return;
     var w = mountedContainer.clientWidth;
     if (!w) return;
+    // Fullscreen has no dashboard column to fit width-only against — fit
+    // (contain, not crop) both axes of the actual screen instead, so nothing
+    // overflows the shorter dimension.
+    var fs = isFullscreen();
+    var h = fs ? mountedContainer.clientHeight : null;
     // The 512px map square is not the only thing in .map-layout: the replay bar
     // (play/scrub/speed/segment/load) and other controls can make the natural
     // content WIDER than 512. Dividing by a hardcoded 512 then over-scales and
     // the container's overflow:hidden crops the right/bottom of the map.
-    // Measure the real natural width at zoom 1 and fit to that (never below the
+    // Measure the real natural size at zoom 1 and fit to that (never below the
     // 512 map base, so the square fills the column when controls are narrower).
-    // Only remeasure when the container width changes — resetting zoom to 1 on
+    // Only remeasure when the container size changes — resetting zoom to 1 on
     // every ResizeObserver tick (e.g. from map DOM updates) flashes the overlay.
-    var natural = lastFitNaturalWidth;
-    if (w !== lastFitContainerWidth) {
+    if (w !== lastFitContainerWidth || h !== lastFitContainerHeight) {
       layout.style.zoom = "1";
-      natural = Math.max(MAP_FIT_BASE_PX, layout.scrollWidth);
-      lastFitNaturalWidth = natural;
+      lastFitNaturalWidth = Math.max(MAP_FIT_BASE_PX, layout.scrollWidth);
+      lastFitNaturalHeight = Math.max(MAP_FIT_BASE_PX, layout.scrollHeight);
       lastFitContainerWidth = w;
+      lastFitContainerHeight = h;
     }
-    var scale = w / natural;
+    var scale =
+      h != null
+        ? Math.min(w / lastFitNaturalWidth, h / lastFitNaturalHeight)
+        : w / lastFitNaturalWidth;
     var nextZoom = scale > 0 ? String(scale) : "1";
     if (layout.style.zoom !== nextZoom) {
       layout.style.zoom = nextZoom;
@@ -189,7 +199,9 @@
     var layout = mountedContainer.querySelector(".map-layout");
     if (layout) layout.style.zoom = "";
     lastFitContainerWidth = 0;
+    lastFitContainerHeight = null;
     lastFitNaturalWidth = MAP_FIT_BASE_PX;
+    lastFitNaturalHeight = MAP_FIT_BASE_PX;
   }
 
   function mount(container, opts) {
@@ -268,7 +280,9 @@
       mountedContainer = null;
     }
     lastFitContainerWidth = 0;
+    lastFitContainerHeight = null;
     lastFitNaturalWidth = MAP_FIT_BASE_PX;
+    lastFitNaturalHeight = MAP_FIT_BASE_PX;
     MapWidget.embedded = false;
   }
 

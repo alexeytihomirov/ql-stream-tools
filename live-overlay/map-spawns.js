@@ -1465,6 +1465,7 @@
     this.respawnLayer = null;
     this._itemRespawns = {};
     this._hiddenItems = {};
+    this._neverSeenInDemo = {};
     this._respawnLoopId = 0;
     this._hiddenLoopId = 0;
     this._staticMarkers = {};
@@ -1655,6 +1656,7 @@
   MapSpawns.prototype._clearHiddenItems = function () {
     this._stopHiddenLoop();
     this._hiddenItems = {};
+    this._neverSeenInDemo = {};
     this._refreshAllEntityVisibility();
   };
 
@@ -1666,9 +1668,44 @@
   };
 
   MapSpawns.prototype._entityUnavailableForDisplay = function (entityId) {
+    if (this._neverSeenInDemo && this._neverSeenInDemo[entityId]) return true;
     if (this._itemOnRespawnCooldown(entityId)) return true;
     var row = this._hiddenItems[this._itemRespawnKey(entityId)];
     return !!(row && row.expiresAt > overlayNowMs());
+  };
+
+  /**
+   * Demo-only (source: "qldemo"): the item catalog is a static per-map list,
+   * always "present" until a pickup event proves otherwise - correct for live
+   * matches (server telemetry is authoritative) but wrong for a POV demo,
+   * which only knows what it actually saw. Permanently hide catalog entries
+   * with no matching entry in `seenItems` (items the POV never once rendered
+   * as visible anywhere in the whole recording) - safe/additive: it only ever
+   * hides items we have literally zero evidence for, never touches the
+   * existing pickup/respawn hide logic for items that were seen.
+   */
+  MapSpawns.prototype.markNeverSeenInDemo = function (seenItems) {
+    var entities = (this.entityData && this.entityData.entities) || [];
+    var seen = Array.isArray(seenItems) ? seenItems : [];
+    this._neverSeenInDemo = {};
+    for (var i = 0; i < entities.length; i++) {
+      var ent = entities[i];
+      var ex = Number(ent.x);
+      var ey = Number(ent.y);
+      var found = false;
+      for (var j = 0; j < seen.length; j++) {
+        var s = seen[j];
+        if (s.classname !== ent.classname) continue;
+        var dx = Number(s.x) - ex;
+        var dy = Number(s.y) - ey;
+        if (dx * dx + dy * dy <= PICKUP_MATCH_RADIUS * PICKUP_MATCH_RADIUS) {
+          found = true;
+          break;
+        }
+      }
+      if (!found) this._neverSeenInDemo[ent.id] = true;
+    }
+    this._refreshAllEntityVisibility();
   };
 
   MapSpawns.prototype._pruneExpiredItemStates = function (now) {
@@ -5302,6 +5339,12 @@
     },
     resetMatchState: function () {
       instance._clearItemRespawns();
+    },
+    ensureEntities: function (mapName) {
+      return instance.loadEntities(mapName);
+    },
+    markNeverSeenInDemo: function (seenItems) {
+      instance.markNeverSeenInDemo(seenItems);
     },
     refreshItemRespawnOverlays: function () {
       instance._pruneExpiredItemStates();

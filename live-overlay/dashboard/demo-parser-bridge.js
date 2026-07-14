@@ -1,5 +1,5 @@
 async function loadModules() {
-  const v = "20260713a";
+  const v = "20260713b";
   const qldemo = await import(`../lib/qldemo/index.js?v=${v}`);
   const overlayHelpers = await import(`../lib/qldemo/replay-for-overlay.js?v=${v}`);
   const mapResolve = await import(`../lib/qldemo/map-item-resolve.js?v=${v}`);

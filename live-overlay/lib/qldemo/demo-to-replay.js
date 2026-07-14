@@ -101,22 +101,39 @@ function yawFromEntity(ent) {
 // weapon/shooter field in this protocol (verified empirically: always 0,
 // matching the same `es.weapon` field the real UDT viewer keys shaft-impact
 // matching off - so it's a wire-format gap, not a parser bug on our side).
-// Draw the beam the same way UDT's own fallback does when no impact matches:
-// a straight LG_BEAM_LENGTH line along the shooter's aim direction.
+// Draw the beam along the shooter's aim direction like UDT's own fallback
+// does, but clip it to whichever live player it geometrically passes closest
+// to (lgBeamHitDistance) instead of always drawing the full LG_BEAM_LENGTH -
+// a beam that visibly stops on the opponent it's hitting matches what you'd
+// actually see watching the demo, a straight line through them doesn't.
 const LG_BEAM_LENGTH = 768;
+const LG_HIT_RADIUS = 32;
 
-function lgBeamEndpoint(x, y, z, pitchDeg, yawDeg) {
+function lgAimDir(pitchDeg, yawDeg) {
   const yawRad = (Number(yawDeg) || 0) * (Math.PI / 180);
   const pitchRad = (Number(pitchDeg) || 0) * (Math.PI / 180);
   const cp = Math.cos(pitchRad);
-  const fx = cp * Math.cos(yawRad);
-  const fy = cp * Math.sin(yawRad);
-  const fz = -Math.sin(pitchRad);
-  return [
-    round1(x + fx * LG_BEAM_LENGTH),
-    round1(y + fy * LG_BEAM_LENGTH),
-    round1(z + fz * LG_BEAM_LENGTH),
-  ];
+  return [cp * Math.cos(yawRad), cp * Math.sin(yawRad), -Math.sin(pitchRad)];
+}
+
+/** Closest along-ray distance (0..LG_BEAM_LENGTH) to a live player within LG_HIT_RADIUS of the aim ray, or null. */
+function lgBeamHitDistance(x, y, z, fx, fy, fz, playersByCn, shooterClientNum) {
+  let best = null;
+  for (const [cn, p] of playersByCn) {
+    if (cn === shooterClientNum || p.alive === false) continue;
+    const dx = p.x - x;
+    const dy = p.y - y;
+    const dz = p.z - z;
+    const t = dx * fx + dy * fy + dz * fz;
+    if (t < 0 || t > LG_BEAM_LENGTH || (best != null && t > best)) continue;
+    const perp = Math.hypot(dx - fx * t, dy - fy * t, dz - fz * t);
+    if (perp <= LG_HIT_RADIUS) best = t;
+  }
+  return best;
+}
+
+function lgBeamEndpoint(x, y, z, fx, fy, fz, length) {
+  return [round1(x + fx * length), round1(y + fy * length), round1(z + fz * length)];
 }
 
 function saneVital(value) {
@@ -671,11 +688,21 @@ export function demoToReplay(parser, options = {}) {
       collectFxFromChangedEntity(ent, snap, impacts, beams, deaths, rosterByClient);
     }
     // LG has no dedicated network beam (unlike rail's EV_RAIL_TRAIL): draw a
-    // full-range beam along the shooter's aim direction for every player
-    // actively firing it this snapshot (see lgBeamEndpoint() for why we don't
-    // try to snap it to a wall-impact point).
+    // beam along the shooter's aim direction for every player actively firing
+    // it this snapshot, clipped to whichever live opponent it geometrically
+    // hits (see lgBeamHitDistance()/lgBeamEndpoint() comment above).
     for (const [clientNum, shooter] of firingShaft) {
-      const [x1, y1, z1] = lgBeamEndpoint(shooter.x, shooter.y, shooter.z, shooter.pitch, shooter.yaw);
+      const [fx, fy, fz] = lgAimDir(shooter.pitch, shooter.yaw);
+      const hitDist = lgBeamHitDistance(shooter.x, shooter.y, shooter.z, fx, fy, fz, playersByCn, clientNum);
+      const [x1, y1, z1] = lgBeamEndpoint(
+        shooter.x,
+        shooter.y,
+        shooter.z,
+        fx,
+        fy,
+        fz,
+        hitDist != null ? hitDist : LG_BEAM_LENGTH,
+      );
       beams.push({
         clientNum,
         x0: round1(shooter.x),
@@ -846,6 +873,18 @@ export function demoToReplay(parser, options = {}) {
       beam_frames: beamEvents,
       death_events: deathEvents,
       errors: parser.errors,
+      // Every (classname, x, y, z) the POV ever actually rendered as an
+      // ET_ITEM entity anywhere in the recording - lets the map widget
+      // permanently hide static-catalog item spawns this demo has zero
+      // evidence for (MapSpawns.markNeverSeenInDemo), instead of the
+      // default-present-until-picked-up model that's only valid for live
+      // (server-authoritative) telemetry.
+      seen_items: [...staticItems.registry.values()].map((it) => ({
+        classname: it.classname,
+        x: it.x,
+        y: it.y,
+        z: it.z,
+      })),
     },
     events,
     respawnSec,

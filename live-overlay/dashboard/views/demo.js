@@ -491,6 +491,16 @@
       if (window.MapSpawns && typeof MapSpawns.setEnabled === "function") {
         MapSpawns.setEnabled(true);
       }
+      if (
+        window.MapSpawns &&
+        typeof MapSpawns.ensureEntities === "function" &&
+        typeof MapSpawns.markNeverSeenInDemo === "function"
+      ) {
+        var seenItems = (replay.meta && replay.meta.seen_items) || [];
+        MapSpawns.ensureEntities(replay.meta.map_name).then(function () {
+          MapSpawns.markNeverSeenInDemo(seenItems);
+        });
+      }
       await waitOverlayReplay();
       if (window.OverlayApp && typeof OverlayApp.loadReplayData === "function") {
         await OverlayApp.loadReplayData(lastOverlayReplay);

@@ -460,16 +460,14 @@ td:nth-child(2) {
   align-items: flex-start;
 }
 
+/* applyFit() (map-widget.js) scales .map-layout via zoom to contain-fit the
+   fullscreen viewport on both axes; this just centers the (now natural-size
+   times zoom) box within the screen instead of leaving it top-left. */
 .map-widget-root:fullscreen {
   display: flex;
   align-items: center;
   justify-content: center;
   background: #05070c;
-}
-
-.map-widget-root:fullscreen .map-layout {
-  width: 100vw;
-  height: 100vh;
 }
 
 .map-fullscreen-btn {
