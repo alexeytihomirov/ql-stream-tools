@@ -125,13 +125,17 @@
     // content WIDER than 512. Dividing by a hardcoded 512 then over-scales and
     // the container's overflow:hidden crops the right/bottom of the map.
     // Measure the real natural size at zoom 1 and fit to that (never below the
-    // 512 map base, so the square fills the column when controls are narrower).
+    // 512 map base when embedded, so the square fills the column when controls
+    // are narrower). Fullscreen skips that floor: the in-map camera zoom
+    // (mapZoomPercent, map-spawns.js applyMapZoom) can size #map-zoom-host
+    // below 512, and flooring the denominator there under-scales the result -
+    // fullscreen must fill the screen regardless of that setting.
     // Only remeasure when the container size changes — resetting zoom to 1 on
     // every ResizeObserver tick (e.g. from map DOM updates) flashes the overlay.
     if (w !== lastFitContainerWidth || h !== lastFitContainerHeight) {
       layout.style.zoom = "1";
-      lastFitNaturalWidth = Math.max(MAP_FIT_BASE_PX, layout.scrollWidth);
-      lastFitNaturalHeight = Math.max(MAP_FIT_BASE_PX, layout.scrollHeight);
+      lastFitNaturalWidth = fs ? layout.scrollWidth : Math.max(MAP_FIT_BASE_PX, layout.scrollWidth);
+      lastFitNaturalHeight = fs ? layout.scrollHeight : Math.max(MAP_FIT_BASE_PX, layout.scrollHeight);
       lastFitContainerWidth = w;
       lastFitContainerHeight = h;
     }
@@ -159,20 +163,18 @@
     btn.title = active ? "Exit fullscreen" : "Fullscreen";
   }
 
-  function showFullscreenBtn() {
+  function showFullscreenChrome() {
     if (!mountedContainer) return;
-    var btn = mountedContainer.querySelector("#map-fullscreen-btn");
-    if (!btn) return;
-    btn.classList.add("is-visible");
+    mountedContainer.classList.add("map-fs-chrome-visible");
     if (fsIdleTimer) clearTimeout(fsIdleTimer);
     fsIdleTimer = setTimeout(function () {
       fsIdleTimer = null;
-      btn.classList.remove("is-visible");
+      if (mountedContainer) mountedContainer.classList.remove("map-fs-chrome-visible");
     }, FS_IDLE_MS);
   }
 
   function onContainerMouseMove() {
-    showFullscreenBtn();
+    showFullscreenChrome();
   }
 
   function onFullscreenBtnClick() {
@@ -276,6 +278,7 @@
         "overlay-body",
         "map-body",
         "map-widget-embedded",
+        "map-fs-chrome-visible",
       );
       mountedContainer = null;
     }

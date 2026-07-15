@@ -461,13 +461,21 @@ td:nth-child(2) {
 }
 
 /* applyFit() (map-widget.js) scales .map-layout via zoom to contain-fit the
-   fullscreen viewport on both axes; this just centers the (now natural-size
-   times zoom) box within the screen instead of leaving it top-left. */
+   fullscreen viewport on both axes; absolute-position + translate centers the
+   (now natural-size times zoom) box within the screen - more reliable across
+   browsers than flex centering next to a position:fixed sibling
+   (#map-page-overlays), which isn't a flex participant but some engines'
+   centering math can still end up skewed by it. */
 .map-widget-root:fullscreen {
-  display: flex;
-  align-items: center;
-  justify-content: center;
+  position: relative;
   background: #05070c;
+}
+
+.map-widget-root:fullscreen .map-layout {
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  transform: translate(-50%, -50%);
 }
 
 .map-fullscreen-btn {
@@ -493,7 +501,21 @@ td:nth-child(2) {
   transition: opacity 0.15s ease;
 }
 
-.map-fullscreen-btn.is-visible {
+.map-widget-root.map-fs-chrome-visible .map-fullscreen-btn {
+  opacity: 1;
+  pointer-events: auto;
+}
+
+/* Replay bar (play/scrub/speed) only auto-hides while actually in
+   fullscreen - mousemove reveals it via the same idle timer as the
+   fullscreen button; the embedded/standalone view leaves it always shown. */
+.map-widget-root:fullscreen #map-replay-bar:not(.hidden) {
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity 0.15s ease;
+}
+
+.map-widget-root:fullscreen.map-fs-chrome-visible #map-replay-bar:not(.hidden) {
   opacity: 1;
   pointer-events: auto;
 }

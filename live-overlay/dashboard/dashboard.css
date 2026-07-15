@@ -1200,6 +1200,20 @@ a.control-btn {
   width: 512px;
 }
 
+/* Fullscreen replaces the dashboard column entirely (the browser sizes the
+   fullscreen element to the whole screen) - drop the embedded-only overlay
+   confinement and the 512px width pin so applyFit()'s natural-size
+   measurement (and the toolbar's true viewport-corner anchoring) behave the
+   same as the standalone OBS page instead of being skewed by rules that only
+   make sense inside a narrower dashboard column. */
+.match-map-widget:fullscreen .map-page-overlays {
+  position: fixed;
+}
+
+.match-map-widget:fullscreen .map-main {
+  width: auto;
+}
+
 .match-map-widget .map-meta {
   display: none;
 }
