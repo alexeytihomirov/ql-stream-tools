@@ -1184,6 +1184,18 @@ a.control-btn {
   display: none !important;
 }
 
+/* Fullscreen has no room for the dashboard's own separate "Match timeline"
+   panel (it lives outside this widget's DOM entirely, so it can't be part of
+   the fullscreen element) - un-hide the widget's own built-in replay bar
+   instead. It's already fully wired to the same OverlayApp replay state
+   (overlay.js binds #map-replay-play/-scrub/-speed unconditionally), just
+   suppressed above in favor of the dashboard's panel; overlay.css fades it
+   in/out on mousemove the same as the fullscreen button. */
+.match-map-widget:fullscreen #map-replay-bar,
+.match-map-widget:fullscreen #map-replay-playback {
+  display: flex !important;
+}
+
 .match-map-widget .map-page-overlays {
   position: absolute;
 }

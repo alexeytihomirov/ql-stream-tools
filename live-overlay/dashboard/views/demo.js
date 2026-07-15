@@ -505,6 +505,9 @@
       if (window.OverlayApp && typeof OverlayApp.loadReplayData === "function") {
         await OverlayApp.loadReplayData(lastOverlayReplay);
         await seekReplayToGameMs(scrubGameTimeMs, false);
+        if (typeof OverlayApp.ensureReplayBarBound === "function") {
+          OverlayApp.ensureReplayBarBound();
+        }
       }
 
       refreshAnalytics();

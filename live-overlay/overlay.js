@@ -6656,6 +6656,15 @@
     onMapPayload: function (fn) {
       mapPayloadListeners.push(fn);
     },
+    // Embedded views (e.g. #/demo) normally use their own page-level replay
+    // controls and leave the widget's built-in #map-replay-bar unbound
+    // (initMapReplay(), the only other caller, is standalone-only). Fullscreen
+    // has no room for that page-level UI, so the embedded view can opt into
+    // wiring the built-in bar too (dashboard.css shows it only while
+    // :fullscreen) - idempotent, safe to call once after loadReplayData.
+    ensureReplayBarBound: function () {
+      bindReplayBar();
+    },
     onPickup: function (fn) {
       pickupListeners.push(fn);
     },
