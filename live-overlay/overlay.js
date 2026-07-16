@@ -5679,6 +5679,17 @@
     if (matchEndWallT == null && positionsEndT != null) {
       matchEndWallT = positionsEndT;
     }
+    if (typeof console !== "undefined" && console.info) {
+      console.info("[overlay] replay game-clock anchor", {
+        startMs: startMs,
+        matchStartWallT: matchStartWallT,
+        matchStartWallOverride: replayMatchStartWallMsOverride(),
+        matchStartWallFromLifecycle: replayLifecycleWallT(events, "match_start"),
+        matchStartWallEstimated: computeReplayGameStartWall(events),
+        countdownWallT: countdownWallT,
+        matchEndWallT: matchEndWallT,
+      });
+    }
     var trimStartMs = replayTrimStartMs();
     if (trimStartMs != null) {
       var endT = startMs + durationMs;

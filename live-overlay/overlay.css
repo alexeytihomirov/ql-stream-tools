@@ -513,13 +513,24 @@ td:nth-child(2) {
   pointer-events: auto;
 }
 
-/* Replay bar (play/scrub/speed) only auto-hides while actually in
-   fullscreen - mousemove reveals it via the same idle timer as the
-   fullscreen button; the embedded/standalone view leaves it always shown.
-   No :not(.hidden) guard needed: if the bar is display:none (standalone,
-   no replay active) opacity is moot; if dashboard.css force-shows it
-   (embedded + fullscreen) this layers the fade on top. */
+/* Replay bar (play/scrub/speed): in maximized mode it's pulled out of
+   .map-main's normal in-flow stack (where it would just render as a strip
+   below the map square, always taking up layout space) and floated as a
+   fixed overlay centered at the bottom of the screen, like a video
+   player's control bar - it only auto-hides while actually in fullscreen,
+   mousemove reveals it via the same idle timer as the fullscreen button;
+   the embedded/standalone view leaves it in its normal always-shown flow
+   position. No :not(.hidden) guard needed: if the bar is display:none
+   (standalone, no replay active) opacity is moot; if dashboard.css
+   force-shows it (embedded + fullscreen) this layers the fade on top. */
 .map-widget-root.map-widget-maximized #map-replay-bar {
+  position: fixed;
+  left: 50%;
+  bottom: 16px;
+  transform: translateX(-50%);
+  z-index: 101;
+  max-width: min(90vw, 640px);
+  margin: 0;
   opacity: 0;
   pointer-events: none;
   transition: opacity 0.15s ease;
