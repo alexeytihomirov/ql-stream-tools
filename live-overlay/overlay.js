@@ -1942,19 +1942,34 @@
     return null;
   }
 
+  // Position telemetry rarely carries its own game_time_ms (the backend only
+  // refreshes the match's game clock alongside less-frequent events like
+  // kills - stats_hub.store.update_positions falls back to that stale
+  // per-match value), so death/pickup samples can be minutes apart. Returning
+  // the last sample's raw value verbatim made the on-map clock visibly freeze
+  // between them and jump only when a new sample arrived. Interpolate forward
+  // by the elapsed wall-time since that sample instead, so it ticks smoothly
+  // every second like a real clock; replayPausedAtWall() above already
+  // short-circuits this while an actual pause is in effect.
   function replayGameClockMsAtWall(wallT) {
     if (!replayState) return null;
     var paused = replayPausedAtWall(wallT);
     if (paused && paused.gameMs != null) return Math.max(0, paused.gameMs);
     var events = replayState.events || [];
     var best = null;
+    var bestEventT = null;
     for (var i = 0; i < events.length; i++) {
       var ev = events[i];
       if ((ev.t || 0) > wallT) break;
       var g = replayGameTimeFieldMs(ev);
-      if (g != null) best = g;
+      if (g != null) {
+        best = g;
+        bestEventT = ev.t || 0;
+      }
     }
-    if (best != null) return best;
+    if (best != null) {
+      return Math.max(0, best + Math.max(0, wallT - bestEventT));
+    }
     if (replayState.gameStartWall != null && wallT >= replayState.gameStartWall) {
       return Math.max(0, wallT - replayState.gameStartWall);
     }
