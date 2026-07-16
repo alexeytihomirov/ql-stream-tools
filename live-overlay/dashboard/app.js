@@ -145,6 +145,20 @@
     return fetchPublicJson(settings.statsHubBase + path);
   }
 
+  function downloadJson(filename, data) {
+    var blob = new Blob([JSON.stringify(data)], { type: "application/json" });
+    var url = URL.createObjectURL(blob);
+    var a = document.createElement("a");
+    a.href = url;
+    a.download = filename;
+    document.body.appendChild(a);
+    a.click();
+    a.remove();
+    setTimeout(function () {
+      URL.revokeObjectURL(url);
+    }, 1000);
+  }
+
   async function postStatsJson(path, body) {
     if (!settings.statsHubBase) throw new Error(t("errorMissingBase"));
     var res = await fetch(settings.statsHubBase + path, {
@@ -861,6 +875,7 @@
     overlayQueryParams: overlayQueryParams,
     buildUrl: buildUrl,
     fetchStatsJson: fetchStatsJson,
+    downloadJson: downloadJson,
     postStatsJson: postStatsJson,
     fetchArchiveSummary: fetchArchiveSummary,
     hasStatsApiToken: hasStatsApiToken,

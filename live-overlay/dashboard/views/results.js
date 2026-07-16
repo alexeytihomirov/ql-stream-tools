@@ -25,6 +25,7 @@
   var checkpointStatus = "idle";
   var checkpointError = "";
   var checkpointReplayAvailable = false;
+  var selectedRecordingIds = {};
 
   function stopCheckpointFetch() {
     if (checkpointFetchTimer) {
@@ -180,6 +181,90 @@
           );
         });
       })(nodes[i]);
+    }
+  }
+
+  async function downloadReplay(recordingId) {
+    if (!recordingId) return;
+    try {
+      var data = await QLDashboard.fetchStatsJson(
+        "/api/replays/" + encodeURIComponent(recordingId) + "?limit=10000",
+      );
+      QLDashboard.downloadJson(recordingId + ".json", data);
+    } catch (err) {
+      window.alert(String((err && err.message) || err));
+    }
+  }
+
+  function bindDownloadReplayButtons(scope) {
+    if (!scope || !scope.querySelectorAll) return;
+    var nodes = scope.querySelectorAll("[data-ql-download-replay]");
+    for (var i = 0; i < nodes.length; i++) {
+      (function (btn) {
+        if (btn.dataset.qlBound) return;
+        btn.dataset.qlBound = "1";
+        btn.addEventListener("click", function (ev) {
+          ev.preventDefault();
+          downloadReplay(btn.getAttribute("data-ql-download-replay"));
+        });
+      })(nodes[i]);
+    }
+  }
+
+  function updateDownloadSelectedButton() {
+    var btn = document.getElementById("results-download-selected");
+    if (!btn) return;
+    var n = Object.keys(selectedRecordingIds).length;
+    btn.disabled = n === 0;
+    btn.textContent =
+      n > 0
+        ? QLDashboard.t("resultsDownloadSelectedCount", { n: n })
+        : QLDashboard.t("resultsDownloadSelected");
+  }
+
+  function bindResultsSelectionCheckboxes(scope) {
+    if (!scope || !scope.querySelectorAll) return;
+    var boxes = scope.querySelectorAll("[data-ql-select-recording]");
+    for (var i = 0; i < boxes.length; i++) {
+      (function (cb) {
+        if (cb.dataset.qlBound) return;
+        cb.dataset.qlBound = "1";
+        cb.addEventListener("change", function () {
+          var id = cb.getAttribute("data-ql-select-recording");
+          if (cb.checked) selectedRecordingIds[id] = true;
+          else delete selectedRecordingIds[id];
+          updateDownloadSelectedButton();
+        });
+      })(boxes[i]);
+    }
+    var selectAll = document.getElementById("results-select-all");
+    if (selectAll && !selectAll.dataset.qlBound) {
+      selectAll.dataset.qlBound = "1";
+      selectAll.addEventListener("change", function () {
+        var checked = selectAll.checked;
+        var allBoxes = document.querySelectorAll("[data-ql-select-recording]");
+        for (var j = 0; j < allBoxes.length; j++) {
+          allBoxes[j].checked = checked;
+          var id = allBoxes[j].getAttribute("data-ql-select-recording");
+          if (checked) selectedRecordingIds[id] = true;
+          else delete selectedRecordingIds[id];
+        }
+        updateDownloadSelectedButton();
+      });
+    }
+  }
+
+  function delay(ms) {
+    return new Promise(function (resolve) {
+      setTimeout(resolve, ms);
+    });
+  }
+
+  async function downloadSelectedReplays() {
+    var ids = Object.keys(selectedRecordingIds);
+    for (var i = 0; i < ids.length; i++) {
+      await downloadReplay(ids[i]);
+      if (i < ids.length - 1) await delay(400);
     }
   }
 
@@ -637,7 +722,9 @@
       );
     }
     var html =
-      '<table class="data-table"><thead><tr><th>' +
+      '<table class="data-table"><thead><tr><th><input type="checkbox" id="results-select-all" aria-label="' +
+      QLDashboard.escapeHtml(QLDashboard.t("resultsSelectAll")) +
+      '" /></th><th>' +
       QLDashboard.escapeHtml(QLDashboard.t("colServer")) +
       "</th><th>" +
       QLDashboard.escapeHtml(QLDashboard.t("resultsColPlayers")) +
@@ -663,7 +750,17 @@
         });
       }
       html +=
-        "<tr><td><a href=\"" +
+        "<tr><td>" +
+        (rid && r.replay_available !== false
+          ? '<input type="checkbox" data-ql-select-recording="' +
+            QLDashboard.escapeHtml(rid) +
+            '" aria-label="' +
+            QLDashboard.escapeHtml(QLDashboard.t("resultsSelectRow")) +
+            '"' +
+            (selectedRecordingIds[rid] ? " checked" : "") +
+            " />"
+          : "") +
+        '</td><td><a href="' +
         QLDashboard.escapeHtml(serverUrl) +
         '">' +
         QLDashboard.escapeHtml(r.session_id || r.match_id || "—") +
@@ -686,6 +783,13 @@
             '" target="_blank" rel="noopener noreferrer">' +
             QLDashboard.escapeHtml(QLDashboard.t("matchOpenReplay")) +
             "</a>"
+          : "") +
+        (rid && r.replay_available !== false
+          ? ' <button type="button" class="control-btn control-btn-sm" data-ql-download-replay="' +
+            QLDashboard.escapeHtml(rid) +
+            '">' +
+            QLDashboard.escapeHtml(QLDashboard.t("resultsDownloadReplay")) +
+            "</button>"
           : "") +
         (QLDashboard.hasStatsApiToken() && rid
           ? ' <button type="button" class="control-btn control-btn-sm control-btn-danger" data-ql-delete-result="' +
@@ -713,6 +817,9 @@
       if (!Array.isArray(rows)) rows = [];
       bodyEl.innerHTML = renderResultsTable(rows);
       bindDeleteButtons(bodyEl);
+      bindDownloadReplayButtons(bodyEl);
+      bindResultsSelectionCheckboxes(bodyEl);
+      updateDownloadSelectedButton();
       if (statusEl) {
         statusEl.textContent = filter
           ? QLDashboard.t("resultsCountFiltered", { server: filter, n: rows.length })
@@ -731,6 +838,7 @@
   function mountList(root) {
     stopPoll();
     destroyResultsMapWidget();
+    selectedRecordingIds = {};
     var filter = serverFilter();
     var filterNote = filter
       ? '<p class="control-field-hint">' +
@@ -749,8 +857,19 @@
       '<p id="results-status" class="control-status">' +
       QLDashboard.escapeHtml(QLDashboard.t("resultsLoading")) +
       "</p>" +
+      '<div class="control-actions">' +
+      '<button type="button" id="results-download-selected" class="control-btn control-btn-sm" disabled>' +
+      QLDashboard.escapeHtml(QLDashboard.t("resultsDownloadSelected")) +
+      "</button>" +
+      "</div>" +
       '<div id="results-list-wrap"></div>' +
       "</section>";
+
+    var downloadSelectedBtn = document.getElementById("results-download-selected");
+    if (downloadSelectedBtn && !downloadSelectedBtn.dataset.qlBound) {
+      downloadSelectedBtn.dataset.qlBound = "1";
+      downloadSelectedBtn.addEventListener("click", downloadSelectedReplays);
+    }
 
     loadResultsList(root);
     pollTimer = setInterval(function () {
@@ -827,6 +946,13 @@
               QLDashboard.escapeHtml(QLDashboard.t("resultsReplayWindow")) +
               "</button> "
             : "") +
+          (archive.replay_available !== false && recordingId
+            ? '<button type="button" class="control-btn control-btn-sm" data-ql-download-replay="' +
+              QLDashboard.escapeHtml(recordingId) +
+              '">' +
+              QLDashboard.escapeHtml(QLDashboard.t("resultsDownloadReplay")) +
+              "</button> "
+            : "") +
           (QLDashboard.hasStatsApiToken() && recordingId
             ? '<button type="button" class="control-btn control-btn-danger" data-ql-delete-result="' +
               QLDashboard.escapeHtml(recordingId) +
@@ -836,6 +962,7 @@
             : "");
         bindDeleteButtons(actionsEl);
         bindReplayWindowButtons(actionsEl);
+        bindDownloadReplayButtons(actionsEl);
       }
       var matchupEl = document.getElementById("results-matchup");
       if (matchupEl) {
