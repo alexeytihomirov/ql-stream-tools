@@ -827,13 +827,6 @@
               QLDashboard.escapeHtml(QLDashboard.t("resultsReplayWindow")) +
               "</button> "
             : "") +
-          (recordingId
-            ? '<a class="control-btn control-btn-sm" href="#/restore/' +
-              encodeURIComponent(recordingId) +
-              '">' +
-              QLDashboard.escapeHtml(QLDashboard.t("navRestore")) +
-              "</a> "
-            : "") +
           (QLDashboard.hasStatsApiToken() && recordingId
             ? '<button type="button" class="control-btn control-btn-danger" data-ql-delete-result="' +
               QLDashboard.escapeHtml(recordingId) +
@@ -938,10 +931,27 @@
       '<div id="results-map-widget" class="match-map-widget"></div>' +
       "</div>" +
       '<div id="results-detail-analytics"></div>' +
-      '<div id="restore-checkpoint-host"></div>' +
+      '<button type="button" id="restore-toggle-btn" class="control-btn control-btn-sm" aria-expanded="false" aria-controls="restore-checkpoint-host">' +
+      QLDashboard.escapeHtml(QLDashboard.t("restoreToggleShow")) +
+      "</button>" +
+      '<div id="restore-checkpoint-host" class="hidden"></div>' +
       "</section>";
 
+    bindRestoreToggle(root);
     loadResultDetail(root, recordingId);
+  }
+
+  function bindRestoreToggle(root) {
+    var btn = root.querySelector("#restore-toggle-btn");
+    var host = root.querySelector("#restore-checkpoint-host");
+    if (!btn || !host) return;
+    btn.addEventListener("click", function () {
+      var show = host.classList.contains("hidden");
+      host.classList.toggle("hidden", !show);
+      btn.setAttribute("aria-expanded", show ? "true" : "false");
+      btn.textContent = QLDashboard.t(show ? "restoreToggleHide" : "restoreToggleShow");
+      if (show) refreshCheckpointPanel(scrubGameTimeMs, false);
+    });
   }
 
   function mount(root, route) {

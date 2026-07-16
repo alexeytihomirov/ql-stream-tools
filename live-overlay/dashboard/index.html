@@ -6,7 +6,7 @@
     <title>Frontier Gaming Panel</title>
     <!-- overlay.css first so dashboard.css wins for shared :root / .hidden;
          provides .map-* styles for the embedded map widget. -->
-    <link rel="stylesheet" href="../overlay.css?v=20260714a" />
+    <link rel="stylesheet" href="../overlay.css?v=20260716a" />
     <link rel="stylesheet" href="dashboard.css" />
   </head>
   <body>
@@ -27,7 +27,6 @@
       <nav class="app-nav" aria-label="Main">
         <a href="#/" data-route="home" data-i18n="navDashboard">Dashboard</a>
         <a href="#/results" data-route="results" data-i18n="navResults">Results</a>
-        <a href="#/restore" data-route="restore" data-i18n="navRestore">Restore</a>
         <a href="#/demo" data-route="demo" data-i18n="navDemo">Demo</a>
         <a href="#/tournament" data-route="tournament" data-i18n="navTournament">Tournament</a>
         <a href="#/settings" data-route="settings" data-i18n="navSettings">Settings</a>
@@ -44,10 +43,10 @@
     <script src="app.js"></script>
     <!-- Map widget engine (embedded on the match-analytics page). -->
     <script src="../map-coords.js"></script>
-    <script src="../overlay.js?v=20260714a"></script>
+    <script src="../overlay.js?v=20260716a"></script>
     <script src="../map-debug.js"></script>
-    <script src="../map-spawns.js?v=20260714a"></script>
-    <script src="../map-widget.js?v=20260714a"></script>
+    <script src="../map-spawns.js?v=20260716a"></script>
+    <script src="../map-widget.js?v=20260716a"></script>
     <script src="views/analytics-shared.js"></script>
     <script src="views/restore-editor.js"></script>
     <script type="module" src="demo-parser-bridge.js?v=20260713a"></script>
@@ -56,7 +55,6 @@
     <script src="views/tournament.js"></script>
     <script src="views/match.js"></script>
     <script src="views/results.js"></script>
-    <script src="views/restore.js"></script>
     <script src="views/settings.js"></script>
     <script>
       QLDashboard.init();
