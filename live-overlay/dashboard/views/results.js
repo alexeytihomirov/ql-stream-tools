@@ -336,6 +336,15 @@
       if (trimWall != null && isFinite(trimWall)) {
         mountOpts.replay_trim_start_ms = Math.round(trimWall);
       }
+      // The map widget's own replay engine only has the raw replay events to
+      // derive a game-start anchor from (a same-order-of-magnitude estimate,
+      // computeReplayGameStartWall in overlay.js) - archive.markers' match_start
+      // row (matchStartWall here) is the precise one already validated by the
+      // restore-checkpoint panel, so hand it over instead of letting the map
+      // widget's on-map timer re-derive (and potentially disagree with) it.
+      if (matchStartWall != null && isFinite(matchStartWall)) {
+        mountOpts.replay_match_start_wall_ms = Math.round(matchStartWall);
+      }
       MapWidget.mount(host, mountOpts);
       if (window.OverlayApp && typeof OverlayApp.setReplayCursorListener === "function") {
         OverlayApp.setReplayCursorListener(onReplayCursor);

@@ -5645,6 +5645,18 @@
     return isFinite(v) && v > 0 ? v : null;
   }
 
+  // Optional caller-supplied wall-ms epoch of game-clock 0 (results.js has a
+  // more precise anchor - archive.markers' own match_start row - than this
+  // replay engine can derive from raw events alone; see
+  // computeReplayGameStartWall()'s median-of-samples fallback below, which is
+  // only an estimate and can disagree with the archive's real anchor by a few
+  // seconds, enough to visibly desync the on-map timer from the (correctly
+  // anchored) results.js scrubber/restore-checkpoint values).
+  function replayMatchStartWallMsOverride() {
+    var v = Number(qs("replay_match_start_wall_ms", ""));
+    return isFinite(v) && v > 0 ? v : null;
+  }
+
   async function activateReplayData(data) {
     var normalized = normalizeReplayDocument(data);
     var events = normalized.events;
@@ -5660,7 +5672,9 @@
     }
     var countdownWallT = replayLifecycleWallT(events, "countdown_start");
     var matchStartWallT =
-      replayLifecycleWallT(events, "match_start") || computeReplayGameStartWall(events);
+      replayMatchStartWallMsOverride() ||
+      replayLifecycleWallT(events, "match_start") ||
+      computeReplayGameStartWall(events);
     var matchEndWallT = replayLifecycleWallT(events, "match_end");
     if (matchEndWallT == null && positionsEndT != null) {
       matchEndWallT = positionsEndT;
