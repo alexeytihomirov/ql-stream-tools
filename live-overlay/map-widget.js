@@ -149,8 +149,13 @@
     }
   }
 
+  // "Fullscreen" here is a CSS overlay (position:fixed, covers the browser's
+  // own viewport), not the real Fullscreen API - OBS/streaming setups and
+  // some browser chrome don't play well with an actual OS-level fullscreen
+  // transition, and this needs no permission round-trip either (toggles
+  // synchronously, no fullscreenchange event to wait for).
   function isFullscreen() {
-    return !!mountedContainer && document.fullscreenElement === mountedContainer;
+    return !!mountedContainer && mountedContainer.classList.contains("map-widget-maximized");
   }
 
   function updateFullscreenBtnState() {
@@ -177,24 +182,17 @@
     showFullscreenChrome();
   }
 
-  function onFullscreenBtnClick() {
+  function setFullscreen(on) {
     if (!mountedContainer) return;
-    if (isFullscreen()) {
-      if (document.exitFullscreen) document.exitFullscreen();
-    } else if (mountedContainer.requestFullscreen) {
-      mountedContainer.requestFullscreen();
-    }
-  }
-
-  function onFullscreenChange() {
+    mountedContainer.classList.toggle("map-widget-maximized", on);
     updateFullscreenBtnState();
-    if (!mountedContainer) return;
-    if (isFullscreen() || MapWidget.embedded) {
+    if (on || MapWidget.embedded) {
       lastFitContainerWidth = 0;
+      lastFitContainerHeight = null;
       applyFit();
       return;
     }
-    // Standalone (non-embedded) view leaving fullscreen: applyFit()'s
+    // Standalone (non-embedded) view leaving the overlay: applyFit()'s
     // container-width fit is an embedded-only concept, so just drop the
     // zoom back to the natural unscaled layout instead of fitting to the
     // (much wider) window.
@@ -204,6 +202,14 @@
     lastFitContainerHeight = null;
     lastFitNaturalWidth = MAP_FIT_BASE_PX;
     lastFitNaturalHeight = MAP_FIT_BASE_PX;
+  }
+
+  function onFullscreenBtnClick() {
+    setFullscreen(!isFullscreen());
+  }
+
+  function onFullscreenKeydown(ev) {
+    if (ev.key === "Escape" && isFullscreen()) setFullscreen(false);
   }
 
   function mount(container, opts) {
@@ -237,7 +243,7 @@
     container.addEventListener("mousemove", onContainerMouseMove);
     var fsBtn = container.querySelector("#map-fullscreen-btn");
     if (fsBtn) fsBtn.addEventListener("click", onFullscreenBtnClick);
-    document.addEventListener("fullscreenchange", onFullscreenChange);
+    document.addEventListener("keydown", onFullscreenKeydown);
     updateFullscreenBtnState();
 
     return { destroy: destroy };
@@ -255,7 +261,7 @@
     if (global.removeEventListener) {
       global.removeEventListener("resize", applyFit);
     }
-    document.removeEventListener("fullscreenchange", onFullscreenChange);
+    document.removeEventListener("keydown", onFullscreenKeydown);
     if (fsIdleTimer) {
       clearTimeout(fsIdleTimer);
       fsIdleTimer = null;
@@ -279,6 +285,7 @@
         "map-body",
         "map-widget-embedded",
         "map-fs-chrome-visible",
+        "map-widget-maximized",
       );
       mountedContainer = null;
     }

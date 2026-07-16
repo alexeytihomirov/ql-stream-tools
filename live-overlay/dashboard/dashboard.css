@@ -1191,8 +1191,8 @@ a.control-btn {
    (overlay.js binds #map-replay-play/-scrub/-speed unconditionally), just
    suppressed above in favor of the dashboard's panel; overlay.css fades it
    in/out on mousemove the same as the fullscreen button. */
-.match-map-widget:fullscreen #map-replay-bar,
-.match-map-widget:fullscreen #map-replay-playback {
+.match-map-widget.map-widget-maximized #map-replay-bar,
+.match-map-widget.map-widget-maximized #map-replay-playback {
   display: flex !important;
 }
 
@@ -1212,17 +1212,18 @@ a.control-btn {
   width: 512px;
 }
 
-/* Fullscreen replaces the dashboard column entirely (the browser sizes the
-   fullscreen element to the whole screen) - drop the embedded-only overlay
-   confinement and the 512px width pin so applyFit()'s natural-size
-   measurement (and the toolbar's true viewport-corner anchoring) behave the
-   same as the standalone OBS page instead of being skewed by rules that only
-   make sense inside a narrower dashboard column. */
-.match-map-widget:fullscreen .map-page-overlays {
+/* Fullscreen (map-widget.js's CSS overlay, position:fixed covering the
+   browser viewport - see overlay.css .map-widget-maximized) replaces the
+   dashboard column entirely - drop the embedded-only overlay confinement
+   and the 512px width pin so applyFit()'s natural-size measurement (and the
+   toolbar's true viewport-corner anchoring) behave the same as the
+   standalone OBS page instead of being skewed by rules that only make sense
+   inside a narrower dashboard column. */
+.match-map-widget.map-widget-maximized .map-page-overlays {
   position: fixed;
 }
 
-.match-map-widget:fullscreen .map-main {
+.match-map-widget.map-widget-maximized .map-main {
   width: auto;
 }
 

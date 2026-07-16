@@ -460,18 +460,25 @@ td:nth-child(2) {
   align-items: flex-start;
 }
 
-/* applyFit() (map-widget.js) scales .map-layout via zoom to contain-fit the
-   fullscreen viewport on both axes; absolute-position + translate centers the
-   (now natural-size times zoom) box within the screen - more reliable across
-   browsers than flex centering next to a position:fixed sibling
-   (#map-page-overlays), which isn't a flex participant but some engines'
-   centering math can still end up skewed by it. */
-.map-widget-root:fullscreen {
-  position: relative;
+/* "Fullscreen" is a CSS overlay (position:fixed, covers the browser's own
+   viewport/tab, not the real Fullscreen API - see map-widget.js setFullscreen)
+   so it plays nicely with OBS/streaming setups and needs no permission
+   round-trip. z-index is the highest in the app on purpose: this must sit
+   above literally everything else on the dashboard page.
+   applyFit() (map-widget.js) scales .map-layout via zoom to contain-fit the
+   viewport on both axes; absolute-position + translate centers the (now
+   natural-size times zoom) box within it - more reliable across browsers
+   than flex centering next to a position:fixed sibling (#map-page-overlays),
+   which isn't a flex participant but some engines' centering math can still
+   end up skewed by it. */
+.map-widget-root.map-widget-maximized {
+  position: fixed;
+  inset: 0;
+  z-index: 2147483647;
   background: #05070c;
 }
 
-.map-widget-root:fullscreen .map-layout {
+.map-widget-root.map-widget-maximized .map-layout {
   position: absolute;
   top: 50%;
   left: 50%;
@@ -512,13 +519,13 @@ td:nth-child(2) {
    No :not(.hidden) guard needed: if the bar is display:none (standalone,
    no replay active) opacity is moot; if dashboard.css force-shows it
    (embedded + fullscreen) this layers the fade on top. */
-.map-widget-root:fullscreen #map-replay-bar {
+.map-widget-root.map-widget-maximized #map-replay-bar {
   opacity: 0;
   pointer-events: none;
   transition: opacity 0.15s ease;
 }
 
-.map-widget-root:fullscreen.map-fs-chrome-visible #map-replay-bar {
+.map-widget-root.map-widget-maximized.map-fs-chrome-visible #map-replay-bar {
   opacity: 1;
   pointer-events: auto;
 }
