@@ -541,6 +541,53 @@ td:nth-child(2) {
   pointer-events: auto;
 }
 
+/* Compact "video player" look for the floating bar specifically - the
+   standalone OBS page keeps the roomier default styling above (operators
+   there have room and want the record/segment controls legible). */
+.map-widget-root.map-widget-maximized #map-replay-bar {
+  width: min(80vw, 900px);
+  max-width: min(80vw, 900px);
+  gap: 8px;
+  padding: 4px 10px;
+  border-radius: 6px;
+  background: rgba(10, 14, 22, 0.6);
+  border-color: rgba(148, 163, 184, 0.18);
+  backdrop-filter: blur(4px);
+}
+
+.map-widget-root.map-widget-maximized .map-replay-playback {
+  gap: 8px;
+  min-width: 0;
+}
+
+.map-widget-root.map-widget-maximized .map-replay-play {
+  width: 26px;
+  height: 26px;
+  border: none;
+  background: transparent;
+}
+
+.map-widget-root.map-widget-maximized .map-replay-play svg {
+  width: 16px;
+  height: 16px;
+}
+
+.map-widget-root.map-widget-maximized .map-replay-scrub-wrap {
+  padding-top: 8px;
+}
+
+.map-widget-root.map-widget-maximized .map-replay-time {
+  font-size: 11px;
+  min-width: 72px;
+}
+
+.map-widget-root.map-widget-maximized .map-replay-speed {
+  padding: 2px 4px;
+  font-size: 11px;
+  background: transparent;
+  border-color: rgba(148, 163, 184, 0.25);
+}
+
 .map-fullscreen-btn svg {
   width: 18px;
   height: 18px;
@@ -1180,7 +1227,30 @@ body.map-debug-mode .status {
 }
 
 .map-replay-play {
-  min-width: 64px;
+  min-width: 0;
+  width: 32px;
+  height: 32px;
+  padding: 0;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.map-replay-play svg {
+  width: 18px;
+  height: 18px;
+}
+
+.map-replay-play .map-replay-play-icon-pause {
+  display: none;
+}
+
+.map-replay-play[aria-pressed="true"] .map-replay-play-icon-play {
+  display: none;
+}
+
+.map-replay-play[aria-pressed="true"] .map-replay-play-icon-pause {
+  display: inline-flex;
 }
 
 .map-replay-scrub-wrap {

@@ -6040,7 +6040,7 @@
         fmtReplayClock(replayState.cursorMs) + " / " + fmtReplayClock(dur);
     }
     if (playBtn) {
-      playBtn.textContent = replayState.playing ? "Pause" : "Play";
+      playBtn.setAttribute("aria-pressed", replayState.playing ? "true" : "false");
       playBtn.setAttribute(
         "aria-label",
         replayState.playing ? "Pause replay" : "Play replay",

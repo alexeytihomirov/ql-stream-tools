@@ -52,7 +52,10 @@
     '<select id="map-replay-segment-select" class="map-replay-select" aria-label="Game segment"></select>' +
     "</label>" +
     '<div id="map-replay-playback" class="map-replay-playback hidden">' +
-    '<button type="button" id="map-replay-play" class="map-replay-play">Play</button>' +
+    '<button type="button" id="map-replay-play" class="map-replay-play" aria-pressed="false" aria-label="Play">' +
+    '<svg class="map-replay-play-icon-play" viewBox="0 0 24 24" aria-hidden="true"><path d="M8 5v14l11-7z" fill="currentColor"/></svg>' +
+    '<svg class="map-replay-play-icon-pause" viewBox="0 0 24 24" aria-hidden="true"><path d="M6 5h4v14H6zM14 5h4v14h-4z" fill="currentColor"/></svg>' +
+    "</button>" +
     '<div class="map-replay-scrub-wrap">' +
     '<div id="map-replay-lifecycle" class="map-replay-lifecycle hidden" aria-hidden="true"></div>' +
     '<input id="map-replay-scrub" class="map-replay-scrub" type="range" min="0" max="0" value="0" aria-label="Replay timeline" />' +
@@ -222,6 +225,21 @@
     if (embedded) container.classList.add("map-widget-embedded");
     container.innerHTML = MARKUP;
     mountedContainer = container;
+
+    if (embedded) {
+      // #map-replay-bar defaults to living inside .map-main/.map-layout,
+      // which applyFit() scales via CSS zoom to fit the dashboard column (and,
+      // maximized, the screen). zoom also scales position:fixed descendants'
+      // rendered size (unlike transform), so left in place the floating
+      // fullscreen replay bar would render far bigger than its CSS - move it
+      // into #map-page-overlays (already the escape hatch the toolbar uses
+      // for the same reason: a sibling of .map-layout, unaffected by its
+      // zoom). Standalone/OBS keeps it in its normal in-flow position below
+      // the map, so skip the move there.
+      var pageOverlays = container.querySelector("#map-page-overlays");
+      var replayBar = container.querySelector("#map-replay-bar");
+      if (pageOverlays && replayBar) pageOverlays.appendChild(replayBar);
+    }
 
     if (global.OverlayApp && typeof OverlayApp._setConfig === "function") {
       OverlayApp._setConfig(opts);
