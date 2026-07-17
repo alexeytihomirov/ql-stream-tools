@@ -184,7 +184,7 @@
   }
 
   function cfgCommandPrefix() {
-    return "!restorecp ";
+    return "say !restorecp ";
   }
 
   function cfgLine(sub) {
@@ -327,7 +327,8 @@
     var map = normalizeMapKey(state.map);
     var lines = [
       "// Match restore cfg — t_ms=" + t + " map=" + map,
-      "// Client exec: !restorecp … (perm 5). Do not prefix with say.",
+      "// Client exec: say !restorecp … (perm 5). say is required — a bare console",
+      "// line is never forwarded to the server as chat.",
       cfgLine("quiet"),
       "",
       cfgLine("clear"),
