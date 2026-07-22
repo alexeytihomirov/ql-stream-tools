@@ -14,6 +14,11 @@
     return;
   }
 
+  function versionJsonUrl() {
+    var scriptSrc = document.currentScript ? document.currentScript.src : "version.json";
+    return new URL("version.json", scriptSrc).href + "?t=" + Date.now();
+  }
+
   function render(info) {
     var el = document.createElement("div");
     el.id = "version-badge";
@@ -28,7 +33,7 @@
     document.body.appendChild(el);
   }
 
-  fetch("version.json?t=" + Date.now())
+  fetch(versionJsonUrl())
     .then(function (r) {
       return r.ok ? r.json() : { sha: null, deployed_at: null };
     })
