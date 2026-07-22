@@ -1638,7 +1638,11 @@
     archive = normalizeArchiveCombatClock(archive);
 
     var maxMs = computeTimelineMaxMs(archive, liveData);
-    var atEnd = scrubMs == null || (maxMs != null && Number(scrubMs) >= maxMs);
+    // scrubMs > 0 guard: see the matching check in resolvePlayersAtScrub -
+    // degenerate maxMs (short/forfeited matches with no match_end marker)
+    // must not read as "at end" while still before/at match start.
+    var atEnd =
+      scrubMs == null || (maxMs != null && Number(scrubMs) > 0 && Number(scrubMs) >= maxMs);
     var deaths = filterRowsByGameTime(archive.deaths || [], scrubMs);
     if (liveData && QLDashboard.isWarmupPhase(liveData)) {
       deaths = [];
@@ -2074,8 +2078,14 @@
   function resolvePlayersAtScrub(archive, scrubMs, livePlayers) {
     if (!archive) return [];
     var maxMs = computeTimelineMaxMs(archive, null);
+    // scrubMs > 0 is also required: matches with no usable match_end marker
+    // (short/forfeited matches - see ql-stats-hub#1) can make computeTimelineMaxMs
+    // collapse to a value near zero, which used to satisfy "scrubMs >= maxMs - 500"
+    // even at the very start of the timeline (scrubMs 0 or negative, still in the
+    // pre-match countdown) and show the final score before anything happened.
     var atEnd =
-      scrubMs == null || (maxMs != null && Number(scrubMs) >= maxMs - 500);
+      scrubMs == null ||
+      (maxMs != null && Number(scrubMs) > 0 && Number(scrubMs) >= maxMs - 500);
     if (atEnd) return resolveFinalPlayers(archive, livePlayers);
 
     var nickBySteam = buildNicknameBySteam(archive, livePlayers);

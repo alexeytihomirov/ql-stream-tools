@@ -2857,7 +2857,14 @@
     // Duel spawn pool: same info_player_deathmatch points as all_dm_spawns, but
     // classifySpawns marks green (active pool) vs red (rejected) from anchor.
     var ref = this.referenceWorld();
-    if (!ref) return;
+    if (!ref) {
+      // No anchor (both toggles off, or cursor mode before the first
+      // mouse-over) - hide the ref marker and threshold rect instead of
+      // leaving them stuck at their last rendered position.
+      this._setAnchorRefTarget(null, true);
+      this._setThresholdTarget(null, null, true);
+      return;
+    }
 
     var spawns = entities.map(function (ent) {
       return { x: ent.x, y: ent.y, z: ent.z, id: ent.id };

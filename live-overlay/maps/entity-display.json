@@ -1193,6 +1193,59 @@
         }
       ]
     },
+    "tortured": {
+      "layers": [
+        {
+          "id": "duel_spawns",
+          "label": "Duel spawn pool",
+          "mode": "duel",
+          "filter": {
+            "classname": "info_player_deathmatch"
+          },
+          "gametype_filter": false,
+          "default": false,
+          "middle_val": 4
+        },
+        {
+          "id": "items",
+          "label": "Items, weapons, ammo",
+          "mode": "static",
+          "filter": {
+            "classname": [
+              "weapon_*",
+              "item_*",
+              "ammo_*"
+            ]
+          },
+          "gametype_filter": true,
+          "default": true
+        },
+        {
+          "id": "all_dm_spawns",
+          "label": "All deathmatch spawns",
+          "mode": "static",
+          "filter": {
+            "classname": [
+              "info_player_deathmatch"
+            ]
+          },
+          "gametype_filter": false,
+          "default": false
+        },
+        {
+          "id": "teleport_exits",
+          "label": "Teleport exits",
+          "mode": "teleport",
+          "default": false
+        },
+        {
+          "id": "teleport_entrances",
+          "label": "Teleport entrances",
+          "mode": "teleport",
+          "default": false
+        }
+      ]
+    },
     "toxicity": {
       "layers": [
         {

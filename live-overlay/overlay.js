@@ -33,6 +33,7 @@
     // Dashboard re-registers this after each mount; drop the stale closure so a
     // previous results view does not keep receiving replay cursor updates.
     replayCursorListener = null;
+    replayScoreOverride = null;
     // These guard one-time event binding, but SPA re-mount rebuilds the replay
     // bar DOM. Without resetting, bindReplayBar()/segment/record controls skip
     // re-binding and the freshly-created Play/scrub/segment buttons stay dead
@@ -204,6 +205,7 @@
     var segments = [];
     var current = null;
     var lastPosT = null;
+    var forceNewSegment = false;
     for (var i = 0; i < events.length; i++) {
       var ev = events[i];
       var t = ev.t || 0;
@@ -216,13 +218,34 @@
         lastPosT = null;
         continue;
       }
+      if (ev.event === "countdown_start" || ev.event === "match_start") {
+        // Authoritative game boundary - cut here even if the gap since the
+        // last position sample is under REPLAY_SEGMENT_GAP_MS. Independent
+        // games can start less than 10 minutes apart (e.g. ~6 min), which
+        // the position-gap heuristic alone let through as one segment,
+        // lerping the map straight across the gap between two unrelated
+        // games (looks like the movement randomly slows down then speeds
+        // back up - see ql-stats-hub#2).
+        if (current) {
+          current.endT = lastPosT != null ? lastPosT : current.endT;
+          segments.push(current);
+          current = null;
+        }
+        lastPosT = null;
+        forceNewSegment = true;
+        continue;
+      }
       if (ev.event !== "positions") continue;
-      if (lastPosT != null && t - lastPosT >= REPLAY_SEGMENT_GAP_MS) {
+      if (
+        forceNewSegment ||
+        (lastPosT != null && t - lastPosT >= REPLAY_SEGMENT_GAP_MS)
+      ) {
         if (current) {
           current.endT = lastPosT;
           segments.push(current);
         }
         current = { startT: t, endT: t };
+        forceNewSegment = false;
       } else if (!current) {
         current = { startT: t, endT: t };
       } else {
@@ -840,10 +863,24 @@
     el.innerHTML = '<div class="map-score-list">' + rows + "</div>";
   }
 
+  // Host page (results.js) already resolves an authoritative score+player
+  // order from the archive DB for its own header; when set, this replaces
+  // the fallback reconstruction from raw replay death events below (which
+  // only counts kills-in-this-recording and picks its own player order, so
+  // it can show a different score/order than the surrounding page).
+  var replayScoreOverride = null;
+
+  function setReplayScoreOverride(players) {
+    replayScoreOverride = Array.isArray(players) && players.length ? players : null;
+    if (replayState) {
+      renderReplayScoreHud(replayState.startMs + replayState.cursorMs);
+    }
+  }
+
   function renderReplayScoreHud(targetT) {
     if (!replayState) return;
     renderMapScoreHud(
-      replayScoresAtTime(targetT),
+      replayScoreOverride || replayScoresAtTime(targetT),
       replayState.meta.gametype || lastMapContext.gametype,
     );
   }
@@ -1962,7 +1999,13 @@
       var ev = events[i];
       if ((ev.t || 0) > wallT) break;
       var g = replayGameTimeFieldMs(ev);
-      if (g != null) {
+      // Only move the anchor when the reported game clock actually changes.
+      // High-rate "positions" ticks mostly repeat the same stale value
+      // between kills/state updates (the backend only refreshes it on those
+      // less-frequent events) - re-anchoring bestEventT on every repeat kept
+      // "elapsed since sample" pinned near zero, freezing the display at the
+      // stale value instead of ticking up until the next real update.
+      if (g != null && g !== best) {
         best = g;
         bestEventT = ev.t || 0;
       }
@@ -5135,7 +5178,11 @@
       });
       return;
     }
-    setMapSnapshot(payload, { instant: !mapSmoothEnabled() });
+    // replayPlayersAtTime() above already gives an exact time-interpolated
+    // position for this frame; running it through the motion loop's
+    // exponential smoothing on top (meant for irregular live network
+    // updates) double-smoothed replay movement into visible jerkiness.
+    setMapSnapshot(payload, { instant: true });
     notifyMapPayload(payload);
     if (window.MapSpawns && typeof MapSpawns.refreshItemRespawnOverlays === "function") {
       MapSpawns.refreshItemRespawnOverlays();
@@ -5741,7 +5788,11 @@
       // never post a positive health while genuinely alive and would then
       // stay hidden for the rest of the match after their first death.
       deathWindows: normalized.source === "qldemo" ? null : buildReplayDeathWindows(events),
-      gameStartWall: computeReplayGameStartWall(events),
+      // Reuse matchStartWallT (already prefers the caller-supplied precise
+      // anchor override over the same events-derived estimate) instead of
+      // recomputing separately, so every gameStartWall reader stays in sync
+      // with results.js's anchor instead of drifting by a few seconds.
+      gameStartWall: matchStartWallT,
       countdownWallT: countdownWallT,
       matchStartWallT: matchStartWallT,
       matchEndWallT: matchEndWallT,
@@ -6767,6 +6818,7 @@
     setReplayCursorListener: function (fn) {
       replayCursorListener = typeof fn === "function" ? fn : null;
     },
+    setReplayScoreOverride: setReplayScoreOverride,
     _setConfig: setConfigOverride,
     _teardownMap: runMapCleanups,
     _applyMapDotsPreview: applyMapDotsPreview,
@@ -6791,6 +6843,67 @@
           : null,
         map_motion_count: Object.keys(mapMotion.byId).length,
       };
+    },
+    // Diagnostic for the on-map replay clock: dumps every event within
+    // +/-windowMs of matchStartWallT with its reported game_time_ms, so a
+    // freeze/jump at the timer can be traced back to the underlying samples
+    // from devtools without needing raw API access to the replay file.
+    debugReplayGameClock: function (windowMs) {
+      if (!replayState) return null;
+      var ms = replayState.matchStartWallT;
+      var win = Number(windowMs) > 0 ? Number(windowMs) : 15000;
+      var rows = (replayState.events || [])
+        .filter(function (ev) {
+          return ev.t != null && ms != null && Math.abs(ev.t - ms) <= win;
+        })
+        .map(function (ev) {
+          return {
+            event: ev.event,
+            t: ev.t,
+            dt_from_match_start_ms: ev.t - ms,
+            game_time_ms: replayGameTimeFieldMs(ev),
+          };
+        });
+      var info = {
+        matchStartWallT: ms,
+        gameStartWall: replayState.gameStartWall,
+        rows: rows,
+      };
+      if (console.table) console.table(rows);
+      console.info("[overlay] replay game-clock samples", info);
+      return info;
+    },
+    // Diagnostic: lists every lifecycle-ish marker across the WHOLE replay
+    // (not just near matchStartWallT), to tell a single match apart from a
+    // multi-round session recorded as one continuous file - a second
+    // match_start/countdown_start mid-recording means the backend's game
+    // clock legitimately resets there, which every anchor/single-match_end
+    // assumption in this file gets wrong.
+    debugReplayLifecycleEvents: function () {
+      if (!replayState) return null;
+      var kinds = {
+        match_start: 1,
+        match_end: 1,
+        countdown_start: 1,
+        warmup_start: 1,
+        round_start: 1,
+        round_end: 1,
+      };
+      var rows = (replayState.events || [])
+        .filter(function (ev) {
+          return ev && kinds[ev.event];
+        })
+        .map(function (ev) {
+          return {
+            event: ev.event,
+            t: ev.t,
+            game_time_ms: replayGameTimeFieldMs(ev),
+            meta: ev.meta || null,
+          };
+        });
+      if (console.table) console.table(rows);
+      console.info("[overlay] replay lifecycle events", rows);
+      return rows;
     },
     overlayPageUrl: overlayPageUrl,
     openOverlayWindow: openOverlayWindow,

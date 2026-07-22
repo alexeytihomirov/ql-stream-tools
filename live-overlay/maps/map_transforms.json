@@ -229,6 +229,16 @@
       "image_height": 900,
       "world_z_span": 376
     },
+    "tortured": {
+      "image_url": "maps/tortured.png",
+      "world_min_x": -1112,
+      "world_max_x": 988,
+      "world_min_y": -2014,
+      "world_max_y": 1186,
+      "image_width": 672,
+      "image_height": 1024,
+      "world_z_span": 488
+    },
     "toxicity": {
       "image_url": "maps/toxicity.png",
       "world_min_x": -1678,

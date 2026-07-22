@@ -276,6 +276,12 @@
     if (matchupEl) matchupEl.innerHTML = A().renderMatchupBanner(view, scrubMs);
     var scoreboardEl = document.getElementById("results-scoreboard");
     if (scoreboardEl) scoreboardEl.innerHTML = A().renderScoreboard(view, scrubMs);
+    // Hand the same score+order the header just rendered to the embedded map
+    // widget, instead of letting it reconstruct its own (kills-only, its own
+    // player order) score from the raw replay events - see ql-stream-tools#1.
+    if (window.OverlayApp && typeof OverlayApp.setReplayScoreOverride === "function") {
+      OverlayApp.setReplayScoreOverride(A().resolveDisplayPlayers(view, scrubMs, null));
+    }
   }
 
   function formatMatchupLabel(row) {
@@ -921,7 +927,7 @@
       lastArchive = A().normalizeArchiveCombatClock(archive);
       matchStartWall = computeMatchStartWall(archive);
       syncEngaged = false;
-      scrubGameTimeMs = A().computeTimelineMaxMs(archive, null);
+      scrubGameTimeMs = A().computeTimelineMinMs(archive);
       var matchId = archive.session_id || archive.match_id || "";
       if (statusEl) {
         statusEl.textContent = "";
