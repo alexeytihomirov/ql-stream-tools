@@ -5,3 +5,5 @@
 _tmp_*.sh
 _vps_*.sh
 demos
+
+.claude/
