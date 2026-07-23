@@ -852,15 +852,25 @@
 
   function computeTimelineMaxMs(archive, liveData) {
     var fromMarker = matchEndGameTimeMs(archive);
-    if (fromMarker != null) return fromMarker;
-    var maxMs = Number(archive && archive.timeline_max_ms);
-    if (isNaN(maxMs) || maxMs <= 0) {
-      maxMs = 0;
-      combatEventRows(archive).forEach(function (row) {
-        var gt = Number(row.game_time_ms);
-        if (!isNaN(gt) && gt > maxMs) maxMs = gt;
-      });
+    var maxMs;
+    if (fromMarker != null) {
+      maxMs = fromMarker;
+    } else {
+      maxMs = Number(archive && archive.timeline_max_ms);
+      if (isNaN(maxMs) || maxMs <= 0) {
+        maxMs = 0;
+        combatEventRows(archive).forEach(function (row) {
+          var gt = Number(row.game_time_ms);
+          if (!isNaN(gt) && gt > maxMs) maxMs = gt;
+        });
+      }
     }
+    // Positions keep recording until the real match_end; deaths/accuracy (the
+    // fallback above) go quiet if nobody frags in the closing stretch, which
+    // otherwise undercounts a match that ended "quietly" (timelimit with no
+    // kill right at the buzzer) - see attachReplayScrubData.
+    var replayMax = Number(archive && archive.replayMaxGameTimeMs);
+    if (!isNaN(replayMax) && replayMax > maxMs) maxMs = replayMax;
     if (liveData && liveData.phase === "playing" && !liveData.warmup && !liveData.countdown) {
       var elapsed = QLDashboard.computeMatchElapsedSec(liveData);
       if (elapsed != null) maxMs = Math.max(maxMs, elapsed * 1000);
@@ -1965,6 +1975,14 @@
     var out = Object.assign({}, archive || {});
     out.deathWindows = buildReplayDeathWindowsGameMs(events);
     out.replayPositions = buildReplayPositionTimeline(events);
+    // Positions keep streaming until the real match_end, unlike deaths/accuracy
+    // (computeTimelineMaxMs's other sources) which go quiet if nobody frags in
+    // the closing stretch - stash the last known position sample's game time so
+    // the timeline max can't undercount a match that ended "quietly" (timelimit
+    // with no kill right at the buzzer).
+    out.replayMaxGameTimeMs = out.replayPositions.length
+      ? out.replayPositions[out.replayPositions.length - 1].game_time_ms
+      : null;
     return out;
   }
 

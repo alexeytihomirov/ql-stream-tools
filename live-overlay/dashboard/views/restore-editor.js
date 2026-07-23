@@ -419,10 +419,21 @@
   }
 
   function playerRowFromCheckpoint(row, idx) {
+    // Canonical checkpoint rows key ammo as "am" (short); raw replay/telemetry
+    // positions rows (fed in here via applyReplayScrubToPlayers) key it as
+    // "ammo" (PlayerPosition model field) - same dual-key fallback pattern as
+    // h/a/w/lo below, otherwise ammo silently reads as empty for every replay-
+    // scrub-sourced row (ql-stream-tools restore-widget-always-0-ammo bug).
+    var amSrc =
+      row.am && typeof row.am === "object"
+        ? row.am
+        : row.ammo && typeof row.ammo === "object"
+          ? row.ammo
+          : null;
     var am = {};
-    if (row.am && typeof row.am === "object") {
+    if (amSrc) {
       AMMO_KEYS.forEach(function (k) {
-        if (row.am[k] != null) am[k] = clampInt(row.am[k], 0, 255);
+        if (amSrc[k] != null) am[k] = clampInt(amSrc[k], 0, 255);
       });
     }
     var sc = row.sc != null ? row.sc : row.score;

@@ -67,12 +67,21 @@
       refreshCheckpointPanel(scrubGameTimeMs, false);
     }
     try {
-      var data = await QLDashboard.fetchStatsJson(
+      // matchStartWall (archive marker's precise match_start wall-clock, same
+      // anchor the minimap replay uses via replay_match_start_wall_ms) has to
+      // ride along here too - otherwise the backend falls back to its own
+      // recording-start-based anchor and the checkpoint desyncs from whatever
+      // moment the minimap is showing at the same tMs (ql-stream-tools restore-
+      // vs-minimap mismatch).
+      var checkpointUrl =
         "/api/replays/" +
-          encodeURIComponent(recordingId) +
-          "/checkpoint?t_ms=" +
-          encodeURIComponent(String(tMs)),
-      );
+        encodeURIComponent(recordingId) +
+        "/checkpoint?t_ms=" +
+        encodeURIComponent(String(tMs));
+      if (matchStartWall != null && isFinite(matchStartWall)) {
+        checkpointUrl += "&anchor_wall_ms=" + encodeURIComponent(String(Math.round(matchStartWall)));
+      }
+      var data = await QLDashboard.fetchStatsJson(checkpointUrl);
       if (seq !== checkpointFetchSeq) return;
       checkpointPayload = data;
       checkpointStatus = "ready";
